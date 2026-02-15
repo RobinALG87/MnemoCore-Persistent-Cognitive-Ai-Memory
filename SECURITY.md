@@ -1,4 +1,4 @@
-# Security Policy
+﻿# Security Policy
 
 ## Supported Versions
 
@@ -27,3 +27,4 @@ Include:
 - Use environment variables for sensitive configuration.
 - Rotate any credential immediately if accidental exposure is suspected.
 - Keep dependencies and runtime images updated.
+

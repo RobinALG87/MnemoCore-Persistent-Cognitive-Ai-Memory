@@ -1,7 +1,7 @@
-# STUDY CASE: MnemoCore Phase 3.0 – The Adaptive Engine
+﻿# STUDY CASE: MnemoCore Phase 3.0 â€“ The Adaptive Engine
 
 ## 1. Executive Summary: From Prototype to Cognitive OS
-This study case documents the architectural evolution of **HAIM (Holographic Active Inference Memory)** from a Phase 2.0 research prototype to a Phase 3.0 production-grade Cognitive Operating System. 
+This study case documents the architectural evolution of **MnemoCore (Infrastructure for Persistent Cognitive Memory)** from a Phase 2.0 research prototype to a Phase 3.0 production-grade Cognitive Operating System. 
 
 The core mission is to solve the "Scalability vs. Agency" paradox: How to maintain a coherent, high-dimensional memory for an autonomous agent that grows indefinitely on consumer-grade hardware (32GB RAM) without sacrificing real-time inference or kognitive stability.
 
@@ -15,7 +15,7 @@ The system transitions from 10,000-D bipolar vectors to **16,384-D (2^14) Binary
 *   **The Problem:** Naive XOR-binding in low dimensions leads to "information collapse" and high collision rates in complex thought bundles.
 *   **The Consensus Solution:** 
     *   Increase dimensionality to **16k** to maximize entropy.
-    *   Implement **Phase Vector Encoding**: Using dual vectors (Positive/Negative phase) to allow the representation of semantic opposites—a feature typically lost in pure binary space.
+    *   Implement **Phase Vector Encoding**: Using dual vectors (Positive/Negative phase) to allow the representation of semantic oppositesâ€”a feature typically lost in pure binary space.
     *   **Result:** 100x speed increase using hardware-native bitwise XOR and `popcount` (Hamming distance).
 
 ### Pillar II: Tri-State Memory Hierarchy (Memory Tiering)
@@ -31,7 +31,7 @@ Memory retention is shifted from a linear decay model to a biologically plausibl
     *   $I$: Initial importance.
     *   $A$: Successful retrieval count (Logarithmic reinforcement).
     *   $e^{-\lambda T}$: Exponential decay.
-*   **Consolidation Plateau:** Once a memory reaches the "Permanence Threshold," it enters a structural phase-transition where it becomes immune to decay—forming the "Core Identity" of the agent.
+*   **Consolidation Plateau:** Once a memory reaches the "Permanence Threshold," it enters a structural phase-transition where it becomes immune to decayâ€”forming the "Core Identity" of the agent.
 
 ### Pillar IV: UMAP Cognitive Landscape
 *   **The Decision:** Replace t-SNE with **UMAP (Uniform Manifold Approximation)**.
@@ -51,8 +51,9 @@ Memory retention is shifted from a linear decay model to a biologically plausibl
 ---
 
 ## 4. Conclusion
-The HAIM Phase 3.0 architecture represents a shift toward **Sovereign Intelligence**. By separating the mathematical logic (Binary VSA) from the biological intent (LTP Decay), we create a system that doesn't just store data—it *evolves* with the user.
+The MnemoCore Phase 3.0 architecture represents a shift toward **Sovereign Intelligence**. By separating the mathematical logic (Binary VSA) from the biological intent (LTP Decay), we create a system that doesn't just store dataâ€”it *evolves* with the user.
 
 ---
-*Documented by HAIM Architect & User*
+*Documented by MnemoCore Architect & User*
 *Date: 2026-02-12*
+

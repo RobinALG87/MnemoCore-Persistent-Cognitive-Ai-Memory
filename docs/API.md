@@ -1,4 +1,4 @@
-# MnemoCore API Reference (Beta)
+﻿# MnemoCore API Reference (Beta)
 
 ## Beta Notice
 
@@ -88,3 +88,4 @@ During beta, treat responses as evolving contracts:
 - Parse defensively.
 - Avoid rigid coupling to optional fields.
 - Revalidate after version upgrades.
+

@@ -1,4 +1,4 @@
-# Omega-JEPA (Dream Stream) - Technical Specification
+﻿# Omega-JEPA (Dream Stream) - Technical Specification
 
 ## 1. Overview
 This document outlines the architecture for the Omega-JEPA Predictor Network, a clean-room implementation inspired by Joint Embedding Predictive Architectures (JEPA) but specialized for the "Dream Stream" environment. The core innovation is the integration of Protocol Omega metrics (Time-Reversal Asymmetry and Z-Scores) directly into the validation loop to ensure causal fidelity in state predictions.
@@ -56,3 +56,4 @@ s_next_pred = model(s_curr, action, z)
 # Validation
 tra_score = metrics.compute_tra(s_curr, s_next_pred)
 ```
+

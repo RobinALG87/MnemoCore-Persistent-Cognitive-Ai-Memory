@@ -1,4 +1,4 @@
-# MnemoCore Beta Policy
+﻿# MnemoCore Beta Policy
 
 ## Status
 
@@ -47,3 +47,4 @@ All public communication should describe MnemoCore as:
 
 - General contact: Robin@veristatesystems.com
 - Security disclosure: Robin@veristatesystems.com
+

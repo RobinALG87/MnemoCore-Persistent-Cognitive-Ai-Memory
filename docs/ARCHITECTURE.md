@@ -1,4 +1,4 @@
-# MnemoCore Architecture (Beta)
+﻿# MnemoCore Architecture (Beta)
 
 ## Beta Context
 
@@ -52,3 +52,4 @@ Cross-tier retrieval is still evolving and should be treated as beta behavior.
 - Performance can vary significantly by hardware and data profile.
 
 For active limitations and next work items, see `docs/ROADMAP.md`.
+

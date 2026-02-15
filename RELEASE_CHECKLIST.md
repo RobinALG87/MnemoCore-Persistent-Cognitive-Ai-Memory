@@ -1,10 +1,10 @@
-# MnemoCore Public Beta Release Checklist
+﻿# MnemoCore Public Beta Release Checklist
 
-## Status: 🟠 ORANGE → 🟢 GREEN
+## Status: ðŸŸ  ORANGE â†’ ðŸŸ¢ GREEN
 
 ---
 
-## ✅ Completed
+## âœ… Completed
 
 - [x] LICENSE file (MIT)
 - [x] .gitignore created
@@ -14,7 +14,7 @@
 
 ---
 
-## 🔧 Code TODOs (Known Limitations)
+## ðŸ”§ Code TODOs (Known Limitations)
 
 These are documented gaps that can ship as "Phase 4 roadmap" items:
 
@@ -22,8 +22,8 @@ These are documented gaps that can ship as "Phase 4 roadmap" items:
 ```python
 pass # TODO: Implement full consolidation with Qdrant
 ```
-**Impact:** Warm→Cold tier consolidation limited
-**Workaround:** Hot→Warm works, Cold is filesystem-based
+**Impact:** Warmâ†’Cold tier consolidation limited
+**Workaround:** Hotâ†’Warm works, Cold is filesystem-based
 **Fix:** Implement Qdrant batch scroll API for full archival
 
 ### 2. `src/core/engine.py:192`
@@ -53,7 +53,7 @@ reconstruction = "TODO: Call Gemini 3 Pro"
 
 ---
 
-## 📋 Pre-Release Actions
+## ðŸ“‹ Pre-Release Actions
 
 ### Before git push:
 
@@ -84,7 +84,7 @@ touch data/memory.jsonl data/codebook.json data/concepts.json data/synapses.json
 
 ---
 
-## 🚀 Release Command Sequence
+## ðŸš€ Release Command Sequence
 
 ```bash
 cd /home/dev-robin/Desktop/mnemocore
@@ -122,3 +122,4 @@ git push origin main --tags
 ---
 
 *Generated: 2026-02-15*
+

@@ -1,4 +1,4 @@
-# MnemoCore
+﻿# MnemoCore
 
 > Infrastructure for Persistent Cognitive Memory.
 
@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Architecture](https://img.shields.io/badge/Memory-Binary%20VSA%2FHDC-blue.svg)]()
 
-## ⚠️ Beta Notice (Read First)
+## âš ï¸ Beta Notice (Read First)
 
 MnemoCore is currently a **public beta / development preview**.
 
@@ -41,13 +41,13 @@ What is still evolving:
 
 ## Project Structure
 
-- `src/core` – Core memory engine, vectors, tiering, synapses, config.
-- `src/api` – FastAPI surface (`/store`, `/query`, `/memory/*`, `/health`, `/stats`).
-- `src/subconscious` – Background processing loop.
-- `src/nightlab` – Experimental orchestration and research tooling.
-- `tests` – Unit/integration-focused test suite.
-- `vector_core` – Experimental research tracks.
-- `data` – Local runtime data for warm/cold persistence.
+- `src/core` â€“ Core memory engine, vectors, tiering, synapses, config.
+- `src/api` â€“ FastAPI surface (`/store`, `/query`, `/memory/*`, `/health`, `/stats`).
+- `src/subconscious` â€“ Background processing loop.
+- `src/nightlab` â€“ Experimental orchestration and research tooling.
+- `tests` â€“ Unit/integration-focused test suite.
+- `vector_core` â€“ Experimental research tracks.
+- `data` â€“ Local runtime data for warm/cold persistence.
 
 ## Quick Start
 
@@ -58,8 +58,8 @@ What is still evolving:
 ### 2) Install
 
 ```bash
-git clone https://github.com/RobinALG87/haim-public-v1.git
-cd haim-public-v1
+git clone https://github.com/RobinALG87/MnemoCore-public-v1.git
+cd MnemoCore-public-v1
 pip install -r requirements.txt
 ```
 
@@ -127,14 +127,14 @@ python -m pytest tests -v
 
 ## Documentation Map
 
-- `docs/BETA_POLICY.md` – Beta constraints and expectation management.
-- `docs/ARCHITECTURE.md` – Practical architecture overview.
-- `docs/API.md` – Endpoint reference and examples.
-- `docs/ROADMAP.md` – Known limitations and planned direction.
-- `SECURITY.md` – Vulnerability reporting and disclosure policy.
-- `RELEASE_CHECKLIST.md` – Safe release workflow for this repo.
-- `studycase.md` – Background and design context.
-- `HAIM Phase 3 5 Infinite.md` – Long-form scaling blueprint.
+- `docs/BETA_POLICY.md` â€“ Beta constraints and expectation management.
+- `docs/ARCHITECTURE.md` â€“ Practical architecture overview.
+- `docs/API.md` â€“ Endpoint reference and examples.
+- `docs/ROADMAP.md` â€“ Known limitations and planned direction.
+- `SECURITY.md` â€“ Vulnerability reporting and disclosure policy.
+- `RELEASE_CHECKLIST.md` â€“ Safe release workflow for this repo.
+- `studycase.md` â€“ Background and design context.
+- `MnemoCore Phase 3 5 Infinite.md` â€“ Long-form scaling blueprint.
 
 ## Security and Responsible Use
 
@@ -146,3 +146,4 @@ python -m pytest tests -v
 
 This project is released under the MIT License.
 See `LICENSE`.
+

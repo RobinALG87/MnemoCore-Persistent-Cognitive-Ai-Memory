@@ -1,4 +1,4 @@
-# MnemoCore Beta Roadmap
+﻿# MnemoCore Beta Roadmap
 
 ## Scope and Intent
 
@@ -31,3 +31,4 @@ It is not a promise, delivery guarantee, or commitment to specific timelines.
 
 Items above are directional only.
 Order, scope, and implementation details can change during beta.
+

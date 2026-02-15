@@ -1,4 +1,4 @@
-# MnemoCore Core
+﻿# MnemoCore Core
 
 ## Beta Notice
 
@@ -16,13 +16,13 @@ Behavior, interfaces, and internals may change without backward compatibility gu
 
 ## Main Modules
 
-- `engine.py` – Core orchestration for store/query and conceptual proxy operations.
-- `binary_hdv.py` – Binary vector operations and text encoding utilities.
-- `tier_manager.py` – HOT/WARM/COLD movement and persistence strategy.
-- `node.py` – Memory node data model and access/LTP-related behavior.
-- `synapse.py` – Synaptic edge model and reinforcement dynamics.
-- `config.py` – Typed config loading (`config.yaml` + `HAIM_*` overrides).
-- `async_storage.py` – Async Redis metadata and stream support.
+- `engine.py` â€“ Core orchestration for store/query and conceptual proxy operations.
+- `binary_hdv.py` â€“ Binary vector operations and text encoding utilities.
+- `tier_manager.py` â€“ HOT/WARM/COLD movement and persistence strategy.
+- `node.py` â€“ Memory node data model and access/LTP-related behavior.
+- `synapse.py` â€“ Synaptic edge model and reinforcement dynamics.
+- `config.py` â€“ Typed config loading (`config.yaml` + `HAIM_*` overrides).
+- `async_storage.py` â€“ Async Redis metadata and stream support.
 
 ## Example
 
@@ -47,3 +47,4 @@ python -m pytest tests -v
 
 - `docs/ARCHITECTURE.md`
 - `docs/ROADMAP.md`
+

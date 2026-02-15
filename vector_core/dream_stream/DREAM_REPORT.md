@@ -1,6 +1,6 @@
-# OMEGA-JEPA PILOT — FINAL FORENSIC AUDIT (Dream Stream)
+﻿# OMEGA-JEPA PILOT â€” FINAL FORENSIC AUDIT (Dream Stream)
 
-**Target:** `haim/vector_core/dream_stream/`
+**Target:** `MnemoCore/vector_core/dream_stream/`
 
 **Checkpoint loaded:** `checkpoints/omega_jepa_latest.pt` (PyTorch `state_dict`)
 
@@ -17,13 +17,13 @@ Protocol Omega gates were evaluated with controlled runs and then re-validated a
 - **Expected:** Low Z-Score (organic) + High TRA (irreversible / causal flow)
 - **Observed:** **Low anomaly Z** and **high TRA**
 
-**Deployment status:** ✅ Green light (metrics separate hallucination-like events from organic dream flow).
+**Deployment status:** âœ… Green light (metrics separate hallucination-like events from organic dream flow).
 
 ---
 
 ## Environment & Components
 - **Python:** 3.12.3
-- **PyTorch:** 2.10.0+cu128 (CUDA available: **False** → ran on CPU)
+- **PyTorch:** 2.10.0+cu128 (CUDA available: **False** â†’ ran on CPU)
 - **Checkpoint:** `checkpoints/omega_jepa_latest.pt`
   - Size: **7,659,775 bytes**
   - SHA-256: `d93a67f352270c7e199d26312163abed67daa7724d3e12659d4ba0e0cab89bc2`
@@ -67,7 +67,7 @@ Two parts:
 
 ## Results
 
-### Gate 1 — Z-Score Anomaly Detection
+### Gate 1 â€” Z-Score Anomaly Detection
 | Scenario | Metric | Observed |
 |---|---:|---:|
 | Dream (valid sequence) | `max(z)` | **1.7314** |
@@ -79,11 +79,11 @@ Two parts:
 
 **Status:** PASS
 
-### Gate 2 — Time-Reversal Asymmetry (TRA)
+### Gate 2 â€” Time-Reversal Asymmetry (TRA)
 | Scenario | Metric | Observed |
 |---|---:|---:|
-| Dream (true transition) | `mean(TRA(s_t → s_t1))` | **0.8686** |
-| Stress (pure noise transition) | `mean(TRA(s_noise → s_noise1))` | **0.0840** |
+| Dream (true transition) | `mean(TRA(s_t â†’ s_t1))` | **0.8686** |
+| Stress (pure noise transition) | `mean(TRA(s_noise â†’ s_noise1))` | **0.0840** |
 
 **Interpretation:**
 - Valid sequences exhibit **high TRA** (directional / irreversible energy change).
@@ -102,20 +102,20 @@ Re-ran gates across **20 independent batches** (batch_size=64) with `torch.manua
 **Dream (valid sequence):**
 - `max(z)` mean **2.5782** (min **1.9524**, max **3.6534**)
 - `mean(MSE)` mean **1.4049** (tight spread)
-- `mean(TRA(s_t → s_t1))` mean **0.8047** (min **0.7376**, max **0.8727**)
+- `mean(TRA(s_t â†’ s_t1))` mean **0.8047** (min **0.7376**, max **0.8727**)
 
-**Stress (4/64 extreme corruptions, 10× noise):**
+**Stress (4/64 extreme corruptions, 10Ã— noise):**
 - `max(z_h)` mean **4.2026** (min **3.9452**, max **4.5169**)
 - `mean(MSE_h)` mean **7.6529**
 
 **Pure noise (reversibility control):**
-- `mean(TRA(s_noise → s_noise1))` mean **0.0622** (min **0.0393**, max **0.0816**)
+- `mean(TRA(s_noise â†’ s_noise1))` mean **0.0622** (min **0.0393**, max **0.0816**)
 
 **Separation margin:**
-- `(max_z_stress − max_z_dream)` mean **1.6244** (min **0.5234**, max **2.2281**)
+- `(max_z_stress âˆ’ max_z_dream)` mean **1.6244** (min **0.5234**, max **2.2281**)
 
-### 2) Sensitivity Sweep: Corruption Fraction (K) × Noise Scale (σ)
-Re-ran a stronger stress grid across **50 batches** (`torch.manual_seed(321)`), corrupting the last **K** samples in each batch with `randn() * σ`.
+### 2) Sensitivity Sweep: Corruption Fraction (K) Ã— Noise Scale (Ïƒ)
+Re-ran a stronger stress grid across **50 batches** (`torch.manual_seed(321)`), corrupting the last **K** samples in each batch with `randn() * Ïƒ`.
 
 Baseline (Dream) over 50 batches:
 - `max(z)` mean **2.3415** (min **1.6521**, max **3.4722**)
@@ -123,10 +123,10 @@ Baseline (Dream) over 50 batches:
 - `mean(TRA_noise)` mean **0.0595** (min **0.0377**, max **0.0904**)
 
 Stress grid (reported as **mean max(z_h)** over 50 batches):
-- **K=1**: σ=1 → **4.03**, σ=3 → **7.84**, σ=10 → **7.87**
-- **K=2**: σ=1 → **3.85**, σ=3 → **5.81**, σ=10 → **5.81**
-- **K=4**: σ=1 → **3.81**, σ=3 → **4.25**, σ=10 → **4.21**
-- **K=8**: σ=1 → **3.51**, σ=3 → **3.05**, σ=10 → **3.02**
+- **K=1**: Ïƒ=1 â†’ **4.03**, Ïƒ=3 â†’ **7.84**, Ïƒ=10 â†’ **7.87**
+- **K=2**: Ïƒ=1 â†’ **3.85**, Ïƒ=3 â†’ **5.81**, Ïƒ=10 â†’ **5.81**
+- **K=4**: Ïƒ=1 â†’ **3.81**, Ïƒ=3 â†’ **4.25**, Ïƒ=10 â†’ **4.21**
+- **K=8**: Ïƒ=1 â†’ **3.51**, Ïƒ=3 â†’ **3.05**, Ïƒ=10 â†’ **3.02**
 
 **Critical nuance (precision caveat):** Z-score is computed **within-batch**. If a *large fraction* of the batch is corrupted (e.g., K=8/64) or corruption scale becomes extreme, the batch mean/std inflate and the maximum z-score can *decrease* even though absolute error is huge. This is expected behavior for batch-relative z-scores.
 
@@ -144,4 +144,5 @@ Both Omega Protocol gates behave as intended on the Dream Stream implementation:
 - **Hallucination-like corruption** is flagged via **high Z-score anomalies** (consistently ~4+ for injected outliers).
 - **Organic dream flow** shows **lower anomaly Z** and **higher TRA**, while **pure noise transitions** show **low TRA**.
 
-✅ **FINAL VERDICT: PASS — Omega-JEPA metrics are operational and provide a viable deployment gate.**
+âœ… **FINAL VERDICT: PASS â€” Omega-JEPA metrics are operational and provide a viable deployment gate.**
+

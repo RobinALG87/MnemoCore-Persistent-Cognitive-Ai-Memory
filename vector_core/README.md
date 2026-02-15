@@ -1,4 +1,4 @@
-# MnemoCore Vector Core (Experimental)
+﻿# MnemoCore Vector Core (Experimental)
 
 ## Beta Notice
 
@@ -35,3 +35,4 @@ The main runtime path for MnemoCore is under `src/`.
 - `docs/ARCHITECTURE.md`
 - `docs/ROADMAP.md`
 - `vector_core/dream_stream/DESIGN.md`
+

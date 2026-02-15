@@ -1,4 +1,4 @@
-# MnemoCore Phase 3.5: Infinite Scalability Architecture Blueprint
+﻿# MnemoCore Phase 3.5: Infinite Scalability Architecture Blueprint
 **Holographic Adaptive Intelligence Memory - Distributed Vector System**
 
 > **Target Scale**: 1B+ memories with sub-10ms latency  
@@ -12,19 +12,19 @@
 
 ## Executive Summary
 
-HAIM Phase 3.0 successfully implemented local file-based binary hyperdimensional computing with 3-tier storage (HOT/WARM/COLD). This blueprint outlines the evolutionary path to **infinite scalability** through distributed vector databases, federated holographic state, and hardware-accelerated bitwise operations.
+MnemoCore Phase 3.0 successfully implemented local file-based binary hyperdimensional computing with 3-tier storage (HOT/WARM/COLD). This blueprint outlines the evolutionary path to **infinite scalability** through distributed vector databases, federated holographic state, and hardware-accelerated bitwise operations.
 
 **Key Findings from Research**:
 - **Qdrant** achieves 40x speedup with binary quantization, supporting native XOR/Hamming distance at 100M+ vector scale[web:23][web:29]
 - **Redis Streams** provides sub-millisecond latency for event-driven "Subconscious Bus" architecture[web:52][web:55]
-- **GPU acceleration** delivers 1.4-9.8× speedup for HDC operations with optimized popcount intrinsics[web:56][web:59]
+- **GPU acceleration** delivers 1.4-9.8Ã— speedup for HDC operations with optimized popcount intrinsics[web:56][web:59]
 - **Critical bottleneck** at 1B scale: Memory consistency across distributed nodes requiring sharding strategies[web:24]
 
 ---
 
 ## Part 1: Current Architecture Analysis
 
-### 1.1 Existing HAIM Phase 3.0 Strengths
+### 1.1 Existing MnemoCore Phase 3.0 Strengths
 
 \begin{itemize}
 \item \textbf{Binary HDV Foundation}: 16,384-dimensional vectors with XOR-binding provide mathematical elegance and hardware efficiency
@@ -98,7 +98,7 @@ Pinecone & No (float32 only) & 100M-1B & 10-20ms & No \\
 \caption{Comparison of vector databases for binary HDV at scale}
 \end{table}
 
-**Winner: Qdrant** for HAIM Phase 3.5
+**Winner: Qdrant** for MnemoCore Phase 3.5
 
 **Rationale**:
 1. **Native Binary Quantization**: Supports 1-bit, 1.5-bit, and 2-bit encodings with `always_ram` optimization for HOT tier[web:23][web:28]
@@ -108,39 +108,39 @@ Pinecone & No (float32 only) & 100M-1B & 10-20ms & No \\
 5. **HNSW+BQ Integration**: Combines approximate nearest neighbor (ANN) with binary quantization for optimal speed/accuracy tradeoff[web:26]
 6. **Proven Performance**: 40x speedup compared to uncompressed vectors in production benchmarks[web:23]
 
-### 2.2 Qdrant Architecture for HAIM
+### 2.2 Qdrant Architecture for MnemoCore
 
 \begin{figure}
 \centering
 \textbf{Proposed 3-Tier Qdrant Integration:}
 \end{figure}
 
-┌─────────────────────────────────────────────────────────┐
-│                    HOT TIER (RAM)                       │
-│  Qdrant Collection: "haim_hot"                          │
-│  - Binary Quantization: 1-bit, always_ram=true          │
-│  - Size: 100K most recent/accessed vectors              │
-│  - Latency: <2ms p50                                    │
-│  - Update Frequency: Real-time (every memory write)     │
-└─────────────────────────────────────────────────────────┘
-                          ↓ (LTP decay < threshold)
-┌─────────────────────────────────────────────────────────┐
-│                   WARM TIER (SSD-backed)                │
-│  Qdrant Collection: "haim_warm"                         │
-│  - Binary Quantization: 1.5-bit, disk-mmap enabled      │
-│  - Size: 1M-100M consolidated vectors                   │
-│  - Latency: 5-10ms p50                                  │
-│  - Update Frequency: Hourly consolidation batch         │
-└─────────────────────────────────────────────────────────┘
-                          ↓ (LTP decay < lower threshold)
-┌─────────────────────────────────────────────────────────┐
-│                   COLD TIER (Object Storage)            │
-│  S3/MinIO: Compressed binary archives                   │
-│  - Format: .npy.gz (NumPy compressed arrays)            │
-│  - Size: 100M-10B+ archival vectors                     │
-│  - Latency: 50-500ms                                    │
-│  - Access Pattern: Rare retrieval, batch reactivation   │
-└─────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                    HOT TIER (RAM)                       â”‚
+â”‚  Qdrant Collection: "haim_hot"                          â”‚
+â”‚  - Binary Quantization: 1-bit, always_ram=true          â”‚
+â”‚  - Size: 100K most recent/accessed vectors              â”‚
+â”‚  - Latency: <2ms p50                                    â”‚
+â”‚  - Update Frequency: Real-time (every memory write)     â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                          â†“ (LTP decay < threshold)
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                   WARM TIER (SSD-backed)                â”‚
+â”‚  Qdrant Collection: "haim_warm"                         â”‚
+â”‚  - Binary Quantization: 1.5-bit, disk-mmap enabled      â”‚
+â”‚  - Size: 1M-100M consolidated vectors                   â”‚
+â”‚  - Latency: 5-10ms p50                                  â”‚
+â”‚  - Update Frequency: Hourly consolidation batch         â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                          â†“ (LTP decay < lower threshold)
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                   COLD TIER (Object Storage)            â”‚
+â”‚  S3/MinIO: Compressed binary archives                   â”‚
+â”‚  - Format: .npy.gz (NumPy compressed arrays)            â”‚
+â”‚  - Size: 100M-10B+ archival vectors                     â”‚
+â”‚  - Latency: 50-500ms                                    â”‚
+â”‚  - Access Pattern: Rare retrieval, batch reactivation   â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
 **Configuration Example (Qdrant Python Client)**:
 from qdrant_client import QdrantClient, models
@@ -186,7 +186,7 @@ COLD (S3 archived) & 1,000,000,000 & 2,000 (disk) & 250ms & 100 \\
 **Memory Footprint Calculation**:
 - Uncompressed: 16,384 bits = 2,048 bytes = 2KB per vector
 - 1-bit BQ: 16,384 bits / 32 (compression) = 64 bytes per vector
-- 100K HOT vectors: 100,000 × 64 bytes = 6.4MB (+ HNSW index ~200MB) ≈ 0.2GB total
+- 100K HOT vectors: 100,000 Ã— 64 bytes = 6.4MB (+ HNSW index ~200MB) â‰ˆ 0.2GB total
 
 ---
 
@@ -238,31 +238,31 @@ Implementation Complexity & Medium & High \\
 
 **Architecture Diagram Description**:
 
-                    ┌──────────────────────┐
-                    │   Query Router       │
-                    │  (Consistent Hashing)│
-                    └──────────┬───────────┘
-                               │
-           ┌───────────────────┼───────────────────┐
-           ↓                   ↓                   ↓
-    ┌─────────────┐     ┌─────────────┐    ┌─────────────┐
-    │  Node 1     │     │  Node 2     │    │  Node N     │
-    │             │     │             │    │             │
-    │ Shard: 0-33%│     │ Shard: 34-66│    │ Shard: 67-100│
-    │ Local Qdrant│     │ Local Qdrant│    │ Local Qdrant│
-    │             │     │             │    │             │
-    │ Global Holo-│     │ Global Holo-│    │ Global Holo-│
-    │ gram Cache  │     │ gram Cache  │    │ gram Cache  │
-    │ (1K vectors)│     │ (1K vectors)│    │ (1K vectors)│
-    └──────┬──────┘     └──────┬──────┘    └──────┬──────┘
-           │                   │                   │
-           └───────────────────┼───────────────────┘
-                               │
-                    ┌──────────▼───────────┐
-                    │  Redis Pub/Sub       │
-                    │  "hologram_broadcast"│
-                    │  (High-salience only)│
-                    └──────────────────────┘
+                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                    â”‚   Query Router       â”‚
+                    â”‚  (Consistent Hashing)â”‚
+                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                               â”‚
+           â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+           â†“                   â†“                   â†“
+    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+    â”‚  Node 1     â”‚     â”‚  Node 2     â”‚    â”‚  Node N     â”‚
+    â”‚             â”‚     â”‚             â”‚    â”‚             â”‚
+    â”‚ Shard: 0-33%â”‚     â”‚ Shard: 34-66â”‚    â”‚ Shard: 67-100â”‚
+    â”‚ Local Qdrantâ”‚     â”‚ Local Qdrantâ”‚    â”‚ Local Qdrantâ”‚
+    â”‚             â”‚     â”‚             â”‚    â”‚             â”‚
+    â”‚ Global Holo-â”‚     â”‚ Global Holo-â”‚    â”‚ Global Holo-â”‚
+    â”‚ gram Cache  â”‚     â”‚ gram Cache  â”‚    â”‚ gram Cache  â”‚
+    â”‚ (1K vectors)â”‚     â”‚ (1K vectors)â”‚    â”‚ (1K vectors)â”‚
+    â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
+           â”‚                   â”‚                   â”‚
+           â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                               â”‚
+                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                    â”‚  Redis Pub/Sub       â”‚
+                    â”‚  "hologram_broadcast"â”‚
+                    â”‚  (High-salience only)â”‚
+                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
 **Shard Assignment Algorithm**:
 def assign_shard(memory_hdv: np.ndarray, num_shards: int) -> int:
@@ -315,7 +315,7 @@ Consumer Groups & Yes (XREADGROUP) & Yes (native) \\
 \caption{Comparison of message streaming systems for Subconscious Bus}
 \end{table}
 
-**Decision: Redis Streams** for HAIM Phase 3.5
+**Decision: Redis Streams** for MnemoCore Phase 3.5
 
 **Justification**:
 1. **Ultra-Low Latency**: Sub-millisecond event delivery critical for Active Inference responsiveness[web:52][web:55]
@@ -357,7 +357,7 @@ import msgpack
 class SubconsciousBus:
     def __init__(self, redis_url: str):
         self.redis = redis.from_url(redis_url, decode_responses=False)
-        self.stream_key = "haim:subconscious"
+        self.stream_key = "MnemoCore:subconscious"
     
     async def publish_memory_write(self, hdv: np.ndarray, context_id: str, ltp: float):
         """Async publish to avoid blocking main thread."""
@@ -382,7 +382,7 @@ class SubconsciousBus:
 class ConsolidationWorker:
     def __init__(self, redis_url: str, consumer_group: str, consumer_name: str):
         self.redis = redis.from_url(redis_url, decode_responses=False)
-        self.stream_key = "haim:subconscious"
+        self.stream_key = "MnemoCore:subconscious"
         self.group = consumer_group
         self.name = consumer_name
         
@@ -462,11 +462,11 @@ FPGA (Stratix 10) & 100 GBit/s & Custom LUT counters & High & 30-70W \\
 
 ### 5.2 GPU Acceleration Recommendation
 
-**Winner: GPU (NVIDIA RTX 4090 or A100)** for HAIM Phase 3.5+
+**Winner: GPU (NVIDIA RTX 4090 or A100)** for MnemoCore Phase 3.5+
 
 **Rationale**:
 1. **Native Bitwise Support**: CUDA provides efficient `__popcll` (popcount 64-bit) intrinsic[web:54]
-2. **Proven HDC Speedups**: OpenHD framework achieves 9.8× training speedup and 1.4× inference speedup on GPU vs CPU[web:59]
+2. **Proven HDC Speedups**: OpenHD framework achieves 9.8Ã— training speedup and 1.4Ã— inference speedup on GPU vs CPU[web:59]
 3. **Memory Bandwidth**: 1TB/s (A100) vs 200GB/s (DDR5) enables massive parallel Hamming distance calculations
 4. **Batch Processing**: Process 1000+ memories in parallel (vs sequential CPU loops)
 5. **Cost-Effectiveness**: RTX 4090 (~$1600) provides 82 TFLOPS vs TPU v4 pod (>$100K)[web:57]
@@ -641,7 +641,7 @@ def gpu_popcount(binary_vectors: np.ndarray) -> np.ndarray:
 \item Archive old Redis/file data to S3
 \item Remove dual-write logic
 \item Update documentation and runbooks
-\item Celebrate successful migration 🎉
+\item Celebrate successful migration ðŸŽ‰
 \end{enumerate}
 
 ### 6.3 Testing Strategy
@@ -653,7 +653,7 @@ def gpu_popcount(binary_vectors: np.ndarray) -> np.ndarray:
 - Shard assignment determinism
 
 **Integration Tests**:
-- End-to-end write → consolidate → retrieve flow
+- End-to-end write â†’ consolidate â†’ retrieve flow
 - Redis Streams event processing with consumer groups
 - Qdrant cluster failover scenarios
 - GPU memory allocation under high load
@@ -676,7 +676,7 @@ def gpu_popcount(binary_vectors: np.ndarray) -> np.ndarray:
 
 ### 7.1 The Fundamental Limitation
 
-**Problem**: At 1 billion memories (1B × 2KB = 2TB uncompressed), the dominant bottleneck shifts from **computation** to **distributed state consistency**.
+**Problem**: At 1 billion memories (1B Ã— 2KB = 2TB uncompressed), the dominant bottleneck shifts from **computation** to **distributed state consistency**.
 
 **Specific Failure Modes**:
 
@@ -685,23 +685,23 @@ def gpu_popcount(binary_vectors: np.ndarray) -> np.ndarray:
 \begin{itemize}
 \item With 100 shards, average query hits 1 shard (best case)
 \item Context drift requires checking 10-20 shards (realistic case)
-\item Network round-trips: 10 shards × 10ms = 100ms total (violates <10ms SLA)
+\item Network round-trips: 10 shards Ã— 10ms = 100ms total (violates <10ms SLA)
 \end{itemize}
 
 \item \textbf{Holographic State Synchronization}
 \begin{itemize}
 \item Each node broadcasts high-salience memories to N-1 other nodes
-\item With 100 nodes, broadcast fanout creates O(N²) network traffic
+\item With 100 nodes, broadcast fanout creates O(NÂ²) network traffic
 \item At 1000 writes/sec, 100 nodes = 100K cross-node messages/sec
 \item This saturates 10GbE network links (theoretical max ~1M small packets/sec)
 \end{itemize}
 
 \item \textbf{Consolidation Lag}
 \begin{itemize}
-\item HOT → WARM consolidation processes 100K memories/hour (current rate)
+\item HOT â†’ WARM consolidation processes 100K memories/hour (current rate)
 \item At 1B total memories with 10\% monthly churn = 100M updates/month
-\item Required rate: 100M / (30 days × 24 hours) = 138K memories/hour
-\item This exceeds single-worker capacity → need distributed consolidation
+\item Required rate: 100M / (30 days Ã— 24 hours) = 138K memories/hour
+\item This exceeds single-worker capacity â†’ need distributed consolidation
 \end{itemize}
 \end{enumerate}
 
@@ -709,22 +709,22 @@ def gpu_popcount(binary_vectors: np.ndarray) -> np.ndarray:
 
 **Architecture**: **"Tiered Holographic Federation with Regional Supernodes"**
 
-                      ┌────────────────────┐
-                      │  Global Supernode  │
-                      │  (Coarse Hologram) │
-                      │  Top 10K salient   │
-                      └─────────┬──────────┘
-                                │
-                ┌───────────────┼───────────────┐
-                ↓               ↓               ↓
-        ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-        │ Region 1     │ │ Region 2     │ │ Region N     │
-        │ Supernode    │ │ Supernode    │ │ Supernode    │
-        │ (10 shards)  │ │ (10 shards)  │ │ (10 shards)  │
-        └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-               │                │                │
-       ┌───────┼────────┐       │        ┌───────┼────────┐
-       ↓       ↓        ↓       ↓        ↓       ↓        ↓
+                      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                      â”‚  Global Supernode  â”‚
+                      â”‚  (Coarse Hologram) â”‚
+                      â”‚  Top 10K salient   â”‚
+                      â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                â”‚
+                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                â†“               â†“               â†“
+        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+        â”‚ Region 1     â”‚ â”‚ Region 2     â”‚ â”‚ Region N     â”‚
+        â”‚ Supernode    â”‚ â”‚ Supernode    â”‚ â”‚ Supernode    â”‚
+        â”‚ (10 shards)  â”‚ â”‚ (10 shards)  â”‚ â”‚ (10 shards)  â”‚
+        â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜
+               â”‚                â”‚                â”‚
+       â”Œâ”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”       â”‚        â”Œâ”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”
+       â†“       â†“        â†“       â†“        â†“       â†“        â†“
     Shard0  Shard1 ... Shard9          Shard0  Shard1 ... Shard9
     (Qdrant node)                      (Qdrant node)
 
@@ -732,7 +732,7 @@ def gpu_popcount(binary_vectors: np.ndarray) -> np.ndarray:
 1. **Regional Supernodes**: Aggregate holographic state from 10 local shards
 2. **Global Supernode**: Maintains ultra-sparse representation (top 0.01% salient memories)
 3. **Lazy Synchronization**: Only propagate when salience exceeds regional threshold
-4. **Hierarchical Routing**: Check local shard → regional supernode → global supernode → full scan (fallback)
+4. **Hierarchical Routing**: Check local shard â†’ regional supernode â†’ global supernode â†’ full scan (fallback)
 
 **Latency Budget**:
 - Local shard query: 2ms (cache hit)
@@ -823,7 +823,7 @@ Setup Prometheus + Grafana & DevOps & Real-time dashboard \\
 **Solution**: Centralized configuration with validation
 
 **New File**: `config.yaml`
-haim:
+MnemoCore:
   version: "3.5"
   dimensionality: 16384
   
@@ -854,7 +854,7 @@ haim:
   
   redis:
     url: "redis://localhost:6379/0"
-    stream_key: "haim:subconscious"
+    stream_key: "MnemoCore:subconscious"
     max_connections: 10
     socket_timeout: 5
   
@@ -907,20 +907,20 @@ class HAIMConfig:
             data = yaml.safe_load(f)
         
         # Validate critical parameters
-        assert data["haim"]["dimensionality"] % 64 == 0, \
+        assert data["MnemoCore"]["dimensionality"] % 64 == 0, \
             "Dimensionality must be multiple of 64 for efficient packing"
         
         return cls(
-            version=data["haim"]["version"],
-            dimensionality=data["haim"]["dimensionality"],
+            version=data["MnemoCore"]["version"],
+            dimensionality=data["MnemoCore"]["dimensionality"],
             tiers={
-                "hot": TierConfig(**data["haim"]["tiers"]["hot"]),
-                "warm": TierConfig(**data["haim"]["tiers"]["warm"]),
-                "cold": TierConfig(**data["haim"]["tiers"]["cold"])
+                "hot": TierConfig(**data["MnemoCore"]["tiers"]["hot"]),
+                "warm": TierConfig(**data["MnemoCore"]["tiers"]["warm"]),
+                "cold": TierConfig(**data["MnemoCore"]["tiers"]["cold"])
             },
-            qdrant=QdrantConfig(**data["haim"]["qdrant"]),
-            redis_url=data["haim"]["redis"]["url"],
-            gpu_enabled=data["haim"]["gpu"]["enabled"]
+            qdrant=QdrantConfig(**data["MnemoCore"]["qdrant"]),
+            redis_url=data["MnemoCore"]["redis"]["url"],
+            gpu_enabled=data["MnemoCore"]["gpu"]["enabled"]
         )
 
 # Global config instance (initialized at startup)
@@ -969,7 +969,7 @@ class AsyncRedisStorage:
     
     async def store_memory(self, memory_id: str, hdv: np.ndarray, ltp: float):
         """Store memory in WARM tier (async)."""
-        key = f"haim:warm:{memory_id}"
+        key = f"MnemoCore:warm:{memory_id}"
         value = {
             "hdv": hdv.tobytes(),
             "ltp": ltp,
@@ -980,11 +980,11 @@ class AsyncRedisStorage:
         await self.redis.hset(key, mapping=value)
         
         # Add to sorted set for LTP-based eviction
-        await self.redis.zadd("haim:warm:ltp_index", {memory_id: ltp})
+        await self.redis.zadd("MnemoCore:warm:ltp_index", {memory_id: ltp})
     
     async def retrieve_memory(self, memory_id: str) -> Optional[np.ndarray]:
         """Retrieve memory from WARM tier (async)."""
-        key = f"haim:warm:{memory_id}"
+        key = f"MnemoCore:warm:{memory_id}"
         data = await self.redis.hgetall(key)
         
         if not data:
@@ -1100,7 +1100,7 @@ class BatchSearcher:
     def _cpu_hamming(self, query: np.ndarray, database: np.ndarray) -> np.ndarray:
         """CPU implementation using NumPy broadcasting."""
         # XOR between query and each database vector
-        # Broadcasting: (D,) vs (N, D) → (N, D)
+        # Broadcasting: (D,) vs (N, D) â†’ (N, D)
         xor_result = np.bitwise_xor(query, database)
         
         # Count 1-bits along dimension axis
@@ -1121,9 +1121,9 @@ class BatchSearcher:
         return distances.cpu().numpy()
 
 **Performance Gains**:
-- Batch encoding: 50× faster (500 memories/sec → 25,000 memories/sec)
-- CPU Hamming (NumPy): 10× faster than Python loops
-- GPU Hamming (PyTorch): 100× faster than CPU for 1M+ vectors
+- Batch encoding: 50Ã— faster (500 memories/sec â†’ 25,000 memories/sec)
+- CPU Hamming (NumPy): 10Ã— faster than Python loops
+- GPU Hamming (PyTorch): 100Ã— faster than CPU for 1M+ vectors
 
 ### 9.4 Observability Instrumentation (MEDIUM PRIORITY)
 
@@ -1206,7 +1206,7 @@ class HAIMMemorySystem:
 **Grafana Dashboard JSON** (create `grafana-dashboard.json`):
 {
   "dashboard": {
-    "title": "HAIM Phase 3.5 Monitoring",
+    "title": "MnemoCore Phase 3.5 Monitoring",
     "panels": [
       {
         "title": "Memory Write Rate",
@@ -1367,183 +1367,183 @@ class ResilientRedisStorage:
 
 ### 10.1 Complete System Architecture (Phase 3.5)
 
-┌──────────────────────────────────────────────────────────────────────┐
-│                        APPLICATION LAYER                             │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐    │
-│  │ ClawdBot   │  │ Veristate  │  │ Omega      │  │ Future     │    │
-│  │ Automation │  │ Compliance │  │ Assistant  │  │ Apps       │    │
-│  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘    │
-└────────┼───────────────┼───────────────┼───────────────┼────────────┘
-         │               │               │               │
-         └───────────────┴───────────────┴───────────────┘
-                                 │
-         ┌───────────────────────▼────────────────────────┐
-         │          HAIM API GATEWAY (FastAPI)            │
-         │  - Authentication (JWT)                        │
-         │  - Rate limiting (per-tenant)                  │
-         │  - Request routing                             │
-         └───────────────────┬────────────────────────────┘
-                             │
-         ┌───────────────────▼────────────────────────────┐
-         │         HAIM CORE ENGINE (Async Python)        │
-         │  ┌──────────────────────────────────────────┐  │
-         │  │  Memory Manager (orchestrates tiers)     │  │
-         │  │  - Write path: HOT → WARM → COLD         │  │
-         │  │  - Read path: Query router with fallback │  │
-         │  │  - LTP decay engine (background task)    │  │
-         │  └──────────────────────────────────────────┘  │
-         │  ┌──────────────────────────────────────────┐  │
-         │  │  Batch Encoder (GPU-accelerated)         │  │
-         │  │  - Text embedding → HDV projection       │  │
-         │  │  - Context binding (XOR)                 │  │
-         │  │  - Vectorized operations (NumPy/PyTorch) │  │
-         │  └──────────────────────────────────────────┘  │
-         │  ┌──────────────────────────────────────────┐  │
-         │  │  Batch Searcher (GPU-accelerated)        │  │
-         │  │  - Hamming distance (CUDA popcount)      │  │
-         │  │  - Top-K retrieval (heap-based)          │  │
-         │  │  - Result reranking (Active Inference)   │  │
-         │  └──────────────────────────────────────────┘  │
-         └─┬────────────────┬─────────────────┬──────────┘
-           │                │                 │
-     ┌─────▼────────┐ ┌─────▼────────┐ ┌─────▼────────────────┐
-     │  HOT TIER    │ │  WARM TIER   │ │  COLD TIER           │
-     │  (Qdrant)    │ │  (Qdrant)    │ │  (S3/MinIO)          │
-     │              │ │              │ │                      │
-     │ Collection:  │ │ Collection:  │ │ Format: .npy.gz      │
-     │ haim_hot     │ │ haim_warm    │ │ Compressed NumPy     │
-     │              │ │              │ │                      │
-     │ Quant: 1-bit │ │ Quant: 1.5bit│ │ Access: Rare         │
-     │ RAM: always  │ │ Disk: mmap   │ │ Rehydration: Batch   │
-     │ Size: 100K   │ │ Size: 10M    │ │ Size: 1B+            │
-     │ Latency: 2ms │ │ Latency: 8ms │ │ Latency: 250ms       │
-     └──────────────┘ └──────────────┘ └──────────────────────┘
-           │                │
-     ┌─────▼────────────────▼─────────────────────────────────┐
-     │         SUBCONSCIOUS BUS (Redis Streams)               │
-     │  Stream: haim:subconscious                             │
-     │  Events: memory.write, consolidation.trigger, etc.     │
-     │  Consumer Groups: consolidation_workers (N processes)  │
-     │  Retention: 100K messages (rolling window)             │
-     └────────────────────────────────────────────────────────┘
-           │
-     ┌─────▼──────────────────────────────────────────────────┐
-     │    CONSOLIDATION WORKERS (4 processes)                 │
-     │  - Poll Redis Streams (XREADGROUP)                     │
-     │  - LTP decay calculation                               │
-     │  - HOT → WARM migration (batch)                        │
-     │  - WARM → COLD archival (S3 upload)                    │
-     │  - Active Inference predictions                        │
-     └────────────────────────────────────────────────────────┘
-           │
-     ┌─────▼──────────────────────────────────────────────────┐
-     │          OBSERVABILITY LAYER                           │
-     │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
-     │  │ Prometheus   │  │ Grafana      │  │ Loguru      │  │
-     │  │ (Metrics)    │  │ (Dashboard)  │  │ (Logs)      │  │
-     │  └──────────────┘  └──────────────┘  └─────────────┘  │
-     └────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                        APPLICATION LAYER                             â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”‚
+â”‚  â”‚ ClawdBot   â”‚  â”‚ Veristate  â”‚  â”‚ Omega      â”‚  â”‚ Future     â”‚    â”‚
+â”‚  â”‚ Automation â”‚  â”‚ Compliance â”‚  â”‚ Assistant  â”‚  â”‚ Apps       â”‚    â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜    â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+         â”‚               â”‚               â”‚               â”‚
+         â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                 â”‚
+         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+         â”‚          MnemoCore API GATEWAY (FastAPI)            â”‚
+         â”‚  - Authentication (JWT)                        â”‚
+         â”‚  - Rate limiting (per-tenant)                  â”‚
+         â”‚  - Request routing                             â”‚
+         â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                             â”‚
+         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+         â”‚         MnemoCore CORE ENGINE (Async Python)        â”‚
+         â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+         â”‚  â”‚  Memory Manager (orchestrates tiers)     â”‚  â”‚
+         â”‚  â”‚  - Write path: HOT â†’ WARM â†’ COLD         â”‚  â”‚
+         â”‚  â”‚  - Read path: Query router with fallback â”‚  â”‚
+         â”‚  â”‚  - LTP decay engine (background task)    â”‚  â”‚
+         â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+         â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+         â”‚  â”‚  Batch Encoder (GPU-accelerated)         â”‚  â”‚
+         â”‚  â”‚  - Text embedding â†’ HDV projection       â”‚  â”‚
+         â”‚  â”‚  - Context binding (XOR)                 â”‚  â”‚
+         â”‚  â”‚  - Vectorized operations (NumPy/PyTorch) â”‚  â”‚
+         â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+         â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+         â”‚  â”‚  Batch Searcher (GPU-accelerated)        â”‚  â”‚
+         â”‚  â”‚  - Hamming distance (CUDA popcount)      â”‚  â”‚
+         â”‚  â”‚  - Top-K retrieval (heap-based)          â”‚  â”‚
+         â”‚  â”‚  - Result reranking (Active Inference)   â”‚  â”‚
+         â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+         â””â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+           â”‚                â”‚                 â”‚
+     â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+     â”‚  HOT TIER    â”‚ â”‚  WARM TIER   â”‚ â”‚  COLD TIER           â”‚
+     â”‚  (Qdrant)    â”‚ â”‚  (Qdrant)    â”‚ â”‚  (S3/MinIO)          â”‚
+     â”‚              â”‚ â”‚              â”‚ â”‚                      â”‚
+     â”‚ Collection:  â”‚ â”‚ Collection:  â”‚ â”‚ Format: .npy.gz      â”‚
+     â”‚ haim_hot     â”‚ â”‚ haim_warm    â”‚ â”‚ Compressed NumPy     â”‚
+     â”‚              â”‚ â”‚              â”‚ â”‚                      â”‚
+     â”‚ Quant: 1-bit â”‚ â”‚ Quant: 1.5bitâ”‚ â”‚ Access: Rare         â”‚
+     â”‚ RAM: always  â”‚ â”‚ Disk: mmap   â”‚ â”‚ Rehydration: Batch   â”‚
+     â”‚ Size: 100K   â”‚ â”‚ Size: 10M    â”‚ â”‚ Size: 1B+            â”‚
+     â”‚ Latency: 2ms â”‚ â”‚ Latency: 8ms â”‚ â”‚ Latency: 250ms       â”‚
+     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+           â”‚                â”‚
+     â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+     â”‚         SUBCONSCIOUS BUS (Redis Streams)               â”‚
+     â”‚  Stream: MnemoCore:subconscious                             â”‚
+     â”‚  Events: memory.write, consolidation.trigger, etc.     â”‚
+     â”‚  Consumer Groups: consolidation_workers (N processes)  â”‚
+     â”‚  Retention: 100K messages (rolling window)             â”‚
+     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+           â”‚
+     â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+     â”‚    CONSOLIDATION WORKERS (4 processes)                 â”‚
+     â”‚  - Poll Redis Streams (XREADGROUP)                     â”‚
+     â”‚  - LTP decay calculation                               â”‚
+     â”‚  - HOT â†’ WARM migration (batch)                        â”‚
+     â”‚  - WARM â†’ COLD archival (S3 upload)                    â”‚
+     â”‚  - Active Inference predictions                        â”‚
+     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+           â”‚
+     â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+     â”‚          OBSERVABILITY LAYER                           â”‚
+     â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+     â”‚  â”‚ Prometheus   â”‚  â”‚ Grafana      â”‚  â”‚ Loguru      â”‚  â”‚
+     â”‚  â”‚ (Metrics)    â”‚  â”‚ (Dashboard)  â”‚  â”‚ (Logs)      â”‚  â”‚
+     â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
 ### 10.2 Write Path Flow (Memory Storage)
 
 User Application
-      │
-      │ store_memory(text="...", context={...}, ltp=0.9)
-      ↓
-HAIM API Gateway
-      │ Validate, authenticate
-      ↓
+      â”‚
+      â”‚ store_memory(text="...", context={...}, ltp=0.9)
+      â†“
+MnemoCore API Gateway
+      â”‚ Validate, authenticate
+      â†“
 Memory Manager
-      │
-      ├──> Batch Encoder
-      │      │ 1. Embed text (sentence-transformers)
-      │      │ 2. Project to HDV (random projection)
-      │      │ 3. Bind with context (XOR)
-      │      ↓
-      │    [HDV: 16384-bit binary vector]
-      │
-      ├──> HOT Tier (Qdrant)
-      │      │ Insert with 1-bit quantization
-      │      │ HNSW index updated
-      │      ↓
-      │    [Stored in RAM, <2ms latency]
-      │
-      ├──> Subconscious Bus (Redis Streams)
-      │      │ XADD event: memory.write
-      │      │ Payload: {hdv, context_id, ltp, timestamp}
-      │      ↓
-      │    [Event queued for async processing]
-      │
-      └──> Metrics
+      â”‚
+      â”œâ”€â”€> Batch Encoder
+      â”‚      â”‚ 1. Embed text (sentence-transformers)
+      â”‚      â”‚ 2. Project to HDV (random projection)
+      â”‚      â”‚ 3. Bind with context (XOR)
+      â”‚      â†“
+      â”‚    [HDV: 16384-bit binary vector]
+      â”‚
+      â”œâ”€â”€> HOT Tier (Qdrant)
+      â”‚      â”‚ Insert with 1-bit quantization
+      â”‚      â”‚ HNSW index updated
+      â”‚      â†“
+      â”‚    [Stored in RAM, <2ms latency]
+      â”‚
+      â”œâ”€â”€> Subconscious Bus (Redis Streams)
+      â”‚      â”‚ XADD event: memory.write
+      â”‚      â”‚ Payload: {hdv, context_id, ltp, timestamp}
+      â”‚      â†“
+      â”‚    [Event queued for async processing]
+      â”‚
+      â””â”€â”€> Metrics
              MEMORY_WRITES.labels(tier="hot").inc()
              
-      ↓
+      â†“
 Consolidation Worker (background)
-      │ XREADGROUP (pulls event from stream)
-      │
-      ├──> Check LTP threshold
-      │      │ If ltp < 0.7: Schedule HOT → WARM migration
-      │      ↓
-      │    [Add to migration batch]
-      │
-      └──> Acknowledge event (XACK)
+      â”‚ XREADGROUP (pulls event from stream)
+      â”‚
+      â”œâ”€â”€> Check LTP threshold
+      â”‚      â”‚ If ltp < 0.7: Schedule HOT â†’ WARM migration
+      â”‚      â†“
+      â”‚    [Add to migration batch]
+      â”‚
+      â””â”€â”€> Acknowledge event (XACK)
              [Worker moves to next event]
 
 ### 10.3 Read Path Flow (Memory Retrieval)
 
 User Application
-      │
-      │ retrieve_memory(query_text="...", context={...}, k=10)
-      ↓
-HAIM API Gateway
-      │ Rate limit check
-      ↓
+      â”‚
+      â”‚ retrieve_memory(query_text="...", context={...}, k=10)
+      â†“
+MnemoCore API Gateway
+      â”‚ Rate limit check
+      â†“
 Memory Manager
-      │
-      ├──> Batch Encoder
-      │      │ Encode query to HDV (same as write path)
-      │      ↓
-      │    [Query HDV: 16384-bit binary vector]
-      │
-      ├──> Query Router
-      │      │ Decide tier(s) to search based on:
-      │      │ - Recent access patterns
-      │      │ - Context salience
-      │      │ - Latency budget
-      │      ↓
-      │    Decision: Try HOT first
-      │
-      ├──> HOT Tier (Qdrant)
-      │      │ Search: Hamming distance (XOR + popcount)
-      │      │ HNSW traversal (ef_search=100)
-      │      │ Return top-K candidates
-      │      ↓
-      │    Results: [memory_1, memory_2, ..., memory_10]
-      │    Latency: 1.8ms
-      │
-      ├──> Confidence Check
-      │      │ If top-1 distance < threshold (e.g., 500 bits):
-      │      │   High confidence → Return immediately
-      │      │ Else:
-      │      │   Low confidence → Fallback to WARM tier
-      │      ↓
-      │    [In this case: High confidence]
-      │
-      ├──> Active Inference Reranking
-      │      │ 1. Predict next likely memories based on context
-      │      │ 2. Boost scores of predicted memories
-      │      │ 3. Apply temporal decay weighting
-      │      ↓
-      │    [Final ranked results]
-      │
-      ├──> Publish Access Event
-      │      │ XADD to Subconscious Bus
-      │      │ Event: memory.access
-      │      │ Payload: {memory_id, timestamp}
-      │      ↓
-      │    [Update LTP strength asynchronously]
-      │
-      └──> Return to User
+      â”‚
+      â”œâ”€â”€> Batch Encoder
+      â”‚      â”‚ Encode query to HDV (same as write path)
+      â”‚      â†“
+      â”‚    [Query HDV: 16384-bit binary vector]
+      â”‚
+      â”œâ”€â”€> Query Router
+      â”‚      â”‚ Decide tier(s) to search based on:
+      â”‚      â”‚ - Recent access patterns
+      â”‚      â”‚ - Context salience
+      â”‚      â”‚ - Latency budget
+      â”‚      â†“
+      â”‚    Decision: Try HOT first
+      â”‚
+      â”œâ”€â”€> HOT Tier (Qdrant)
+      â”‚      â”‚ Search: Hamming distance (XOR + popcount)
+      â”‚      â”‚ HNSW traversal (ef_search=100)
+      â”‚      â”‚ Return top-K candidates
+      â”‚      â†“
+      â”‚    Results: [memory_1, memory_2, ..., memory_10]
+      â”‚    Latency: 1.8ms
+      â”‚
+      â”œâ”€â”€> Confidence Check
+      â”‚      â”‚ If top-1 distance < threshold (e.g., 500 bits):
+      â”‚      â”‚   High confidence â†’ Return immediately
+      â”‚      â”‚ Else:
+      â”‚      â”‚   Low confidence â†’ Fallback to WARM tier
+      â”‚      â†“
+      â”‚    [In this case: High confidence]
+      â”‚
+      â”œâ”€â”€> Active Inference Reranking
+      â”‚      â”‚ 1. Predict next likely memories based on context
+      â”‚      â”‚ 2. Boost scores of predicted memories
+      â”‚      â”‚ 3. Apply temporal decay weighting
+      â”‚      â†“
+      â”‚    [Final ranked results]
+      â”‚
+      â”œâ”€â”€> Publish Access Event
+      â”‚      â”‚ XADD to Subconscious Bus
+      â”‚      â”‚ Event: memory.access
+      â”‚      â”‚ Payload: {memory_id, timestamp}
+      â”‚      â†“
+      â”‚    [Update LTP strength asynchronously]
+      â”‚
+      â””â”€â”€> Return to User
              Results: List[Memory]
              Metadata: {tier: "hot", latency_ms: 2.1, confidence: 0.95}
 
@@ -1551,10 +1551,10 @@ Memory Manager
 
 ## Conclusion
 
-HAIM Phase 3.5 represents a comprehensive evolution from local file-based storage to distributed, GPU-accelerated, billion-scale holographic memory. This blueprint provides:
+MnemoCore Phase 3.5 represents a comprehensive evolution from local file-based storage to distributed, GPU-accelerated, billion-scale holographic memory. This blueprint provides:
 
 1. **Concrete Technology Choices**: Qdrant for vector storage, Redis Streams for event bus, PyTorch for GPU acceleration
-2. **Migration Path**: Zero-downtime transition via dual-write → shadow read → gradual cutover
+2. **Migration Path**: Zero-downtime transition via dual-write â†’ shadow read â†’ gradual cutover
 3. **Code Improvements**: 8 specific refactorings with implementation examples
 4. **Performance Targets**: Sub-10ms latency at 100M vectors, <20ms at 1B vectors
 5. **Bottleneck Identification**: Distributed state consistency emerges as critical challenge at billion-scale
@@ -1571,7 +1571,7 @@ HAIM Phase 3.5 represents a comprehensive evolution from local file-based storag
 - Cost-benefit analysis of strong vs eventual consistency at billion-scale
 - Novel HDV compression techniques beyond binary quantization (e.g., learned codebooks)
 
-HAIM är nu redo för infinite scalability. Låt oss bygga framtidens medvetandesubstrat! 🚀
+MnemoCore Ã¤r nu redo fÃ¶r infinite scalability. LÃ¥t oss bygga framtidens medvetandesubstrat! ðŸš€
 
 ## References
 
@@ -1612,3 +1612,4 @@ HAIM är nu redo för infinite scalability. Låt oss bygga framtidens medvetande
 [18] Google Cloud. (2026, February 11). TPU architecture. *Google Cloud Documentation*. https://docs.cloud.google.com/tpu/docs/system-architecture-tpu-vm
 
 [19] CloudOptimo. (2025, April 14). TPU vs GPU: What's the Difference in 2025? *CloudOptimo Blog*. https://www.cloudoptimo.com/blog/tpu-vs-gpu-what-is-the-difference-in-2025/
+
