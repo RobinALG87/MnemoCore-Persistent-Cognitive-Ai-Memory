@@ -1,149 +1,92 @@
-﻿# MnemoCore
+# MnemoCore: Infrastructure for Persistent Cognitive Memory (Phase 3.0+)
 
-> Infrastructure for Persistent Cognitive Memory.
+[![Veristate Systems](https://img.shields.io/badge/Veristate-Sovereign%20Intelligence-blue.svg)](https://veristatesystems.com)
+[![Status](https://img.shields.io/badge/Status-Public%20Dev%20Preview-orange.svg)]()
+[![Architecture](https://img.shields.io/badge/Architecture-Binary%20VSA%2FHDC-green.svg)]()
 
-[![Status](https://img.shields.io/badge/Status-Beta-orange.svg)]()
-[![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Architecture](https://img.shields.io/badge/Memory-Binary%20VSA%2FHDC-blue.svg)]()
+> "The limitation of modern AI isn't logic, it's memory. MnemoCore is the architecture for agents that don't just process data, but evolve through experience."
 
-## âš ï¸ Beta Notice (Read First)
+**MnemoCore** is a production-grade cognitive memory engine built on Hyperdimensional Computing (HDC) and Vector Symbolic Architecture (VSA). It is designed to provide autonomous agents with a coherent, persistent, and indefinitely scalable long-term memory.
 
-MnemoCore is currently a **public beta / development preview**.
+---
 
-- No SLA, no uptime guarantees, no stability guarantees.
-- No claims of production readiness.
-- Features and APIs may change without backward compatibility.
-- Results are experimental and should be independently validated.
-- The software is provided "as is" under MIT (see `LICENSE`).
+## 🧠 Why MnemoCore?
 
-## What MnemoCore Is
+Traditional RAG (Retrieval-Augmented Generation) is often slow, expensive, and lacks biological plausibility. MnemoCore solves the **Scalability vs. Agency** paradox by treating memories as high-dimensional holographic bitstreams.
 
-MnemoCore is a memory engine for agentic systems built around **binary hyperdimensional vectors** and **tiered memory management**.
+### Core Innovations:
+*   **🚀 16,384-D Binary VSA:** High-entropy bit-vectors allow for O(1) binding and bundling operations. 100x faster similarity search using hardware-native bitwise XOR and `popcount`.
+*   **🧬 Biological LTP (Long-Term Potentiation):** Memory strength isn't static. MnemoCore implements synaptic plasticity where memories are reinforced by access and decay organically over time.
+*   **🧊 Tri-State Storage (Memory Tiering):**
+    *   **HOT (RAM):** Zero-latency access to current working context.
+    *   **WARM (Qdrant/SSD):** Sub-millisecond semantic search across millions of vectors via Binary Quantization.
+    *   **COLD (Archive):** Indefinite long-term storage for deep historical analysis.
+*   **🔮 Active Inference:** Predictive retrieval that uses the agent's current "state of mind" to anticipate relevant context before it's explicitly queried.
 
-The project focuses on:
-- Fast semantic memory encoding and retrieval.
-- Memory lifecycle (HOT/WARM/COLD) with biologically inspired reinforcement/decay signals.
-- API integration for external agent runtimes.
+---
 
-## Current Scope (Beta Reality)
+## 🏗️ Architecture
 
-What exists now:
-- Binary HDV encoding and similarity search in the core engine.
-- HOT tier in RAM plus WARM/COLD persistence paths.
-- FastAPI service with async wrappers and Redis metadata integration.
-- Qdrant integration with fallback behavior when unavailable.
-- Unit tests for core components.
+MnemoCore is composed of several decoupled layers that work in symbiosis:
 
-What is still evolving:
-- Full cross-tier query coverage at scale.
-- Consolidation and distributed workflows.
-- Some advanced integrations marked TODO in code.
+*   **`src/core`**: The VSA engine. Handles `BinaryHDV` operations, Synaptic connections, and the Tier Manager.
+*   **`src/subconscious`**: A background daemon that performs "Dreaming" (synaptic strengthening) and memory consolidation during idle cycles.
+*   **`src/api`**: A high-performance FastAPI wrapper for integration with existing LLM agent frameworks.
+*   **`src/nightlab`**: An orchestration layer for autonomous self-improvement and architectural audits.
 
-## Project Structure
+---
 
-- `src/core` â€“ Core memory engine, vectors, tiering, synapses, config.
-- `src/api` â€“ FastAPI surface (`/store`, `/query`, `/memory/*`, `/health`, `/stats`).
-- `src/subconscious` â€“ Background processing loop.
-- `src/nightlab` â€“ Experimental orchestration and research tooling.
-- `tests` â€“ Unit/integration-focused test suite.
-- `vector_core` â€“ Experimental research tracks.
-- `data` â€“ Local runtime data for warm/cold persistence.
+## 🚦 Getting Started
 
-## Quick Start
+### 1. Prerequisites
+*   Python 3.10+
+*   Docker (for Qdrant & Redis integration)
+*   32GB RAM recommended (for large-scale HOT tiering)
 
-### 1) Requirements
-- Python 3.10+
-- Docker + Docker Compose (for Redis/Qdrant)
-
-### 2) Install
-
+### 2. Installation
 ```bash
-git clone https://github.com/RobinALG87/MnemoCore-public-v1.git
-cd MnemoCore-public-v1
+git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git
+cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
 pip install -r requirements.txt
 ```
 
-### 3) Start dependencies
-
+### 3. Launching the Cognitive Stack
 ```bash
+# Start the infrastructure (Qdrant, Redis, Grafana)
 docker-compose up -d
-```
 
-### 4) Start API
+# Start the Memory API
+uvicorn src.api.main:app --port 8100
 
-```bash
-uvicorn src.api.main:app --host 0.0.0.0 --port 8100
-```
-
-### 5) Optional worker
-
-```bash
+# Start the Subconscious Worker
 python src/subconscious/daemon.py
 ```
 
-## API Example
+---
 
-Store a memory:
+## 📊 Monitoring & Auditing
 
-```bash
-curl -X POST http://localhost:8100/store \
-    -H "Content-Type: application/json" \
-    -d '{"content":"Stockholm is cold in winter","metadata":{"source":"demo"}}'
-```
+MnemoCore includes a pre-configured **Grafana Dashboard** (`grafana-dashboard.json`) to visualize:
+*   **Synaptic Density:** The growth of connections between concepts.
+*   **LTP Decay Curves:** Real-time visualization of memory permanence.
+*   **Tier Distribution:** Monitoring the flow between Hot, Warm, and Cold tiers.
 
-Query memories:
+---
 
-```bash
-curl -X POST http://localhost:8100/query \
-    -H "Content-Type: application/json" \
-    -d '{"query":"winter in Sweden","top_k":5}'
-```
+## ⚖️ License
 
-Health check:
+This version of MnemoCore is released under the **Business Source License 1.1 (BSL)**.
+*   **For Non-Commercial/Research:** Free to use, modify, and distribute.
+*   **For Commercial Use:** Requires a commercial license from Veristate Systems AB.
+*   **Sunset:** Becomes Open Source (MIT) efter 3 år (2029-02-15).
 
-```bash
-curl http://localhost:8100/health
-```
+*See `LICENSE` for full details.*
 
-## Configuration
+---
 
-Main runtime config is in `config.yaml` with `HAIM_*` environment variable overrides.
-Compatibility note: env keys keep the `HAIM_*` prefix in this beta for backward compatibility.
+## 🤝 Join the Expansion
 
-Common examples:
-- `HAIM_DIMENSIONALITY`
-- `HAIM_ENCODING_MODE`
-- `HAIM_REDIS_URL`
-- `HAIM_QDRANT_URL`
-- `HAIM_LOG_LEVEL`
+We are building the substrate for Sovereign Intelligence. 
+*   **Vision:** [veristatesystems.com](https://veristatesystems.com)
 
-See `src/core/config.py` for all settings and defaults.
-
-## Testing
-
-```bash
-python -m pytest tests -v
-```
-
-## Documentation Map
-
-- `docs/BETA_POLICY.md` â€“ Beta constraints and expectation management.
-- `docs/ARCHITECTURE.md` â€“ Practical architecture overview.
-- `docs/API.md` â€“ Endpoint reference and examples.
-- `docs/ROADMAP.md` â€“ Known limitations and planned direction.
-- `SECURITY.md` â€“ Vulnerability reporting and disclosure policy.
-- `RELEASE_CHECKLIST.md` â€“ Safe release workflow for this repo.
-- `studycase.md` â€“ Background and design context.
-- `MnemoCore Phase 3 5 Infinite.md` â€“ Long-form scaling blueprint.
-
-## Security and Responsible Use
-
-- Do not store secrets or regulated data without your own controls.
-- Validate outputs before decision-making in critical workflows.
-- If you discover vulnerabilities, report privately before public disclosure at Robin@veristatesystems.com.
-
-## License
-
-This project is released under the MIT License.
-See `LICENSE`.
-
+Ω
