@@ -1,98 +1,33 @@
 # MnemoCore: Infrastructure for Persistent Cognitive Memory (Phase 3.0+)
 
-**"The limitation of modern AI isn't logic, it's memory. MnemoCore is the architecture for agents that don't just process data, but evolve through experience."**
+## Expanded Documentation
 
-MnemoCore is a production-grade cognitive memory engine built on **Hyperdimensional Computing (HDC)** and **Vector Symbolic Architecture (VSA)**. It is designed to provide autonomous agents with a coherent, persistent, and indefinitely scalable long-term memory.
+### MIT License
 
----
+This project is licensed under the MIT License. For the terms of this license, please refer to the LICENSE file. BSL transition date is 2026-02-15.
 
-## 🧠 Why MnemoCore?
+### Technical Specifications
 
-Traditional RAG (Retrieval-Augmented Generation) is often slow, expensive, and lacks biological plausibility. MnemoCore solves the **Scalability vs. Agency paradox** by treating memories as high-dimensional holographic bitstreams.
+- **Core Engine**: src/core/engine.py provides the primary functionality and algorithms utilized in the MnemoCore framework.
+- **Binary HDV**: binary_hdv.py handles data representation and manipulation in high-dimensional vector spaces.
+- **Configuration**: config.yaml includes all necessary configuration parameters for running the application.
 
-### Core Innovations:
+### Research Foundation
 
-- 🚀 **16,384-D Binary VSA**: High-entropy bit-vectors allow for O(1) binding and bundling operations. 100x faster similarity search using hardware-native bitwise XOR and popcount.
+The development of MnemoCore is based on extensive research in cognitive memory models, leveraging advancements in artificial intelligence and machine learning.
 
-- 🧬 **Biological LTP (Long-Term Potentiation)**: Memory strength isn't static. MnemoCore implements synaptic plasticity where memories are reinforced by access and decay organically over time.
+### Beta Status
 
-- 🧊 **Tri-State Storage (Memory Tiering)**:
-  - **HOT (RAM)**: Zero-latency access to current working context.
-  - **WARM (Qdrant/SSD)**: Sub-millisecond semantic search across millions of vectors via Binary Quantization.
-  - **COLD (Archive)**: Indefinite long-term storage for deep historical analysis.
+This version of MnemoCore is in beta testing, and we welcome feedback to enhance its capabilities and address any issues.
 
-- 🔮 **Active Inference**: Predictive retrieval that uses the agent's current "state of mind" to anticipate relevant context before it's explicitly queried.
+### Usage Examples
 
----
+Refer to the examples provided in the repository for detailed usage instructions and code snippets demonstrating how to implement MnemoCore in your projects.
 
-## 🏗️ Architecture
+### Contact Information
 
-MnemoCore is composed of several decoupled layers that work in symbiosis:
+For any inquiries, please reach out to robin@veristatesystems.com.
 
-- **src/core**: The VSA engine. Handles BinaryHDV operations, Synaptic connections, and the Tier Manager.
-- **src/subconscious**: A background daemon that performs "Dreaming" (synaptic strengthening) and memory consolidation during idle cycles.
-- **src/api**: A high-performance FastAPI wrapper for integration with existing LLM agent frameworks.
-- **src/nightlab**: An orchestration layer for autonomous self-improvement and architectural audits.
+### Comprehensive Architecture Details
 
----
-
-## 🚦 Getting Started
-
-### 1. Prerequisites
-
-- Python 3.10+
-- Docker (for Qdrant & Redis integration)
-- 32GB RAM recommended (for large-scale HOT tiering)
-
-### 2. Installation
-
-```bash
-git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git
-cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
-pip install -r requirements.txt
-```
-
-### 3. Launching the Cognitive Stack
-
-```bash
-# Start the infrastructure (Qdrant, Redis, Grafana)
-docker-compose up -d
-
-# Start the Memory API
-uvicorn src.api.main:app --port 8100
-
-# Start the Subconscious Worker
-python src.subconscious/daemon.py
-```
-
----
-
-## 📊 Monitoring & Auditing
-
-MnemoCore includes a pre-configured **Grafana Dashboard** (`grafana-dashboard.json`) to visualize:
-
-- **Synaptic Density**: The growth of connections between concepts.
-- **LTP Decay Curves**: Real-time visualization of memory permanence.
-- **Tier Distribution**: Monitoring the flow between Hot, Warm, and Cold tiers.
-
----
-
-## ⚖️ License
-
-This version of MnemoCore is released under the **Business Source License 1.1 (BSL)**.
-
-- **For Non-Commercial/Research**: Free to use, modify, and distribute.
-- **For Commercial Use**: Requires a commercial license. Contact Robin Granberg for licensing inquiries.
-- **Sunset**: Becomes Open Source (MIT) after 3 years (2029-02-15).
-
-See `LICENSE` for full details.
-
----
-
-## 🤝 Join the Expansion
-
-We are building the substrate for **Sovereign Intelligence**.
-
-**Project by Robin Granberg**
-
-**Ω**
+The architecture of MnemoCore is designed to be modular and extensible, allowing for seamless integration into various applications. See the source files for detailed implementations and architectural choices.
