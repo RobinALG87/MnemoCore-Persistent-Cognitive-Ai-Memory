@@ -1,0 +1,26 @@
+# Core
+numpy
+requests
+fastapi
+uvicorn
+torch
+pydantic
+scikit-learn
+
+# Phase 3.0 - Configuration & Config
+pyyaml
+
+# Phase 3.0 - Testing
+pytest
+
+# Phase 3.5 - Distributed Infrastructure
+redis
+qdrant-client
+prometheus-client
+loguru
+msgpack
+
+# Visualization (optional)
+plotly
+pandas
+pytest-asyncio

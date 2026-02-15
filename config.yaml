@@ -1,0 +1,81 @@
+# HAIM Configuration — Phase 3.0+
+# All hardcoded constants are centralized here.
+
+haim:
+  version: "3.0"
+  dimensionality: 16384  # 2^14, must be multiple of 64
+
+  # Vector encoding
+  encoding:
+    mode: "binary"  # "binary" (Phase 3.0+) or "float" (legacy)
+    token_method: "bundle"  # "bundle" (XOR+permute) or "hash"
+
+  # Memory tier thresholds
+  tiers:
+    hot:
+      max_memories: 2000
+      ltp_threshold_min: 0.7
+      eviction_policy: "lru"
+
+    warm:
+      max_memories: 100000
+      ltp_threshold_min: 0.3
+      consolidation_interval_hours: 1
+      storage_backend: "mmap"  # "mmap" (Phase 3.0) or "qdrant" (Phase 3.5)
+
+    cold:
+      storage_backend: "filesystem"  # "filesystem" or "s3"
+      compression: "gzip"
+      archive_threshold_days: 30
+
+  # LTP (Long-Term Potentiation) decay parameters
+  ltp:
+    initial_importance: 0.5
+    decay_lambda: 0.01  # Exponential decay rate
+    permanence_threshold: 0.95  # Above this, memory is immune to decay
+    half_life_days: 30.0  # For synaptic connections
+
+  # Hysteresis (prevent boundary thrashing between tiers)
+  hysteresis:
+    promote_delta: 0.15  # LTP must exceed threshold by this much to promote
+    demote_delta: 0.10   # LTP must fall below threshold by this much to demote
+
+  # Redis (Phase 3.5)
+  redis:
+    url: "redis://localhost:6379/0"
+    stream_key: "haim:subconscious"
+    max_connections: 10
+    socket_timeout: 5
+
+  # Qdrant (Phase 3.5)
+  qdrant:
+    url: "http://localhost:6333"
+    collection_hot: "haim_hot"
+    collection_warm: "haim_warm"
+    binary_quantization: true
+    always_ram: true
+    hnsw_m: 16
+    hnsw_ef_construct: 100
+
+  # GPU (Phase 3.5)
+  gpu:
+    enabled: false
+    device: "cuda:0"
+    batch_size: 1000
+    fallback_to_cpu: true
+
+  # Observability (Phase 3.5)
+  observability:
+    metrics_port: 9090
+    log_level: "INFO"
+    structured_logging: true
+
+  # Persistence paths
+  paths:
+    data_dir: "./data"
+    memory_file: "./data/memory.jsonl"
+    codebook_file: "./data/codebook.json"
+    concepts_file: "./data/concepts.json"
+    synapses_file: "./data/synapses.json"
+    warm_mmap_dir: "./data/warm_tier"
+    cold_archive_dir: "./data/cold_archive"
