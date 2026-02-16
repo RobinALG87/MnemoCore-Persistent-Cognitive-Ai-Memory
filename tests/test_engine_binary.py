@@ -95,6 +95,50 @@ class TestBinaryEngine:
         assert 0.4 < eig < 0.6
 
 
+    def test_synapse_persistence_end_to_end(self, binary_engine):
+        """Test synapse persistence: fire -> save -> load"""
+        # Store two memories
+        mid1 = binary_engine.store("Memory A")
+        mid2 = binary_engine.store("Memory B")
+        
+        # Create a synapse between them and fire it multiple times
+        # Note: bind_memories automatically saves synapses after each call
+        binary_engine.bind_memories(mid1, mid2, success=True)
+        binary_engine.bind_memories(mid1, mid2, success=True)
+        binary_engine.bind_memories(mid1, mid2, success=False)
+        
+        # Get the synapse key and current state
+        synapse_key = tuple(sorted([mid1, mid2]))
+        original_synapse = binary_engine.synapses[synapse_key]
+        
+        # Record the state before reload
+        original_strength = original_synapse.strength
+        original_fire_count = original_synapse.fire_count
+        original_success_count = original_synapse.success_count
+        
+        # Verify the synapse was fired correctly
+        assert original_fire_count == 3
+        assert original_success_count == 2
+        assert original_strength > 0.1  # Should have increased from initial
+        
+        # Create a new engine instance to simulate reload
+        # The environment variables are still set from the fixture,
+        # so engine2 uses the same storage paths as binary_engine
+        reset_config()  # Force reload of config to pick up env vars
+        engine2 = HAIMEngine()
+        
+        # Verify the synapse was loaded correctly
+        assert synapse_key in engine2.synapses
+        loaded_synapse = engine2.synapses[synapse_key]
+        
+        # Assert that the loaded strength matches what was saved
+        assert loaded_synapse.strength == original_strength
+        assert loaded_synapse.fire_count == original_fire_count
+        assert loaded_synapse.success_count == original_success_count
+        assert loaded_synapse.neuron_a_id == original_synapse.neuron_a_id
+        assert loaded_synapse.neuron_b_id == original_synapse.neuron_b_id
+
+
 class TestRouterBinary:
     def test_router_reflex(self, binary_engine):
         router = CognitiveRouter(binary_engine)
