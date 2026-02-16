@@ -30,6 +30,13 @@ LOG_PATH = "/tmp/subconscious.log"
 EVOLUTION_STATE_PATH = "./data/subconscious_evolution.json"
 
 
+def _write_state_to_disk(state: Dict[str, Any], filepath: str):
+    """Write state to disk synchronously (to be used in executor)."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w") as f:
+        json.dump(state, f, indent=2)
+
+
 class SubconsciousDaemon:
     """The always-running background mind."""
     
@@ -82,22 +89,21 @@ class SubconsciousDaemon:
         except Exception as e:
             self.log(f"Failed to load evolution state: {e}")
 
-    def _save_evolution_state(self):
+    async def _save_evolution_state(self):
         """Persist state so evolution continues across restarts."""
+        state = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "cycle_count": self.cycle_count,
+            "insights_generated": self.insights_generated,
+            "current_cycle_interval": self.current_cycle_interval,
+            "schedule": self.schedule,
+            "activity_window": self.activity_window[-12:],
+            "low_activity_streak": self.low_activity_streak,
+            "last_cycle_metrics": self.last_cycle_metrics,
+        }
         try:
-            state = {
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "cycle_count": self.cycle_count,
-                "insights_generated": self.insights_generated,
-                "current_cycle_interval": self.current_cycle_interval,
-                "schedule": self.schedule,
-                "activity_window": self.activity_window[-12:],
-                "low_activity_streak": self.low_activity_streak,
-                "last_cycle_metrics": self.last_cycle_metrics,
-            }
-            os.makedirs(os.path.dirname(EVOLUTION_STATE_PATH), exist_ok=True)
-            with open(EVOLUTION_STATE_PATH, "w") as f:
-                json.dump(state, f, indent=2)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _write_state_to_disk, state, EVOLUTION_STATE_PATH)
         except Exception as e:
             self.log(f"Failed to save evolution state: {e}")
 
@@ -358,7 +364,7 @@ Output just the insight, max 60 words."""
             self.log("No memories to process")
             metrics["adaptation"] = "none"
             self.last_cycle_metrics = metrics
-            self._save_evolution_state()
+            await self._save_evolution_state()
             return
         
         self.log(f"Processing {len(memories)} memories")
@@ -422,7 +428,7 @@ Output just the insight, max 60 words."""
         self._adapt_evolution_policy(metrics)
         self._record_cycle_learning(metrics)
         self.last_cycle_metrics = metrics
-        self._save_evolution_state()
+        await self._save_evolution_state()
         
         self.log(
             "Cycle complete. "
