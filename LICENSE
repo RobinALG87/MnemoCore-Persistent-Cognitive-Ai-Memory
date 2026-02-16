@@ -1,24 +1,22 @@
-Business Source License 1.1
+MIT License
 
-Parameters:
-* Licensor: Robin Granberg
-* Licensed Work: MnemoCore (Holographic Active Inference Memory) Public Dev Version v1.0
-* Additional Use Grant: You may use the Licensed Work for non-commercial purposes, including personal projects, research, and educational use.
-* Change License: MIT License
-* Change Date: 2026-02-15
+Copyright (c) 2026 Robin Granberg
+Contact: Robin@veristatesystems.com
 
-TERMS:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-2. The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-3. FOR NON-COMMERCIAL USE: The Software may be used, modified, and redistributed freely for any non-commercial purpose.
-
-4. FOR COMMERCIAL USE: Any use of the Software for commercial purposes (including but not limited to providing paid services, embedding in a commercial product, or use within a profit-generating organization) requires a separate commercial license from the Licensor.
-
-5. CHANGE TO OPEN SOURCE: On the Change Date specified above, this license shall automatically transition to the Change License (MIT License).
-
-6. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Copyright (c) 2026 Robin Granberg. All rights reserved.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

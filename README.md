@@ -4,7 +4,7 @@
 
 ### MIT License
 
-This project is licensed under the MIT License. For the terms of this license, please refer to the LICENSE file. BSL transition date is 2026-02-15.
+This project is licensed under the MIT License. For the full terms, see the LICENSE file.
 
 ### Technical Specifications
 
@@ -26,7 +26,7 @@ Refer to the examples provided in the repository for detailed usage instructions
 
 ### Contact Information
 
-For any inquiries, please reach out to robin@veristatesystems.com.
+For any inquiries, please reach out to Robin@veristatesystems.com.
 
 ### Comprehensive Architecture Details
 
