@@ -13,7 +13,7 @@ import asyncio
 import logging
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -83,7 +83,7 @@ async def run_in_thread(func, *args, **kwargs):
 # --- Request Models ---
 
 class StoreRequest(BaseModel):
-    content: str
+    content: str = Field(..., max_length=100000)
     metadata: Optional[Dict[str, Any]] = None
     agent_id: Optional[str] = None
     # Phase 3.5: TTL
