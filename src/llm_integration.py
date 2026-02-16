@@ -4,9 +4,10 @@ Integrates Gemini 3 Pro with HAIM for reconstructive recall
 """
 
 import json
+from datetime import datetime
 from typing import List, Dict, Optional
-from haim.src.core.engine import HAIMEngine
-from haim.src.core.node import MemoryNode
+from src.core.engine import HAIMEngine
+from src.core.node import MemoryNode
 
 class HAIMLLMIntegrator:
     """Bridge between HAIM holographic memory and LLM reasoning"""
@@ -31,7 +32,7 @@ class HAIMLLMIntegrator:
         # Extract memory content
         memory_fragments = []
         for node_id, similarity in results:
-            node = self.haim.memory_nodes.get(node_id)
+            node = self.haim.tier_manager.get_memory(node_id)
             if node:
                 memory_fragments.append({
                     "content": node.content,
@@ -102,8 +103,10 @@ Reconstruction:"""
         Returns LLM evaluation of which hypothesis is most likely
         """
         # Create superposition of all hypotheses
-        superposition = self.haim.superposition_query(hypotheses)
-
+        # TODO: superposition_query() not implemented in HAIMEngine
+        # For now, combine hypotheses into a single query string
+        combined_query = " ".join(hypotheses)
+        
         # Query memories related to superposition
         # (This would require modifying HAIMEngine to accept HDV query)
         results = self.haim.query(query, top_k=10)
@@ -111,7 +114,7 @@ Reconstruction:"""
         # Extract relevant memories
         relevant_memories = []
         for node_id, similarity in results:
-            node = self.haim.memory_nodes.get(node_id)
+            node = self.haim.tier_manager.get_memory(node_id)
             if node:
                 relevant_memories.append({
                     "content": node.content,
@@ -179,7 +182,7 @@ Evaluation:"""
         Reconsolidate memory with new context
         Similar to how human memories are rewritten when recalled
         """
-        node = self.haim.memory_nodes.get(node_id)
+        node = self.haim.tier_manager.get_memory(node_id)
         if not node:
             return
 
@@ -241,12 +244,12 @@ class MultiAgentHAIM:
         node_id = self.shared_memory.store(content, metadata)
 
         # Update metadata with agent info
-        node = self.shared_memory.memory_nodes.get(node_id)
+        node = self.shared_memory.tier_manager.get_memory(node_id)
         if node:
             node.metadata = node.metadata or {}
             node.metadata["learned_by"] = agent_id
             node.metadata["agent_role"] = self.agents[agent_id]["role"]
-            node.metadata["timestamp"] = "2026-02-04"
+            node.metadata["timestamp"] = datetime.now().isoformat()
 
         return node_id
 
@@ -269,7 +272,7 @@ class MultiAgentHAIM:
         # Enrich with agent context
         enriched = []
         for node_id, similarity in results:
-            node = self.shared_memory.memory_nodes.get(node_id)
+            node = self.shared_memory.tier_manager.get_memory(node_id)
             if node:
                 enriched.append({
                     "node_id": node_id,
@@ -293,7 +296,10 @@ class MultiAgentHAIM:
         Strengthen connection between concepts across agents
         When ANY agent fires this connection, ALL agents benefit
         """
-        self.shared_memory.bind_concepts(concept_a, concept_b, success)
+        # Use bind_memories instead of non-existent bind_concepts
+        # Note: This requires memory IDs, not concept strings
+        # TODO: Implement concept-to-memory-ID mapping or add bind_concepts to engine
+        pass  # Placeholder until proper implementation
 
     def collective_orch_or(
         self,
@@ -309,20 +315,18 @@ class MultiAgentHAIM:
             raise ValueError(f"Agent {agent_id} not found")
 
         # Get all active nodes (in production, filter by relevance)
-        active_nodes = list(self.shared_memory.memory_nodes.values())
+        active_nodes = list(self.shared_memory.tier_manager.hot.values())
 
-        # Orchestrated collapse
-        collapsed = self.shared_memory.orchestrate_orch_or(
-            active_nodes=active_nodes,
-            max_collapse=max_collapse
-        )
+        # TODO: orchestrate_orch_or() not implemented in HAIMEngine
+        # For now, return top nodes sorted by LTP strength as a proxy for "collapse"
+        collapsed = sorted(active_nodes, key=lambda n: getattr(n, 'ltp_strength', 0), reverse=True)[:max_collapse]
 
         # Enrich with agent context
         result = []
         for node in collapsed:
             result.append({
                 "content": node.content,
-                "free_energy_score": node.get_free_energy_score(),
+                "free_energy_score": getattr(node, 'epistemic_value', 0.0),
                 "metadata": node.metadata,
                 "collapsed_by": agent_id,
                 "agent_role": self.agents[agent_id]["role"]

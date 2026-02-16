@@ -367,8 +367,25 @@ class HAIMEngine:
             logger.error(f"Error loading synapses: {e}")
 
     def _save_synapses(self):
-         # Same as before...
-         pass
+        """Save synapses to disk in JSONL format."""
+        try:
+            # Ensure parent directory exists
+            os.makedirs(os.path.dirname(self.synapse_path), exist_ok=True)
+            
+            with open(self.synapse_path, 'w') as f:
+                for synapse_key, synapse in self.synapses.items():
+                    rec = {
+                        'neuron_a_id': synapse.neuron_a_id,
+                        'neuron_b_id': synapse.neuron_b_id,
+                        'strength': synapse.base_strength,
+                        'fire_count': synapse.fire_count,
+                        'success_count': synapse.success_count,
+                    }
+                    if synapse.last_fired:
+                        rec['last_fired'] = synapse.last_fired.isoformat()
+                    f.write(json.dumps(rec) + "\n")
+        except Exception as e:
+            logger.error(f"Error saving synapses: {e}")
 
     def _append_persisted(self, node: MemoryNode):
         """Append-only log."""

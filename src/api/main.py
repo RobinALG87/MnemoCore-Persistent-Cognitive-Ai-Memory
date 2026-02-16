@@ -226,7 +226,7 @@ async def get_memory(memory_id: str):
 async def delete_memory(memory_id: str):
     """Delete a memory."""
     # Engine delete (sync) - wait, engine doesn't expose delete explicitly except internal dictionary manip
-    if memory_id not in engine.memory_nodes and not engine.tier_manager.get_memory(memory_id):
+    if memory_id not in engine.tier_manager.hot and not engine.tier_manager.get_memory(memory_id):
           raise HTTPException(status_code=404, detail="Memory not found")
     
     # Primitives to delete from tier manager?
