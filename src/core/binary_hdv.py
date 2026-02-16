@@ -126,12 +126,47 @@ class BinaryHDV:
         # Normalize shift to positive value within dimension
         shift = shift % self.dimension
 
-        # Convert to unpacked bits, roll, repack
-        bits = np.unpackbits(self.data)
-        bits = np.roll(bits, shift)
-        return BinaryHDV(
-            data=np.packbits(bits), dimension=self.dimension
-        )
+        # Optimization: Use bitwise operations for large dimensions to avoid
+        # expensive unpackbits/packbits. Threshold determined empirically (32k).
+        if self.dimension < 32768:
+            # Convert to unpacked bits, roll, repack (faster for small D)
+            bits = np.unpackbits(self.data)
+            bits = np.roll(bits, shift)
+            return BinaryHDV(
+                data=np.packbits(bits), dimension=self.dimension
+            )
+        else:
+            # Bitwise operation approach (faster for large D)
+            byte_shift = shift // 8
+            bit_shift = shift % 8
+
+            # 1. Byte level shift (circular)
+            data = np.roll(self.data, byte_shift)
+
+            # 2. Bit level shift (if needed)
+            if bit_shift > 0:
+                r_shift = 8 - bit_shift
+                # Calculate bits that wrap from previous byte
+                # low_part[i] gets the top `bit_shift` bits of data[i-1]
+                # moved to the bottom.
+                # data[i-1] corresponds to np.roll(data, 1)[i]?
+                # No, np.roll(data, 1) puts data[N-1] at index 0.
+                # Let's use slicing to be explicit and avoid extra roll copy.
+
+                # Construct array of "bits from previous byte"
+                # For index 0, previous is index -1.
+                low_part = np.empty_like(data)
+                low_part[0] = data[-1] << r_shift
+                low_part[1:] = data[:-1] << r_shift
+
+                # Shift current byte bits right
+                data >>= bit_shift
+                # Combine
+                data |= low_part
+
+            return BinaryHDV(
+                data=data, dimension=self.dimension
+            )
 
     def invert(self) -> "BinaryHDV":
         """Bitwise NOT — produces the maximally distant vector."""
@@ -260,7 +295,10 @@ def majority_bundle(
     dimension = vectors[0].dimension
 
     # Unpack all vectors to bits
-    all_bits = np.stack([np.unpackbits(v.data) for v in vectors], axis=0)  # (K, D)
+    # Optimization: Stack packed data first, then unpack all at once
+    # This avoids K calls to unpackbits and list comprehension overhead
+    packed_data = np.stack([v.data for v in vectors], axis=0)  # (K, D//8)
+    all_bits = np.unpackbits(packed_data, axis=1)  # (K, D)
 
     # Sum along vectors axis: count of 1-bits per position
     sums = all_bits.sum(axis=0)  # (D,)
