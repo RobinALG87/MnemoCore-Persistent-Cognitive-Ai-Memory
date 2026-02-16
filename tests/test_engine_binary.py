@@ -102,6 +102,7 @@ class TestBinaryEngine:
         mid2 = binary_engine.store("Memory B")
         
         # Create a synapse between them and fire it multiple times
+        # Note: bind_memories automatically saves synapses after each call
         binary_engine.bind_memories(mid1, mid2, success=True)
         binary_engine.bind_memories(mid1, mid2, success=True)
         binary_engine.bind_memories(mid1, mid2, success=False)
@@ -120,10 +121,10 @@ class TestBinaryEngine:
         assert original_success_count == 2
         assert original_strength > 0.1  # Should have increased from initial
         
-        # Save synapses (already called by bind_memories, but call explicitly for clarity)
-        binary_engine._save_synapses()
-        
-        # Create a new engine instance with the same paths to simulate reload
+        # Create a new engine instance to simulate reload
+        # The environment variables are still set from the fixture,
+        # so engine2 uses the same storage paths as binary_engine
+        reset_config()  # Force reload of config to pick up env vars
         engine2 = HAIMEngine()
         
         # Verify the synapse was loaded correctly
