@@ -1,5 +1,6 @@
 from typing import List, Tuple, Dict, Optional, Union
 import heapq
+from itertools import islice
 import numpy as np
 import hashlib
 import os
@@ -73,7 +74,14 @@ class HAIMEngine:
     def _current_context_vector(self, sample_n: int = 50) -> Union[HDV, BinaryHDV]:
         """Superpose a slice of working memory (HOT tier) into a single context vector."""
         # Get recent nodes from HOT tier
-        recent_nodes = list(self.tier_manager.hot.values())[-sample_n:]
+        # Optimized to avoid O(N) list copy
+        if sample_n <= 0:
+            recent_nodes = []
+        else:
+            # Get last sample_n items (newest) efficiently
+            recent_nodes = list(islice(reversed(self.tier_manager.hot.values()), sample_n))
+            # Reverse back to maintain chronological order (oldest -> newest)
+            recent_nodes.reverse()
         
         if not recent_nodes:
             if self.config.encoding.mode == "binary":
@@ -377,7 +385,7 @@ class HAIMEngine:
                     rec = {
                         'neuron_a_id': synapse.neuron_a_id,
                         'neuron_b_id': synapse.neuron_b_id,
-                        'strength': synapse.base_strength,
+                        'strength': synapse.strength,
                         'fire_count': synapse.fire_count,
                         'success_count': synapse.success_count,
                     }
