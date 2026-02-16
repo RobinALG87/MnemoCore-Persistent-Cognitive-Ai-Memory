@@ -286,29 +286,50 @@ Output as JSON array:
     
     # === PHASE 4: Git Push (05:30) ===
     
+    async def _run_git(self, args: List[str], cwd: str, check: bool = True) -> subprocess.CompletedProcess:
+        """Run a git command asynchronously."""
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        stdout_str = stdout.decode()
+        stderr_str = stderr.decode()
+
+        if check and process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, args, output=stdout_str, stderr=stderr_str)
+
+        return subprocess.CompletedProcess(args, process.returncode, stdout=stdout_str, stderr=stderr_str)
+
     async def git_push_phase(self):
         """Push all changes to GitHub."""
         self.log("=== GIT PUSH PHASE ===")
         
         try:
             # Stage all changes in HAIM
-            subprocess.run(["git", "add", "."], cwd=HAIM_PATH, check=True)
+            await self._run_git(["git", "add", "."], cwd=HAIM_PATH, check=True)
             
             # Commit with date
             commit_msg = f"[NightLab] Autonomous evolution - {self.session.date}"
-            result = subprocess.run(
+            result = await self._run_git(
                 ["git", "commit", "-m", commit_msg],
                 cwd=HAIM_PATH,
-                capture_output=True,
-                text=True
+                check=False
             )
             
             if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
                 self.log("No changes to commit")
             else:
                 # Push
-                subprocess.run(["git", "push"], cwd=HAIM_PATH, check=True)
+                await self._run_git(["git", "push"], cwd=HAIM_PATH, check=True)
                 self.log("Pushed to GitHub")
+        except subprocess.CalledProcessError as e:
+            self.log(f"Git error: {e}")
+            if e.stderr:
+                self.log(f"Git stderr: {e.stderr}")
+            self.session.errors.append(f"Git push failed: {e}")
         except Exception as e:
             self.log(f"Git error: {e}")
             self.session.errors.append(f"Git push failed: {e}")
