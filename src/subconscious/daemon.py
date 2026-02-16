@@ -320,8 +320,8 @@ Output just the insight, max 60 words."""
     async def store_insight(self, content: str, meta: Dict[str, Any]):
         """Helper to store insight and publish event."""
         # Store in Engine (Sync)
-        # Assuming engine.store is sync
-        mem_id = self.engine.store(content, metadata=meta)
+        # Offload sync I/O to thread to avoid blocking loop
+        mem_id = await asyncio.to_thread(self.engine.store, content, metadata=meta)
         
         # Publish Event (Async)
         if self.storage:
