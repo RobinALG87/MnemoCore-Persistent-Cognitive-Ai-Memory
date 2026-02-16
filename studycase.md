@@ -8,7 +8,7 @@ The core mission is to solve the "Scalability vs. Agency" paradox: How to mainta
 ---
 
 ## 2. The Architectural Consensus
-Based on a cross-model technical review (Gemini 3 Pro, Codex, and external reasoning models), four critical pillars have been identified for the "Adaptive Engine" upgrade.
+Based on a cross-model technical review (Advanced Reasoning Models), four critical pillars have been identified for the "Adaptive Engine" upgrade.
 
 ### Pillar I: Robust Binary VSA (Vector Symbolic Architecture)
 The system transitions from 10,000-D bipolar vectors to **16,384-D (2^14) Binary Vectors**.

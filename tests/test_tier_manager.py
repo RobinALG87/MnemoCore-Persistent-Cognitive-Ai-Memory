@@ -12,7 +12,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
+import numpy as np
 import pytest
+from unittest.mock import patch, MagicMock
 
 from src.core.binary_hdv import BinaryHDV
 from src.core.config import get_config, reset_config
@@ -52,7 +54,12 @@ def test_config(tmp_path):
 
 @pytest.fixture
 def tier_manager(test_config):
-    return TierManager()
+    # Mock QdrantClient to raise error, forcing fallback to file system
+    with patch("qdrant_client.QdrantClient", side_effect=Exception("Qdrant Mock Fail")):
+        tm = TierManager()
+    # Explicitly ensure use_qdrant is False (though exception should handle it)
+    tm.use_qdrant = False
+    return tm
 
 
 class TestLTPCalculation:

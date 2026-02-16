@@ -65,6 +65,11 @@ class GPUConfig:
 
 
 @dataclass(frozen=True)
+class SecurityConfig:
+    api_key: str = "mnemocore-beta-key"
+
+
+@dataclass(frozen=True)
 class ObservabilityConfig:
     metrics_port: int = 9090
     log_level: str = "INFO"
@@ -118,6 +123,7 @@ class HAIMConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     qdrant: QdrantConfig = field(default_factory=QdrantConfig)
     gpu: GPUConfig = field(default_factory=GPUConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
 
@@ -282,6 +288,12 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         structured_logging=obs_raw.get("structured_logging", True),
     )
 
+    # Build security config
+    sec_raw = raw.get("security", {})
+    security = SecurityConfig(
+        api_key=_env_override("API_KEY", sec_raw.get("api_key", "mnemocore-beta-key")),
+    )
+
     # Build hysteresis config
     hyst_raw = raw.get("hysteresis", {})
     hysteresis = HysteresisConfig(
@@ -301,6 +313,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         redis=redis,
         qdrant=qdrant,
         gpu=gpu,
+        security=security,
         observability=observability,
         paths=paths,
     )

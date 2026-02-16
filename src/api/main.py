@@ -12,7 +12,11 @@ import os
 import asyncio
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Security, Depends
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyHeader
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 
 # Add parent to path
@@ -49,10 +53,15 @@ async def lifespan(app: FastAPI):
         logger.warning("Redis connection failed. Running in degraded mode (local only).")
     
     # Initialize implementation of engine
-    # Ideally engine should be initialized here too
+    logger.info("Initializing HAIMEngine...")
+    app.state.engine = HAIMEngine(persist_path="./data/memory.jsonl")
+    
     yield
     
     # Shutdown: Clean up
+    logger.info("Closing HAIMEngine...")
+    app.state.engine.close()
+    
     logger.info("Closing Async Redis...")
     await async_redis.close()
 
@@ -63,13 +72,40 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Adjust for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Mount Prometheus metrics
 app.mount("/metrics", metrics_app)
 
+# --- Security ---
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
-# Initialize Sync Engine (Global Singleton-ish for now)
-# We keep persistent path as fallback
-engine = HAIMEngine(persist_path="./data/memory.jsonl")
+async def get_api_key(api_key: str = Security(api_key_header)):
+    config = get_config()
+    # Phase 3.5.1 Security - Prioritize config.security.api_key
+    security_config = getattr(config, "security", None)
+    expected_key = getattr(security_config, "api_key", "mnemocore-beta-key") if security_config else "mnemocore-beta-key"
+    
+    if api_key != expected_key:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or missing API Key"
+        )
+    return api_key
+
+
+# engine = HAIMEngine(persist_path="./data/memory.jsonl")
+
+def get_engine(request: Request) -> HAIMEngine:
+    return request.app.state.engine
 
 
 # --- Helpers ---
@@ -107,23 +143,31 @@ class AnalogyRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "MnemoCore", "version": "3.5.1", "phase": "Async I/O"}
+    return {
+        "status": "ok", 
+        "service": "MnemoCore", 
+        "version": "3.5.1", 
+        "phase": "Async I/O",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 
 @app.get("/health")
-async def health():
-    stats = engine.get_stats()
+async def health(engine: HAIMEngine = Depends(get_engine)):
+    # Basic health check without potentially blocking engine stats if desired,
+    # but for HAIM we want to know if engine is alive.
     redis_ok = await AsyncRedisStorage.get_instance().check_health()
     return {
         "status": "healthy" if redis_ok else "degraded",
         "redis_connected": redis_ok,
-        "stats": stats
+        "engine_ready": engine is not None,
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
-@app.post("/store")
+@app.post("/store", dependencies=[Depends(get_api_key)])
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/store"})
-async def store_memory(req: StoreRequest):
+async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engine)):
     API_REQUEST_COUNT.labels(method="POST", endpoint="/store", status="200").inc()
 
     """Store a new memory (Async + Dual Write)."""
@@ -162,9 +206,9 @@ async def store_memory(req: StoreRequest):
     }
 
 
-@app.post("/query")
+@app.post("/query", dependencies=[Depends(get_api_key)])
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/query"})
-async def query_memory(req: QueryRequest):
+async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engine)):
     API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
 
     """Query memories by semantic similarity (Async Wrapper)."""
@@ -192,8 +236,8 @@ async def query_memory(req: QueryRequest):
     }
 
 
-@app.get("/memory/{memory_id}")
-async def get_memory(memory_id: str):
+@app.get("/memory/{memory_id}", dependencies=[Depends(get_api_key)])
+async def get_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
     """Get a specific memory by ID."""
     # Try Redis first (L2 cache)
     storage = AsyncRedisStorage.get_instance()
@@ -222,19 +266,16 @@ async def get_memory(memory_id: str):
     }
 
 
-@app.delete("/memory/{memory_id}")
-async def delete_memory(memory_id: str):
-    """Delete a memory."""
-    # Engine delete (sync) - wait, engine doesn't expose delete explicitly except internal dictionary manip
-    if memory_id not in engine.tier_manager.hot and not engine.tier_manager.get_memory(memory_id):
-          raise HTTPException(status_code=404, detail="Memory not found")
+@app.delete("/memory/{memory_id}", dependencies=[Depends(get_api_key)])
+async def delete_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
+    """Delete a memory via Engine."""
+    # Check if exists first for 404
+    node = engine.get_memory(memory_id)
+    if not node:
+         raise HTTPException(status_code=404, detail="Memory not found")
     
-    # Primitives to delete from tier manager?
-    # Engine delete was: del engine.memory_nodes[memory_id]
-    # We should expose delete in engine properly.
-    # For now, replicate logic:
-    if memory_id in engine.tier_manager.hot:
-        del engine.tier_manager.hot[memory_id]
+    # Engine delete (handles HOT/WARM)
+    await run_in_thread(engine.delete_memory, memory_id)
         
     # Also Redis
     storage = AsyncRedisStorage.get_instance()
@@ -242,16 +283,16 @@ async def delete_memory(memory_id: str):
     
     return {"ok": True, "deleted": memory_id}
 
-# --- Conceptual Endpoints (Async Wrappers) ---
+# --- Conceptual Endpoints ---
 
-@app.post("/concept")
-async def define_concept(req: ConceptRequest):
+@app.post("/concept", dependencies=[Depends(get_api_key)])
+async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_engine)):
     await run_in_thread(engine.define_concept, req.name, req.attributes)
     return {"ok": True, "concept": req.name}
 
 
-@app.post("/analogy")
-async def solve_analogy(req: AnalogyRequest):
+@app.post("/analogy", dependencies=[Depends(get_api_key)])
+async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_engine)):
     results = await run_in_thread(
         engine.reason_by_analogy,
         req.source_concept,
@@ -265,8 +306,9 @@ async def solve_analogy(req: AnalogyRequest):
     }
 
 
-@app.get("/stats")
-async def get_stats():
+@app.get("/stats", dependencies=[Depends(get_api_key)])
+async def get_stats(engine: HAIMEngine = Depends(get_engine)):
+    """Get aggregate engine stats."""
     return await run_in_thread(engine.get_stats)
 
 if __name__ == "__main__":

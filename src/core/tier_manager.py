@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+import threading
 from .binary_hdv import BinaryHDV
 from .config import get_config
 from .hdv import HDV
@@ -43,6 +44,7 @@ class TierManager:
 
     def __init__(self):
         self.config = get_config()
+        self.lock = threading.Lock()
         
         # HOT Tier: In-memory dictionary
         self.hot: Dict[str, MemoryNode] = {}
@@ -67,39 +69,74 @@ class TierManager:
     def add_memory(self, node: MemoryNode):
         """Add a new memory node. New memories are always HOT initially."""
         node.tier = "hot"
-        self.hot[node.id] = node
-        
-        # Check capacity
-        if len(self.hot) > self.config.tiers_hot.max_memories:
-            self._evict_from_hot()
+        with self.lock:
+            self.hot[node.id] = node
+            
+            # Check capacity
+            if len(self.hot) > self.config.tiers_hot.max_memories:
+                self._evict_from_hot()
 
     def get_memory(self, node_id: str) -> Optional[MemoryNode]:
         """Retrieve memory by ID from any tier."""
         # Check HOT
-        if node_id in self.hot:
-            node = self.hot[node_id]
-            node.access()
-            self._check_demotion(node)
-            return node
+        with self.lock:
+            if node_id in self.hot:
+                node = self.hot[node_id]
+                node.access()
+                self._check_demotion(node)
+                return node
             
         # Check WARM (Qdrant or Disk)
         warm_node = self._load_from_warm(node_id)
         if warm_node:
             warm_node.tier = "warm"
             warm_node.access()
-            self._check_promotion(warm_node)
+            with self.lock:
+                self._check_promotion(warm_node)
             return warm_node
             
         return None
 
+    def delete_memory(self, node_id: str):
+        """Robust delete from all tiers."""
+        with self.lock:
+            if node_id in self.hot:
+                del self.hot[node_id]
+                logger.debug(f"Deleted {node_id} from HOT")
+        
+        self._delete_from_warm(node_id)
+
+    def _delete_from_warm(self, node_id: str) -> bool:
+        """Internal helper to delete from warm and return if found."""
+        deleted = False
+        if self.use_qdrant:
+            try:
+                self.qdrant.delete(self.config.qdrant.collection_warm, [node_id])
+                deleted = True 
+            except Exception as e:
+                logger.warning(f"Qdrant delete failed for {node_id}: {e}")
+        
+        # Filesystem fallback/check
+        if hasattr(self, 'warm_path'):
+            npy = self.warm_path / f"{node_id}.npy"
+            jsn = self.warm_path / f"{node_id}.json"
+            if npy.exists() or jsn.exists():
+                npy.unlink(missing_ok=True)
+                jsn.unlink(missing_ok=True)
+                deleted = True
+                logger.debug(f"Deleted {node_id} from WARM (FS)")
+        
+        return deleted
+
     def _evict_from_hot(self):
-        """Evict lowest-LTP memory from HOT to WARM."""
+        """Evict lowest-LTP memory from HOT to WARM. Assumes lock is held."""
         if not self.hot:
             return
 
         sorted_nodes = sorted(self.hot.values(), key=lambda n: n.ltp_strength)
         victim = sorted_nodes[0]
         
+        logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
         del self.hot[victim.id]
         victim.tier = "warm"
         self._save_to_warm(victim)
@@ -266,12 +303,13 @@ class TierManager:
         return None
 
     def _check_promotion(self, node: MemoryNode):
-        """Check if WARM node should be promoted to HOT."""
+        """Check if WARM node should be promoted to HOT. Assumes lock is held."""
         threshold = self.config.tiers_hot.ltp_threshold_min
         delta = self.config.hysteresis.promote_delta
         
         if node.ltp_strength > (threshold + delta):
             # Promote!
+            logger.info(f"Promoting {node.id} to HOT (LTP: {node.ltp_strength:.4f})")
             self._delete_from_warm(node.id)
             node.tier = "hot"
             self.hot[node.id] = node
@@ -281,31 +319,38 @@ class TierManager:
                 self._evict_from_hot()
 
     def _check_demotion(self, node: MemoryNode):
-        """Check if HOT node should be demoted to WARM."""
+        """Check if HOT node should be demoted to WARM. Assumes lock is held."""
         threshold = self.config.tiers_hot.ltp_threshold_min
         delta = self.config.hysteresis.demote_delta
         
         if node.ltp_strength < (threshold - delta):
             # Demote!
+            logger.info(f"Demoting {node.id} to WARM (LTP: {node.ltp_strength:.4f})")
             del self.hot[node.id]
             node.tier = "warm"
             self._save_to_warm(node)
 
-    def _delete_from_warm(self, node_id: str):
-        """Delete from WARM tier."""
+    def get_stats(self) -> Dict:
+        """Get statistics about memory distribution across tiers."""
+        stats = {
+            "hot_count": len(self.hot),
+            "warm_count": 0,
+            "cold_count": 0, 
+            "using_qdrant": self.use_qdrant
+        }
+        
+        # Estimate WARM count
         if self.use_qdrant:
             try:
-                self.qdrant.delete(self.config.qdrant.collection_warm, [node_id])
-            except Exception as e:
-                logger.warning(f"Could not delete {node_id} from Qdrant: {e}")
-        
-        # Also clean filesystem just in case of mixed usage
-        if hasattr(self, 'warm_path'):
-            try:
-                (self.warm_path / f"{node_id}.npy").unlink(missing_ok=True)
-                (self.warm_path / f"{node_id}.json").unlink(missing_ok=True)
+                info = self.qdrant.client.get_collection(self.config.qdrant.collection_warm)
+                stats["warm_count"] = info.points_count
             except Exception:
-                pass
+                stats["warm_count"] = -1
+        else:
+            if hasattr(self, 'warm_path'):
+                stats["warm_count"] = len(list(self.warm_path.glob("*.json")))
+
+        return stats
 
     def consolidate_warm_to_cold(self):
         """
@@ -316,27 +361,43 @@ class TierManager:
         
         # If using Qdrant, scroll
         if self.use_qdrant:
-            # Scroll through Qdrant
             offset = None
+            
             while True:
                 points, next_offset = self.qdrant.scroll(
                     self.config.qdrant.collection_warm, 
                     limit=100, 
-                    offset=offset
+                    offset=offset,
+                    with_vectors=True
                 )
+                
                 if not points:
                     break
                     
+                ids_to_delete = []
                 for pt in points:
-                    ltp = pt.payload.get("ltp_strength", 0.0)
+                    payload = pt.payload
+                    ltp = payload.get("ltp_strength", 0.0)
+                    
                     if ltp < min_ltp:
-                        # Archive logic using payload data + reconstruct logic
-                        # Simplified: Re-use _load_from_warm logic or redundant fetch?
-                        # Since scroll returns payload but not vector (unless with_vectors=True),
-                        # we need to fetch vector or set with_vectors=True above.
-                        # Let's assume we implement full archive properly later or fetch singly.
-                        pass # TODO: Implement full consolidation with Qdrant
+                        # Archive logic
+                        # Reconstruct vector format for archive (packed if binary)
+                        vec_data = pt.vector
+                        
+                        if payload.get("hdv_type") == "binary" and vec_data:
+                            # Convert list of floats/ints to packed uint8 list
+                            arr = np.array(vec_data) > 0.5
+                            packed = np.packbits(arr.astype(np.uint8))
+                            payload["hdv_vector"] = packed.tolist()
+                        else:
+                            payload["hdv_vector"] = vec_data if vec_data else []
+
+                        self._write_to_cold(payload)
+                        ids_to_delete.append(pt.id)
                 
+                if ids_to_delete:
+                    self.qdrant.delete(self.config.qdrant.collection_warm, ids_to_delete)
+
                 offset = next_offset
                 if offset is None:
                     break
@@ -348,36 +409,26 @@ class TierManager:
                         with open(meta_file, "r") as f:
                             meta = json.load(f)
                         
-                        ltp = meta.get("ltp_strength", 0.0)
-                        node_id = meta["id"]
-                        
-                        if ltp < min_ltp:
-                            self._archive_to_cold(node_id, meta)
+                        if meta.get("ltp_strength", 0.0) < min_ltp:
+                            self._archive_to_cold(meta["id"], meta)
                     except Exception as e:
-                        logger.error(f"Error processing {meta_file} for consolidation: {e}")
+                        logger.error(f"Error processing {meta_file}: {e}")
 
-    def _archive_to_cold(self, node_id: str, meta: dict):
-        """Move memory to COLD storage (compressed JSONL)."""
-        # Load the HDV first to archive it fully (need to handle Qdrant here too)
-        # For Phase 3.5 MVP, let's keep COLD logic focused on file fallback for now.
-        # Advancing this is tricky without vector fetch. 
-        # Leaving existing file logic.
-        
-        hdv_path = self.warm_path / f"{node_id}.npy"
-        if not hdv_path.exists():
-            return
-            
-        hdv_data = np.load(hdv_path)
-        
-        record = meta.copy()
-        record["hdv_vector"] = hdv_data.tolist()
+    def _write_to_cold(self, record: dict):
+        """Write a record to the cold archive."""
         record["tier"] = "cold"
         record["archived_at"] = datetime.now(timezone.utc).isoformat()
-        
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         archive_file = self.cold_path / f"archive_{today}.jsonl.gz"
-        
         with gzip.open(archive_file, "at", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
-            
+
+    def _archive_to_cold(self, node_id: str, meta: dict):
+        """Move memory to COLD storage (File System Fallback)."""
+        hdv_path = self.warm_path / f"{node_id}.npy"
+        if not hdv_path.exists(): return
+        hdv_data = np.load(hdv_path)
+        record = meta.copy()
+        record["hdv_vector"] = hdv_data.tolist()
+        self._write_to_cold(record)
         self._delete_from_warm(node_id)

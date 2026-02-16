@@ -1,5 +1,5 @@
 """
-Omega Subconscious Daemon
+MnemoCore Subconscious Daemon
 =========================
 Continuous background processing using Gemma 1B via Ollama.
 Performs: concept extraction, parallel drawing, memory valuation, thought sorting.

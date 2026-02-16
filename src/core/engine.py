@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Optional, Union
+from typing import List, Tuple, Dict, Optional, Union, Any
 import heapq
 from itertools import islice
 import numpy as np
@@ -59,6 +59,7 @@ class HAIMEngine:
         Calculate Expected Information Gain (EIG).
         Proportional to novelty (distance) against the context.
         """
+        # Proprietary novelty detection logic - Adaptive EIG calculation
         if isinstance(candidate, BinaryHDV) and isinstance(context, BinaryHDV):
             # Normalized Hamming distance: 0.0 (identical) to 1.0 (opposite)
             # Novelty = distance (0 = no info, 1 = max info)
@@ -174,7 +175,38 @@ class HAIMEngine:
         self.subconscious_queue.append(node_id)
         self._background_dream(depth=1)
 
+        logger.info(f"Stored memory {node_id} (EIG: {metadata.get('eig', 0.0):.4f})")
         return node_id
+
+    def delete_memory(self, node_id: str) -> bool:
+        """
+        Delete a memory from all internal states and storage tiers.
+        Returns True if something was deleted.
+        """
+        logger.info(f"Deleting memory {node_id}")
+        
+        # 1. Remove from TierManager (HOT/WARM/COLD-pending)
+        deleted = self.tier_manager.delete_memory(node_id)
+        
+        # 2. Remove from subconscious queue if present
+        if node_id in self.subconscious_queue:
+            self.subconscious_queue.remove(node_id)
+            
+        # 3. Clean up synapses
+        keys_to_remove = [k for k in self.synapses.keys() if node_id in k]
+        for k in keys_to_remove:
+            del self.synapses[k]
+        
+        if keys_to_remove:
+            self._save_synapses()
+            
+        return deleted
+
+    def close(self):
+        """Perform graceful shutdown of engine components."""
+        logger.info("Shutting down HAIMEngine...")
+        self._save_synapses()
+        pass
 
     def query(
         self,
@@ -282,6 +314,22 @@ class HAIMEngine:
                 boost *= (1.0 + synapse.get_current_strength())
         return boost
 
+    def get_stats(self) -> Dict[str, Any]:
+        """Aggregate statistics from engine components."""
+        # Check if tier_manager has get_stats
+        tier_stats = self.tier_manager.get_stats()
+        
+        return {
+            "engine_version": "3.5.1",
+            "dimension": self.dimension,
+            "tiers": tier_stats,
+            "concepts_count": len(self.soul.concepts),
+            "symbols_count": len(self.soul.symbols),
+            "synapses_count": len(self.synapses),
+            "subconscious_backlog": len(self.subconscious_queue),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
     def encode_content(self, content: str) -> Union[HDV, BinaryHDV]:
         """Encode text to HDV (Binary or Legacy Float)."""
         if self.config.encoding.mode == "binary":
@@ -299,6 +347,7 @@ class HAIMEngine:
 
     def _legacy_encode_content_numpy(self, content: str) -> np.ndarray:
         """Original localized encoding logic for backward compatibility."""
+        # Legacy stochastic encoding process - Preserved for v2 data compatibility
         import re
         tokens = re.findall(r'\w+', content.lower())
         if not tokens:

@@ -342,7 +342,7 @@ class MultiAgentHAIM:
         # Agent 0 (Research) learns something
         mem_0 = self.agent_learn(
             agent_id="agent_0",
-            content="Omega Market Integrity Engine uses three signal groups: SURGE, FLOW, PATTERN",
+            content="MnemoCore Market Integrity Engine uses three signal groups: SURGE, FLOW, PATTERN",
             metadata={"category": "research", "importance": "high"}
         )
 
@@ -356,7 +356,7 @@ class MultiAgentHAIM:
         # Agent 2 (Writing) recalls BOTH memories
         recall_0 = self.agent_recall(
             agent_id="agent_2",
-            query="Omega Engine",
+            query="MnemoCore Engine",
             top_k=1
         )
 
@@ -368,7 +368,7 @@ class MultiAgentHAIM:
 
         # Cross-agent learning: strengthen connection
         self.cross_agent_learning(
-            concept_a="Omega Engine",
+            concept_a="MnemoCore Engine",
             concept_b="HAIM dimensions",
             agent_id="agent_2",
             success=True

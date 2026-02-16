@@ -81,10 +81,14 @@ class QdrantStore:
 
     def upsert(self, collection: str, points: List[models.PointStruct]):
         """Sync batch upsert."""
-        self.client.upsert(
-            collection_name=collection,
-            points=points
-        )
+        try:
+            self.client.upsert(
+                collection_name=collection,
+                points=points
+            )
+        except Exception as e:
+            logger.error(f"Qdrant upsert failed for {collection}: {e}")
+            raise
 
     def search(self, collection: str, query_vector: List[float], limit: int = 5, score_threshold: float = 0.0) -> List[models.ScoredPoint]:
         """Sync semantic search."""
@@ -107,12 +111,12 @@ class QdrantStore:
             return records[0]
         return None
 
-    def scroll(self, collection: str, limit: int = 100, offset: Any = None) -> Any:
+    def scroll(self, collection: str, limit: int = 100, offset: Any = None, with_vectors: bool = False) -> Any:
         """Scroll/Iterate over collection (for consolidation)."""
         return self.client.scroll(
             collection_name=collection,
             limit=limit,
-            with_vectors=False,
+            with_vectors=with_vectors,
             with_payload=True,
             offset=offset
         )

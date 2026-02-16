@@ -79,3 +79,7 @@ haim:
     synapses_file: "./data/synapses.json"
     warm_mmap_dir: "./data/warm_tier"
     cold_archive_dir: "./data/cold_archive"
+
+  # Security (Phase 3.5.1)
+  security:
+    api_key: "mnemocore-beta-key"

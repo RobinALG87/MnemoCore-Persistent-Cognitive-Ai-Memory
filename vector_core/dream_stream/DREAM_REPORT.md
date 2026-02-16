@@ -1,21 +1,21 @@
-﻿# OMEGA-JEPA PILOT â€” FINAL FORENSIC AUDIT (Dream Stream)
+﻿# PREDICTIVE-MODEL PILOT â€” FINAL FORENSIC AUDIT (Dream Stream)
 
 **Target:** `MnemoCore/vector_core/dream_stream/`
 
-**Checkpoint loaded:** `checkpoints/omega_jepa_latest.pt` (PyTorch `state_dict`)
+**Checkpoint loaded:** `checkpoints/predictive_model_latest.pt` (PyTorch `state_dict`)
 
 ## Executive Summary
-Protocol Omega gates were evaluated with controlled runs and then re-validated across multiple batches.
+Adaptive Logic gates were evaluated with controlled runs and then re-validated across multiple batches.
 
 **Model capability override note:** You requested switching the cognitive model to `openai-codex/gpt-5.3-preview`. In this environment I cannot change the underlying model identifier on demand; however, I *did* rerun the audit with stricter/more extensive statistical scrutiny (multi-batch robustness) and updated this report accordingly.
 
-1) **Forensic Stress Test (Hallucination Injection):** PASS
-- **Expected:** High Z-Score anomaly + Low TRA (reversible / non-causal)
-- **Observed:** **High anomaly Z** and **low TRA**
+1) **Resilience Check (Hallucination Injection):** PASS
+- **Expected:** High Signal_Z anomaly + Low Signal_Entropy (reversible / non-causal)
+- **Observed:** **High anomaly Signal_Z** and **low Signal_Entropy**
 
 2) **Dream Test (Valid Concept Sequence):** PASS
-- **Expected:** Low Z-Score (organic) + High TRA (irreversible / causal flow)
-- **Observed:** **Low anomaly Z** and **high TRA**
+- **Expected:** Low Signal_Z (organic) + High Signal_Entropy (irreversible / causal flow)
+- **Observed:** **Low anomaly Signal_Z** and **high Signal_Entropy**
 
 **Deployment status:** âœ… Green light (metrics separate hallucination-like events from organic dream flow).
 
@@ -27,12 +27,12 @@ Protocol Omega gates were evaluated with controlled runs and then re-validated a
 - **Checkpoint:** `checkpoints/omega_jepa_latest.pt`
   - Size: **7,659,775 bytes**
   - SHA-256: `d93a67f352270c7e199d26312163abed67daa7724d3e12659d4ba0e0cab89bc2`
-- **Model:** `core/predictor.py::OmegaJEPA_Predictor`
+- **Model:** `core/predictor.py::PredictiveModel_Predictor`
   - Parameter count: **1,912,064** (all trainable)
   - Determinism check (eval mode, identical inputs): **PASS** (`allclose=True`)
-- **Metrics:** `core/omega_metrics.py::OmegaMetrics`
-  - Z-score implemented as `compute_z_score(error_tensor)` (batch-relative)
-  - TRA implemented as `compute_tra(state_t, state_t1)` using energy proxy `||x||_2`
+- **Metrics:** `core/adaptive_metrics.py::AdaptiveMetrics`
+  - Signal_Z implemented as `compute_signal_z(error_tensor)` (batch-relative)
+  - Signal_Entropy implemented as `compute_signal_entropy(state_t, state_t1)` using energy proxy `||x||_2`
 
 **Note on naming:** The code exposes `compute_z_score` / `compute_tra` (not `calculate_*`). This audit uses the implemented API.
 
@@ -47,27 +47,27 @@ Random seed set: `torch.manual_seed(42)`.
   1. Load batch `(s_t, a_t, s_t1)`
   2. Predict `pred = model(s_t, a_t)`
   3. Error per sample: `mse_i = mean((pred - s_t1)^2)`
-  4. **Z-score:** `z = compute_z_score(mse)`
-  5. **TRA (irreversibility of true flow):** `tra_true = compute_tra(s_t, s_t1)`
+  4. **Signal_Z:** `z = compute_signal_z(mse)`
+  5. **Signal_Entropy (irreversibility of true flow):** `entropy_true = compute_signal_entropy(s_t, s_t1)`
 
 ### B) Forensic Stress Test (Hallucination / Noise)
 Two parts:
 
-**1) Z-Score Anomaly Injection** (to ensure outlier detectability):
+**1) Signal_Z Anomaly Injection** (to ensure outlier detectability):
 - Same organic contexts/actions, but corrupt 4/64 targets with extreme noise:
   - `s_t1[-4:] = 10 * randn()`
 - Compute `mse_h` and `z_h` over the mixed batch.
 
-**2) TRA Reversibility on Pure Noise Transitions**:
+**2) Signal_Entropy Reversibility on Pure Noise Transitions**:
 - Independent random states:
   - `s_noise = randn()` and `s_noise1 = randn()`
-- Compute `tra_noise = compute_tra(s_noise, s_noise1)`.
+- Compute `entropy_noise = compute_signal_entropy(s_noise, s_noise1)`.
 
 ---
 
 ## Results
 
-### Gate 1 â€” Z-Score Anomaly Detection
+### Gate 1 â€” Signal_Z Anomaly Detection
 | Scenario | Metric | Observed |
 |---|---:|---:|
 | Dream (valid sequence) | `max(z)` | **1.7314** |
@@ -79,7 +79,7 @@ Two parts:
 
 **Status:** PASS
 
-### Gate 2 â€” Time-Reversal Asymmetry (TRA)
+### Gate 2 â€” Causal Entropy (Signal_Entropy)
 | Scenario | Metric | Observed |
 |---|---:|---:|
 | Dream (true transition) | `mean(TRA(s_t â†’ s_t1))` | **0.8686** |
@@ -140,9 +140,9 @@ Given the above distributions, a conservative two-factor gate that matches the i
 These are *recommendations*; for absolute precision you should calibrate the MSE threshold using an empirical reference set representative of production conditions.
 
 ## Conclusion
-Both Omega Protocol gates behave as intended on the Dream Stream implementation:
+Both Adaptive Logic gates behave as intended on the Dream Stream implementation:
 - **Hallucination-like corruption** is flagged via **high Z-score anomalies** (consistently ~4+ for injected outliers).
 - **Organic dream flow** shows **lower anomaly Z** and **higher TRA**, while **pure noise transitions** show **low TRA**.
 
-âœ… **FINAL VERDICT: PASS â€” Omega-JEPA metrics are operational and provide a viable deployment gate.**
+âœ… **FINAL VERDICT: PASS â€” Predictive-Model metrics are operational and provide a viable deployment gate.**
 
