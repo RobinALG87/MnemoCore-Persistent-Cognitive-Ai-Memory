@@ -29,7 +29,7 @@ At its core lives the **Holographic Active Inference Memory (HAIM) Engine** — 
 - **Self-organizes** into tiered storage based on biologically-inspired Long-Term Potentiation (LTP)
 - **Scales** from a single process to distributed nodes targeting 1B+ memories
 
-MnemoCore is being developed at **Veristate Systems** as the foundational memory layer for autonomous AI agent systems. Phase 4.0 introduces five cognitive enhancements — contextual query masking, reliability feedback loops, semantic consolidation, auto-associative cleanup, and proactive knowledge gap detection — transforming it from passive storage into an active reasoning substrate.
+Phase 4.0 introduces five cognitive enhancements — contextual query masking, reliability feedback loops, semantic consolidation, auto-associative cleanup, and proactive knowledge gap detection — transforming MnemoCore from passive storage into an active reasoning substrate.
 
 ---
 
@@ -38,7 +38,7 @@ MnemoCore is being developed at **Veristate Systems** as the foundational memory
 - [Architecture](#architecture)
 - [Core Technology](#core-technology-binary-hdv--vsa)
 - [The Memory Lifecycle](#the-memory-lifecycle)
-- [Tiered Storage](#tiered-storage-hotwarmdcold)
+- [Tiered Storage](#tiered-storage-hotwarmcold)
 - [Phase 4.0 Cognitive Enhancements](#phase-40-cognitive-enhancements)
 - [API Reference](#api-reference)
 - [Python Library Usage](#python-library-usage)
@@ -320,11 +320,11 @@ Result: (content ⊕ C) · (query ⊕ C) ≈ content · query
 
 ```python
 # Store memories in a project context
-engine.store("API rate limiting logic", goal_id="Veristate")
+engine.store("API rate limiting logic", goal_id="ProjectAlpha")
 engine.store("Garden watering schedule", goal_id="HomeProject")
 
-# Query with context mask — only Veristate memories surface
-results = engine.query("API logic", top_k=5, context="Veristate")
+# Query with context mask — only ProjectAlpha memories surface
+results = engine.query("API logic", top_k=5, context="ProjectAlpha")
 ```
 
 **Expected impact**: +50–80% query precision (P@5) in multi-project deployments.
@@ -467,7 +467,7 @@ Request:
 {
   "content": "FastAPI uses Pydantic v2 for request validation.",
   "metadata": {"source": "docs", "tags": ["python", "fastapi"]},
-  "context": "Veristate",
+  "context": "ProjectAlpha",
   "agent_id": "agent-001",
   "ttl": 3600
 }
@@ -488,7 +488,7 @@ Request:
 {
   "query": "How does FastAPI handle request validation?",
   "top_k": 5,
-  "context": "Veristate"
+  "context": "ProjectAlpha"
 }
 
 Response:
@@ -662,7 +662,6 @@ print(python_vec.similarity(error_vec))          # ~0.5 (unrelated)
 from src.core.binary_hdv import batch_hamming_distance
 import numpy as np
 
-# Build matrix of packed vectors
 database = np.stack([v.data for v in [python_vec, fastapi_vec, error_vec]])
 distances = batch_hamming_distance(python_vec, database)
 ```
@@ -670,13 +669,10 @@ distances = batch_hamming_distance(python_vec, database)
 ### Reliability Feedback Loop
 
 ```python
-# Store and retrieve
 mem_id = engine.store("Always use asyncio.Lock() in async code, not threading.Lock()")
-
-# Retrieve in context
 results = engine.query("async locking")
 
-# Apply solution in code — it works!
+# It works — report success
 engine.provide_feedback(mem_id, outcome=True, comment="Solved deadlock issue")
 
 # Over time, high-reliability memories get 'verified' tag
@@ -686,7 +682,6 @@ engine.provide_feedback(mem_id, outcome=True, comment="Solved deadlock issue")
 ### Semantic Consolidation
 
 ```python
-# Manual consolidation trigger
 stats = engine.trigger_consolidation()
 print(f"Created {stats['abstractions_created']} semantic anchors")
 print(f"Consolidated {stats['memories_consolidated']} episodic memories")
@@ -985,13 +980,11 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Contact
 
-**Robin Granberg** — Founder, Veristate Systems  
-📧 Robin@veristatesystems.com  
-🌐 [veristatesystems.com](https://veristatesystems.com)
+**Robin Granberg**  
+📧 robin.granberg@proton.me
 
 ---
 
 <p align="center">
-  <i>MnemoCore is a research initiative by Veristate Systems.<br/>
-  Building the cognitive substrate for the next generation of autonomous AI.</i>
+  <i>Building the cognitive substrate for the next generation of autonomous AI.</i>
 </p>
