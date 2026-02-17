@@ -11,6 +11,8 @@ import sys
 import os
 import asyncio
 import logging
+import secrets
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Security, Depends
 from fastapi.responses import JSONResponse
@@ -25,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.core.engine import HAIMEngine
 from src.core.async_storage import AsyncRedisStorage
 from src.core.config import get_config
+from src.api.middleware import SecurityHeadersMiddleware, RateLimiter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,10 +75,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Security Headers
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS
+config = get_config()
+cors_origins = config.security.cors_origins if hasattr(config, "security") else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Adjust for production
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,7 +103,7 @@ async def get_api_key(api_key: str = Security(api_key_header)):
     security_config = getattr(config, "security", None)
     expected_key = getattr(security_config, "api_key", "mnemocore-beta-key") if security_config else "mnemocore-beta-key"
     
-    if api_key != expected_key:
+    if not api_key or not secrets.compare_digest(api_key, expected_key):
         raise HTTPException(
             status_code=403,
             detail="Invalid or missing API Key"
@@ -126,7 +135,7 @@ class StoreRequest(BaseModel):
     ttl: Optional[int] = None
 
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=10000)
     top_k: int = 5
     agent_id: Optional[str] = None
 
@@ -165,7 +174,7 @@ async def health(engine: HAIMEngine = Depends(get_engine)):
     }
 
 
-@app.post("/store", dependencies=[Depends(get_api_key)])
+@app.post("/store", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/store"})
 async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engine)):
     API_REQUEST_COUNT.labels(method="POST", endpoint="/store", status="200").inc()
@@ -206,7 +215,7 @@ async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engin
     }
 
 
-@app.post("/query", dependencies=[Depends(get_api_key)])
+@app.post("/query", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/query"})
 async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engine)):
     API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
@@ -285,13 +294,13 @@ async def delete_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)
 
 # --- Conceptual Endpoints ---
 
-@app.post("/concept", dependencies=[Depends(get_api_key)])
+@app.post("/concept", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
 async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_engine)):
     await run_in_thread(engine.define_concept, req.name, req.attributes)
     return {"ok": True, "concept": req.name}
 
 
-@app.post("/analogy", dependencies=[Depends(get_api_key)])
+@app.post("/analogy", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
 async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_engine)):
     results = await run_in_thread(
         engine.reason_by_analogy,

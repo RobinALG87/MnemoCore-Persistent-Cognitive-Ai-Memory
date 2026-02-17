@@ -9,6 +9,15 @@ def mock_hardware_dependencies():
     mock_redis_instance = AsyncMock()
     mock_redis_instance.check_health.return_value = True
     mock_redis_instance.ping.return_value = True
+
+    # Setup redis_client (synchronous access in middleware)
+    mock_redis_client = MagicMock()
+    mock_pipeline = MagicMock()
+    mock_pipeline.__aenter__.return_value = mock_pipeline
+    mock_pipeline.__aexit__.return_value = None
+    mock_pipeline.execute = AsyncMock(return_value=[1, True]) # Default success
+    mock_redis_client.pipeline.return_value = mock_pipeline
+    mock_redis_instance.redis_client = mock_redis_client
     
     with patch("src.core.async_storage.AsyncRedisStorage.get_instance", return_value=mock_redis_instance), \
          patch("src.core.qdrant_store.QdrantStore.get_instance") as mock_qdrant_get:
