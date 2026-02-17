@@ -455,8 +455,8 @@ class HAIMEngine:
                     'created_at': node.created_at.isoformat()
                 }
                 f.write(json.dumps(rec) + "\n")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to persist memory: {e}")
 
     # --- Conceptual Proxy ---
     def define_concept(self, name: str, attributes: Dict[str, str]):
