@@ -69,6 +69,10 @@ class GPUConfig:
 @dataclass(frozen=True)
 class SecurityConfig:
     api_key: str = "mnemocore-beta-key"
+    cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 100
+    rate_limit_window: int = 60
 
 
 @dataclass(frozen=True)
@@ -294,8 +298,20 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
 
     # Build security config
     sec_raw = raw.get("security", {})
+
+    # Parse CORS origins from env (comma-separated) or config
+    cors_env = os.environ.get("HAIM_CORS_ORIGINS")
+    if cors_env:
+        cors_origins = [o.strip() for o in cors_env.split(",")]
+    else:
+        cors_origins = sec_raw.get("cors_origins", ["*"])
+
     security = SecurityConfig(
         api_key=_env_override("API_KEY", sec_raw.get("api_key", "mnemocore-beta-key")),
+        cors_origins=cors_origins,
+        rate_limit_enabled=_env_override("RATE_LIMIT_ENABLED", sec_raw.get("rate_limit_enabled", True)),
+        rate_limit_requests=_env_override("RATE_LIMIT_REQUESTS", sec_raw.get("rate_limit_requests", 100)),
+        rate_limit_window=_env_override("RATE_LIMIT_WINDOW", sec_raw.get("rate_limit_window", 60)),
     )
 
     # Build hysteresis config
