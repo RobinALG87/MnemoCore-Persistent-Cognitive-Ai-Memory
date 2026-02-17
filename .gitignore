@@ -54,6 +54,13 @@ vector_core/corpus_ready.json
 *.log
 logs/
 
+# Local dependency/vendor dumps
+deps/
+
+# Benchmarks and ad-hoc outputs
+results*.txt
+benchmark_results.txt
+
 # OS
 .DS_Store
 Thumbs.db
