@@ -981,7 +981,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Contact
 
 **Robin Granberg**  
-📧 robin.granberg@proton.me
+📧 robin@veristatesystems.com
 
 ---
 
