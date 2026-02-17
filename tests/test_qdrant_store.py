@@ -32,7 +32,8 @@ class TestQdrantStore(unittest.TestCase):
         # Reset singleton
         QdrantStore._instance = None
         
-        self.store = QdrantStore.get_instance()
+        # Instantiate directly to bypass global mock in conftest
+        self.store = QdrantStore()
         self.mock_client = self.store.client
 
     def tearDown(self):
