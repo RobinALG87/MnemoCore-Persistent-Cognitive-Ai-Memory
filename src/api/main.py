@@ -7,6 +7,7 @@ Fully Async I/O with Redis backing.
 
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
 import sys
 import os
 import asyncio
@@ -17,7 +18,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -119,25 +120,52 @@ async def run_in_thread(func, *args, **kwargs):
 # --- Request Models ---
 
 class StoreRequest(BaseModel):
-    content: str = Field(..., max_length=100000)
+    content: str = Field(..., max_length=100_000)
     metadata: Optional[Dict[str, Any]] = None
     agent_id: Optional[str] = None
     # Phase 3.5: TTL
     ttl: Optional[int] = None
 
+    @field_validator('metadata')
+    @classmethod
+    def check_metadata_size(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if v is None:
+            return v
+        if len(v) > 50:
+            raise ValueError('Too many metadata keys')
+        for key, value in v.items():
+            if len(key) > 64:
+                raise ValueError(f'Metadata key {key} too long')
+            # Metadata values can be Any, but let's limit strings
+            if isinstance(value, str) and len(value) > 1000:
+                raise ValueError(f'Metadata value for {key} too long')
+        return v
+
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=10000)
     top_k: int = 5
     agent_id: Optional[str] = None
 
 class ConceptRequest(BaseModel):
-    name: str
+    name: str = Field(..., max_length=256)
     attributes: Dict[str, str]
 
+    @field_validator('attributes')
+    @classmethod
+    def check_attributes_size(cls, v: Dict[str, str]) -> Dict[str, str]:
+        if len(v) > 50:
+            raise ValueError('Too many attributes')
+        for key, value in v.items():
+            if len(key) > 64:
+                raise ValueError(f'Attribute key {key} too long')
+            if len(value) > 1000:
+                raise ValueError(f'Attribute value for {key} too long')
+        return v
+
 class AnalogyRequest(BaseModel):
-    source_concept: str
-    source_value: str
-    target_concept: str
+    source_concept: str = Field(..., max_length=256)
+    source_value: str = Field(..., max_length=1000)
+    target_concept: str = Field(..., max_length=256)
 
 # --- Endpoints ---
 
