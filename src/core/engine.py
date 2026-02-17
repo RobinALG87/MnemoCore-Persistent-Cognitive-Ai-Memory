@@ -314,6 +314,19 @@ class HAIMEngine:
                 boost *= (1.0 + synapse.get_current_strength())
         return boost
 
+    def cleanup_decay(self, threshold: float = 0.1):
+        """Remove synapses that have decayed below the threshold."""
+        to_remove = []
+        for key, synapse in self.synapses.items():
+            if synapse.get_current_strength() < threshold:
+                to_remove.append(key)
+
+        if to_remove:
+            logger.info(f"Cleaning up {len(to_remove)} decayed synapses")
+            for key in to_remove:
+                del self.synapses[key]
+            self._save_synapses()
+
     def get_stats(self) -> Dict[str, Any]:
         """Aggregate statistics from engine components."""
         # Check if tier_manager has get_stats
