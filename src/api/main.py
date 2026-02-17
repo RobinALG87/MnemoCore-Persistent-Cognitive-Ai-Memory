@@ -11,6 +11,7 @@ import sys
 import os
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Security, Depends
 from fastapi.responses import JSONResponse
@@ -119,25 +120,25 @@ async def run_in_thread(func, *args, **kwargs):
 # --- Request Models ---
 
 class StoreRequest(BaseModel):
-    content: str = Field(..., max_length=100000)
+    content: str = Field(..., max_length=100000, min_length=1)
     metadata: Optional[Dict[str, Any]] = None
     agent_id: Optional[str] = None
     # Phase 3.5: TTL
     ttl: Optional[int] = None
 
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=1000, min_length=1)
     top_k: int = 5
     agent_id: Optional[str] = None
 
 class ConceptRequest(BaseModel):
-    name: str
+    name: str = Field(..., max_length=100, min_length=1)
     attributes: Dict[str, str]
 
 class AnalogyRequest(BaseModel):
-    source_concept: str
-    source_value: str
-    target_concept: str
+    source_concept: str = Field(..., max_length=100, min_length=1)
+    source_value: str = Field(..., max_length=100, min_length=1)
+    target_concept: str = Field(..., max_length=100, min_length=1)
 
 # --- Endpoints ---
 
