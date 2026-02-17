@@ -1,6 +1,7 @@
 from typing import List, Tuple, Dict, Optional, Union, Any
 import heapq
 from itertools import islice
+from collections import defaultdict
 import numpy as np
 import hashlib
 import os
@@ -34,6 +35,7 @@ class HAIMEngine:
         self.binary_encoder = TextEncoder(self.dimension)
         
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
+        self.adjacency_list: Dict[str, List[SynapticConnection]] = defaultdict(list)
 
         # Conceptual Layer (VSA Soul)
         data_dir = self.config.paths.data_dir
@@ -195,7 +197,18 @@ class HAIMEngine:
         # 3. Clean up synapses
         keys_to_remove = [k for k in self.synapses.keys() if node_id in k]
         for k in keys_to_remove:
+            synapse = self.synapses[k]
+            # Remove from adjacency list
+            if synapse in self.adjacency_list[synapse.neuron_a_id]:
+                self.adjacency_list[synapse.neuron_a_id].remove(synapse)
+            if synapse in self.adjacency_list[synapse.neuron_b_id]:
+                self.adjacency_list[synapse.neuron_b_id].remove(synapse)
+
             del self.synapses[k]
+
+        # Clean up empty adjacency entries
+        if node_id in self.adjacency_list:
+            del self.adjacency_list[node_id]
         
         if keys_to_remove:
             self._save_synapses()
@@ -252,25 +265,25 @@ class HAIMEngine:
             for seed_id, seed_score in top_seeds:
                 if seed_score <= 0: continue
                 
-                # Check synapses
-                for synapse_key, synapse in self.synapses.items():
-                    if seed_id in synapse_key:
-                        neighbor = synapse_key[1] if synapse_key[0] == seed_id else synapse_key[0]
-                        # Retrieve neighbor if not in scores (could be in WARM)
-                        if neighbor not in augmented_scores:
-                             # Try to fetch from TierManager (might promote)
-                             mem = self.tier_manager.get_memory(neighbor)
-                             if mem:
-                                 # Compute base sim
-                                 if isinstance(query_vec, BinaryHDV) and isinstance(mem.hdv, BinaryHDV):
-                                     n_sim = query_vec.similarity(mem.hdv)
-                                 else:
-                                     n_sim = 0.0
-                                 augmented_scores[neighbor] = n_sim
-                        
-                        if neighbor in augmented_scores:
-                             spread = seed_score * synapse.get_current_strength() * 0.3
-                             augmented_scores[neighbor] += spread
+                # Check synapses using adjacency list
+                for synapse in self.adjacency_list[seed_id]:
+                    neighbor = synapse.neuron_b_id if synapse.neuron_a_id == seed_id else synapse.neuron_a_id
+
+                    # Retrieve neighbor if not in scores (could be in WARM)
+                    if neighbor not in augmented_scores:
+                            # Try to fetch from TierManager (might promote)
+                            mem = self.tier_manager.get_memory(neighbor)
+                            if mem:
+                                # Compute base sim
+                                if isinstance(query_vec, BinaryHDV) and isinstance(mem.hdv, BinaryHDV):
+                                    n_sim = query_vec.similarity(mem.hdv)
+                                else:
+                                    n_sim = 0.0
+                                augmented_scores[neighbor] = n_sim
+
+                    if neighbor in augmented_scores:
+                            spread = seed_score * synapse.get_current_strength() * 0.3
+                            augmented_scores[neighbor] += spread
             scores = augmented_scores
 
         # Sort
@@ -299,19 +312,23 @@ class HAIMEngine:
             return
 
         synapse_key = tuple(sorted([id_a, id_b]))
-        if synapse_key not in self.synapses:
-            self.synapses[synapse_key] = SynapticConnection(synapse_key[0], synapse_key[1])
+        is_new = synapse_key not in self.synapses
+
+        if is_new:
+            synapse = SynapticConnection(synapse_key[0], synapse_key[1])
+            self.synapses[synapse_key] = synapse
+            # Update adjacency list
+            self.adjacency_list[synapse_key[0]].append(synapse)
+            self.adjacency_list[synapse_key[1]].append(synapse)
 
         self.synapses[synapse_key].fire(success=success)
         self._save_synapses()
 
     def get_node_boost(self, node_id: str) -> float:
         boost = 1.0
-        # Iterate over synapses is inefficient, but okay for Phase 3.0 prototype
-        # Correct approach: Adjacency list
-        for synapse_key, synapse in self.synapses.items():
-            if node_id in synapse_key:
-                boost *= (1.0 + synapse.get_current_strength())
+        # Iterate over neighbors using adjacency list - O(Degree)
+        for synapse in self.adjacency_list[node_id]:
+             boost *= (1.0 + synapse.get_current_strength())
         return boost
 
     def get_stats(self) -> Dict[str, Any]:
@@ -419,7 +436,14 @@ class HAIMEngine:
                     syn.success_count = rec.get('success_count', 0)
                     if 'last_fired' in rec:
                         syn.last_fired = datetime.fromisoformat(rec['last_fired'])
+
+                    # Store in map
                     self.synapses[tuple(sorted([syn.neuron_a_id, syn.neuron_b_id]))] = syn
+
+                    # Store in adjacency list
+                    self.adjacency_list[syn.neuron_a_id].append(syn)
+                    self.adjacency_list[syn.neuron_b_id].append(syn)
+
         except Exception as e:
             logger.error(f"Error loading synapses: {e}")
 

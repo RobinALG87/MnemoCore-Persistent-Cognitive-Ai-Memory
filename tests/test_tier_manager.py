@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
-import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -20,6 +19,7 @@ from src.core.binary_hdv import BinaryHDV
 from src.core.config import get_config, reset_config
 from src.core.node import MemoryNode
 from src.core.tier_manager import TierManager
+from src.core.storage_backends import FileSystemBackend
 
 
 @pytest.fixture
@@ -54,10 +54,9 @@ def test_config(tmp_path):
 
 @pytest.fixture
 def tier_manager(test_config):
-    # Mock QdrantClient to raise error, forcing fallback to file system
-    with patch("qdrant_client.QdrantClient", side_effect=Exception("Qdrant Mock Fail")):
-        tm = TierManager()
-    # Explicitly ensure use_qdrant is False (though exception should handle it)
+    # Force FileSystemBackend by bypassing initialization logic
+    tm = TierManager()
+    tm.warm_backend = FileSystemBackend(Path(test_config.paths.warm_mmap_dir))
     tm.use_qdrant = False
     return tm
 
@@ -111,10 +110,6 @@ class TestTierManager:
         assert tier_manager.hot["n1"].tier == "hot"
 
     def test_eviction_to_warm(self, tier_manager, test_config):
-        # We can't change max_memories easily on frozen config, 
-        # so we fill it up to default (2000) or check logic manually.
-        # Let's mock the config or just test _evict_from_hot directly.
-        
         # Add two nodes
         n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
         n1.ltp_strength = 0.1 # Low
@@ -131,24 +126,22 @@ class TestTierManager:
         assert "n1" not in tier_manager.hot
         assert "n2" in tier_manager.hot
         
-        # Check if n1 is in WARM
-        warm_file = tier_manager.warm_path / "n1.json"
-        assert warm_file.exists()
-        
-        # Verify metadata
-        with open(warm_file) as f:
-            meta = json.load(f)
-        assert meta["tier"] == "warm"
-        assert meta["id"] == "n1"
+        # Check if n1 is in WARM via backend
+        warm_node = tier_manager.warm_backend.load("n1", "warm")
+        assert warm_node is not None
+        assert warm_node.tier == "warm"
+        assert warm_node.id == "n1"
 
     def test_retrieval_promotes_from_warm(self, tier_manager):
         # Setup: n1 in WARM with high LTP
         n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
         n1.tier = "warm"
-        n1.ltp_strength = 0.95 # Should trigger promotion (> 0.7 + 0.15 = 0.85)
+        # Increase access_count to ensure LTP remains high after access() recalculation
+        n1.access_count = 10
+        n1.calculate_ltp() # 0.95+
         
         # Save to WARM manually
-        tier_manager._save_to_warm(n1)
+        tier_manager.warm_backend.save(n1, "warm")
         
         # Retrieve
         retrieved = tier_manager.get_memory("n1")
@@ -157,19 +150,20 @@ class TestTierManager:
         assert retrieved.tier == "hot"
         assert "n1" in tier_manager.hot
         # Should be deleted from WARM
-        assert not (tier_manager.warm_path / "n1.json").exists()
+        assert tier_manager.warm_backend.load("n1", "warm") is None
 
     def test_consolidation_to_cold(self, tier_manager):
         # Setup: n1 in WARM with very low LTP
         n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
         n1.ltp_strength = 0.05 # < 0.3 threshold
-        tier_manager._save_to_warm(n1)
+
+        tier_manager.warm_backend.save(n1, "warm")
         
         # Run consolidation
         tier_manager.consolidate_warm_to_cold()
         
         # Should be gone from WARM
-        assert not (tier_manager.warm_path / "n1.json").exists()
+        assert tier_manager.warm_backend.load("n1", "warm") is None
         
         # Should be in COLD archive
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

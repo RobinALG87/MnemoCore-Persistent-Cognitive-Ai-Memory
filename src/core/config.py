@@ -202,6 +202,10 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     # Build tier configs
     tiers_raw = raw.get("tiers", {})
     hot_raw = tiers_raw.get("hot", {"max_memories": 2000, "ltp_threshold_min": 0.7})
+
+    # Env overrides for tiers
+    hot_raw["ltp_threshold_min"] = _env_override("TIERS_HOT_LTP_THRESHOLD_MIN", hot_raw.get("ltp_threshold_min", 0.7))
+
     warm_raw = tiers_raw.get(
         "warm",
         {
@@ -239,13 +243,13 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     # Build paths config
     paths_raw = raw.get("paths", {})
     paths = PathsConfig(
-        data_dir=paths_raw.get("data_dir", "./data"),
-        memory_file=paths_raw.get("memory_file", "./data/memory.jsonl"),
-        codebook_file=paths_raw.get("codebook_file", "./data/codebook.json"),
-        concepts_file=paths_raw.get("concepts_file", "./data/concepts.json"),
-        synapses_file=paths_raw.get("synapses_file", "./data/synapses.json"),
-        warm_mmap_dir=paths_raw.get("warm_mmap_dir", "./data/warm_tier"),
-        cold_archive_dir=paths_raw.get("cold_archive_dir", "./data/cold_archive"),
+        data_dir=_env_override("DATA_DIR", paths_raw.get("data_dir", "./data")),
+        memory_file=_env_override("MEMORY_FILE", paths_raw.get("memory_file", "./data/memory.jsonl")),
+        codebook_file=_env_override("CODEBOOK_FILE", paths_raw.get("codebook_file", "./data/codebook.json")),
+        concepts_file=_env_override("CONCEPTS_FILE", paths_raw.get("concepts_file", "./data/concepts.json")),
+        synapses_file=_env_override("SYNAPSES_FILE", paths_raw.get("synapses_file", "./data/synapses.json")),
+        warm_mmap_dir=_env_override("WARM_MMAP_DIR", paths_raw.get("warm_mmap_dir", "./data/warm_tier")),
+        cold_archive_dir=_env_override("COLD_ARCHIVE_DIR", paths_raw.get("cold_archive_dir", "./data/cold_archive")),
     )
 
     # Build redis config
