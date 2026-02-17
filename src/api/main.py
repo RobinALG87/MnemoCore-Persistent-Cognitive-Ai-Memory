@@ -26,13 +26,29 @@ from pydantic import BaseModel, Field, field_validator
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.engine import HAIMEngine
-from src.core.async_storage import AsyncRedisStorage
 from src.core.config import get_config
 from src.api.middleware import SecurityHeadersMiddleware, RateLimiter
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("haim.api")
+from loguru import logger
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
 # --- Observability ---
 from prometheus_client import make_asgi_app
@@ -50,6 +66,12 @@ metrics_app = make_asgi_app()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: Security Check
+    config = get_config()
+    if not config.security.api_key:
+        logger.critical("No API Key configured! Set HAIM_API_KEY env var or security.api_key in config.")
+        sys.exit(1)
+
     # Startup: Initialize Async Resources
     logger.info("Initializing Async Redis...")
     async_redis = AsyncRedisStorage.get_instance()
@@ -58,13 +80,15 @@ async def lifespan(app: FastAPI):
     
     # Initialize implementation of engine
     logger.info("Initializing HAIMEngine...")
-    app.state.engine = HAIMEngine(persist_path="./data/memory.jsonl")
+    engine = HAIMEngine(persist_path="./data/memory.jsonl")
+    await engine.initialize()
+    app.state.engine = engine
     
     yield
     
     # Shutdown: Clean up
     logger.info("Closing HAIMEngine...")
-    app.state.engine.close()
+    await app.state.engine.close()
     
     logger.info("Closing Async Redis...")
     await async_redis.close()
@@ -75,6 +99,17 @@ app = FastAPI(
     version="3.5.1",
     lifespan=lifespan
 )
+
+import pybreaker
+from src.core.resilience import storage_circuit_breaker, vector_circuit_breaker
+
+@app.exception_handler(pybreaker.CircuitBreakerError)
+async def circuit_breaker_exception_handler(request: Request, exc: pybreaker.CircuitBreakerError):
+    logger.error(f"Service Unavailable (Circuit Open): {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service Unavailable: Storage backend is down or overloaded.", "error": str(exc)},
+    )
 
 # Security Headers
 app.add_middleware(SecurityHeadersMiddleware)
@@ -101,8 +136,15 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 async def get_api_key(api_key: str = Security(api_key_header)):
     config = get_config()
     # Phase 3.5.1 Security - Prioritize config.security.api_key
-    security_config = getattr(config, "security", None)
-    expected_key = getattr(security_config, "api_key", "mnemocore-beta-key") if security_config else "mnemocore-beta-key"
+    expected_key = config.security.api_key
+    
+    if not expected_key:
+        # Should be caught by startup check, but double check
+        logger.error("API Key not configured during request processing.")
+        raise HTTPException(
+            status_code=500,
+            detail="Server Misconfiguration: API Key not set"
+        )
     
     if not api_key or not secrets.compare_digest(api_key, expected_key):
         raise HTTPException(
@@ -112,18 +154,8 @@ async def get_api_key(api_key: str = Security(api_key_header)):
     return api_key
 
 
-# engine = HAIMEngine(persist_path="./data/memory.jsonl")
-
 def get_engine(request: Request) -> HAIMEngine:
     return request.app.state.engine
-
-
-# --- Helpers ---
-
-async def run_in_thread(func, *args, **kwargs):
-    """Run blocking function in thread pool."""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 # --- Request Models ---
@@ -191,12 +223,20 @@ async def root():
 
 @app.get("/health")
 async def health(engine: HAIMEngine = Depends(get_engine)):
-    # Basic health check without potentially blocking engine stats if desired,
-    # but for HAIM we want to know if engine is alive.
-    redis_ok = await AsyncRedisStorage.get_instance().check_health()
+    # Check Redis connectivity
+    redis_connected = await AsyncRedisStorage.get_instance().check_health()
+    
+    # Check Circuit Breaker States
+    storage_cb_state = storage_circuit_breaker.state.name # 'closed', 'open', 'half-open'
+    vector_cb_state = vector_circuit_breaker.state.name
+    
+    is_healthy = redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
+    
     return {
-        "status": "healthy" if redis_ok else "degraded",
-        "redis_connected": redis_ok,
+        "status": "healthy" if is_healthy else "degraded",
+        "redis_connected": redis_connected,
+        "storage_circuit_breaker": storage_cb_state,
+        "qdrant_circuit_breaker": vector_cb_state,
         "engine_ready": engine is not None,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -212,12 +252,12 @@ async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engin
     if req.agent_id:
         metadata["agent_id"] = req.agent_id
     
-    # 1. Run Core Engine (CPU heavy / File I/O) in thread pool
-    mem_id = await run_in_thread(engine.store, req.content, metadata=metadata)
+    # 1. Run Core Engine (now Async)
+    mem_id = await engine.store(req.content, metadata=metadata)
     
     # 2. Async Write to Redis (Metadata & LTP Index)
     # Get the node details we just created
-    node = engine.get_memory(mem_id)
+    node = await engine.get_memory(mem_id)
     if node:
         redis_data = {
             "id": node.id,
@@ -233,7 +273,7 @@ async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engin
             # PubSub Event
             await storage.publish_event("memory.created", {"id": mem_id})
         except Exception as e:
-            logger.error(f"Failed async write for {mem_id}: {e}")
+            logger.exception(f"Failed async write for {mem_id}")
             # Non-blocking failure for Redis write
     
     return {
@@ -249,14 +289,14 @@ async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engin
     API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
 
     """Query memories by semantic similarity (Async Wrapper)."""
-    # CPU heavy vector search
-    results = await run_in_thread(engine.query, req.query, top_k=req.top_k)
+    # CPU heavy vector search (offloaded inside engine)
+    results = await engine.query(req.query, top_k=req.top_k)
     
     formatted = []
     for mem_id, score in results:
         # Check Redis first? For now rely on Engine's TierManager (which uses RAM/File)
         # because Engine has the object cache + Hashing logic.
-        node = engine.get_memory(mem_id)
+        node = await engine.get_memory(mem_id)
         if node:
             formatted.append({
                 "id": mem_id,
@@ -287,7 +327,7 @@ async def get_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
         }
     
     # Fallback to Engine (TierManager)
-    node = engine.get_memory(memory_id)
+    node = await engine.get_memory(memory_id)
     if not node:
         raise HTTPException(status_code=404, detail="Memory not found")
     
@@ -307,12 +347,12 @@ async def get_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
 async def delete_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
     """Delete a memory via Engine."""
     # Check if exists first for 404
-    node = engine.get_memory(memory_id)
+    node = await engine.get_memory(memory_id)
     if not node:
          raise HTTPException(status_code=404, detail="Memory not found")
     
     # Engine delete (handles HOT/WARM)
-    await run_in_thread(engine.delete_memory, memory_id)
+    await engine.delete_memory(memory_id)
         
     # Also Redis
     storage = AsyncRedisStorage.get_instance()
@@ -324,14 +364,13 @@ async def delete_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)
 
 @app.post("/concept", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
 async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_engine)):
-    await run_in_thread(engine.define_concept, req.name, req.attributes)
+    await engine.define_concept(req.name, req.attributes)
     return {"ok": True, "concept": req.name}
 
 
 @app.post("/analogy", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
 async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_engine)):
-    results = await run_in_thread(
-        engine.reason_by_analogy,
+    results = await engine.reason_by_analogy(
         req.source_concept,
         req.source_value,
         req.target_concept
@@ -346,7 +385,7 @@ async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_en
 @app.get("/stats", dependencies=[Depends(get_api_key)])
 async def get_stats(engine: HAIMEngine = Depends(get_engine)):
     """Get aggregate engine stats."""
-    return await run_in_thread(engine.get_stats)
+    return await engine.get_stats()
 
 if __name__ == "__main__":
     import uvicorn

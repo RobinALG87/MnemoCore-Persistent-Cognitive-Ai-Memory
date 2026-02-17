@@ -82,7 +82,7 @@ haim:
 
   # Security (Phase 3.5.1)
   security:
-    api_key: "mnemocore-beta-key"
+    # api_key: "mnemocore-beta-key"  # <--- REMOVED: Must be set via HAIM_API_KEY env var or here explicitly
 
   # MCP (Model Context Protocol) bridge
   mcp:

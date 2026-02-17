@@ -1,18 +1,11 @@
-"""
-Qdrant Vector Store (Sync)
-==========================
-Wrapper for QdrantClient handling:
-1. Collection management (HOT vs WARM tiers)
-2. Binary Quantization (BQ) configuration
-3. Sync batch upsert/search (for integration with sync Engine)
-"""
-
 import logging
 from typing import List, Any, Optional
+import asyncio
 
-from qdrant_client import QdrantClient, models
+from qdrant_client import AsyncQdrantClient, models
 
 from .config import get_config
+from .resilience import vector_circuit_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +14,7 @@ class QdrantStore:
 
     def __init__(self):
         self.config = get_config()
-        self.client = QdrantClient(
+        self.client = AsyncQdrantClient(
             url=self.config.qdrant.url,
             api_key=self.config.qdrant.api_key
         )
@@ -33,8 +26,16 @@ class QdrantStore:
             cls._instance = cls()
         return cls._instance
 
-    def ensure_collections(self):
+    async def ensure_collections(self):
         """Ensure HOT and WARM collections exist with proper schema."""
+        try:
+            return await vector_circuit_breaker.call_async(self._ensure_collections)
+        except Exception:
+            # ensure_collections if critical, but if breaker is open, we carry on if we can
+            logger.error("Circuit breaker blocked or failed ensure_collections")
+            raise
+
+    async def _ensure_collections(self):
         cfg = self.config.qdrant
         
         # Define BQ config if enabled
@@ -47,9 +48,9 @@ class QdrantStore:
             )
 
         # Create HOT collection (optimized for latency)
-        if not self.client.collection_exists(cfg.collection_hot):
+        if not await self.client.collection_exists(cfg.collection_hot):
             logger.info(f"Creating HOT collection: {cfg.collection_hot}")
-            self.client.create_collection(
+            await self.client.create_collection(
                 collection_name=cfg.collection_hot,
                 vectors_config=models.VectorParams(
                     size=self.dim,
@@ -65,13 +66,13 @@ class QdrantStore:
             )
 
         # Create WARM collection (optimized for scale/disk)
-        if not self.client.collection_exists(cfg.collection_warm):
+        if not await self.client.collection_exists(cfg.collection_warm):
             logger.info(f"Creating WARM collection: {cfg.collection_warm}")
-            self.client.create_collection(
+            await self.client.create_collection(
                 collection_name=cfg.collection_warm,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.COSINE,
+                    distance=models.Distance.MANHATTAN, # Manhattan on 0/1 is exactly Hamming
                     on_disk=True
                 ),
                 quantization_config=quantization_config,
@@ -82,54 +83,66 @@ class QdrantStore:
                 )
             )
 
-    def upsert(self, collection: str, points: List[models.PointStruct]):
-        """Sync batch upsert."""
+    async def upsert(self, collection: str, points: List[models.PointStruct]):
+        """Async batch upsert."""
         try:
-            self.client.upsert(
-                collection_name=collection,
-                points=points
-            )
+            await vector_circuit_breaker.call_async(self.client.upsert, collection_name=collection, points=points)
         except Exception as e:
-            logger.error(f"Qdrant upsert failed for {collection}: {e}")
+            logger.exception(f"Qdrant upsert failed or blocked for {collection}")
             raise
 
-    def search(self, collection: str, query_vector: List[float], limit: int = 5, score_threshold: float = 0.0) -> List[models.ScoredPoint]:
-        """Sync semantic search."""
-        return self.client.search(
-            collection_name=collection,
-            query_vector=query_vector,
-            limit=limit,
-            score_threshold=score_threshold
-        )
+    async def search(self, collection: str, query_vector: List[float], limit: int = 5, score_threshold: float = 0.0) -> List[models.ScoredPoint]:
+        """Async semantic search."""
+        try:
+            return await vector_circuit_breaker.call_async(self.client.search,
+                collection_name=collection,
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold
+            )
+        except Exception:
+            logger.error(f"Qdrant search failed or blocked for {collection}")
+            return []
         
-    def get_point(self, collection: str, point_id: str) -> Optional[models.Record]:
+    async def get_point(self, collection: str, point_id: str) -> Optional[models.Record]:
         """Get a single point by ID."""
-        records = self.client.retrieve(
-            collection_name=collection,
-            ids=[point_id],
-            with_vectors=True,
-            with_payload=True
-        )
-        if records:
-            return records[0]
+        try:
+            records = await vector_circuit_breaker.call_async(self.client.retrieve,
+                collection_name=collection,
+                ids=[point_id],
+                with_vectors=True,
+                with_payload=True
+            )
+            if records:
+                return records[0]
+        except Exception:
+            logger.error(f"Qdrant get_point failed or blocked for {point_id}")
         return None
 
-    def scroll(self, collection: str, limit: int = 100, offset: Any = None, with_vectors: bool = False) -> Any:
+    async def scroll(self, collection: str, limit: int = 100, offset: Any = None, with_vectors: bool = False) -> Any:
         """Scroll/Iterate over collection (for consolidation)."""
-        return self.client.scroll(
-            collection_name=collection,
-            limit=limit,
-            with_vectors=with_vectors,
-            with_payload=True,
-            offset=offset
-        )
+        try:
+            return await vector_circuit_breaker.call_async(self.client.scroll,
+                collection_name=collection,
+                limit=limit,
+                with_vectors=with_vectors,
+                with_payload=True,
+                offset=offset
+            )
+        except Exception:
+            logger.error(f"Qdrant scroll failed or blocked for {collection}")
+            return [], None
 
-    def delete(self, collection: str, point_ids: List[str]):
+    async def delete(self, collection: str, point_ids: List[str]):
         """Delete points by ID."""
-        self.client.delete(
-            collection_name=collection,
-            points_selector=models.PointIdsList(points=point_ids)
-        )
+        try:
+            await vector_circuit_breaker.call_async(self.client.delete,
+                collection_name=collection,
+                points_selector=models.PointIdsList(points=point_ids)
+            )
+        except Exception:
+            logger.error(f"Qdrant delete failed or blocked for {point_ids}")
+            raise
 
-    def close(self):
-        self.client.close()
+    async def close(self):
+        await self.client.close()

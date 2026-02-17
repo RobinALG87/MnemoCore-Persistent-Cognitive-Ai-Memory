@@ -7,6 +7,7 @@ Tests integration of HAIMEngine with BinaryHDV and TierManager.
 import os
 import shutil
 import pytest
+import pytest_asyncio
 from datetime import datetime, timezone
 import numpy as np
 
@@ -30,6 +31,8 @@ def binary_engine(tmp_path):
     os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(data_dir / "cold")
     os.environ["HAIM_ENCODING_MODE"] = "binary"
     os.environ["HAIM_DIMENSIONALITY"] = "1024" # Small for tests
+    os.environ["HAIM_TIERS_HOT_LTP_THRESHOLD_MIN"] = "0.01" # Prevent demotion
+    os.environ["HAIM_LTP_INITIAL_IMPORTANCE"] = "0.8" # Higher start
     
     reset_config()
     engine = HAIMEngine()
@@ -46,17 +49,18 @@ def binary_engine(tmp_path):
     del os.environ["HAIM_DIMENSIONALITY"]
     reset_config()
 
+@pytest.mark.asyncio
 class TestBinaryEngine:
     def test_initialization(self, binary_engine):
         assert binary_engine.config.encoding.mode == "binary"
         assert binary_engine.dimension == 1024
         assert isinstance(binary_engine.tier_manager, object)
 
-    def test_store_memory_binary(self, binary_engine):
-        mid = binary_engine.store("Hello World", metadata={"test": True})
+    async def test_store_memory_binary(self, binary_engine):
+        mid = await binary_engine.store("Hello World", metadata={"test": True})
         
         # Verify stored in HOT
-        node = binary_engine.get_memory(mid)
+        node = await binary_engine.get_memory(mid)
         assert node is not None
         assert node.tier == "hot"
         assert isinstance(node.hdv, BinaryHDV)
@@ -65,24 +69,24 @@ class TestBinaryEngine:
         # Verify persistence log
         assert os.path.exists(binary_engine.persist_path)
 
-    def test_query_memory_binary(self, binary_engine):
+    async def test_query_memory_binary(self, binary_engine):
         # Store two distinct memories
-        mid1 = binary_engine.store("The quick brown fox jumps over the lazy dog")
-        mid2 = binary_engine.store("Quantum computing uses qubits and superposition")
+        mid1 = await binary_engine.store("The quick brown fox jumps over the lazy dog")
+        mid2 = await binary_engine.store("Quantum computing uses qubits and superposition")
         
         # Query for the first one
-        results = binary_engine.query("quick brown fox", top_k=1)
+        results = await binary_engine.query("quick brown fox", top_k=1)
         
         assert len(results) == 1
         top_id, score = results[0]
         assert top_id == mid1
         assert score > 0.5 # Should be high similarity
 
-    def test_context_vector_binary(self, binary_engine):
-        binary_engine.store("Context 1")
-        binary_engine.store("Context 2")
+    async def test_context_vector_binary(self, binary_engine):
+        await binary_engine.store("Context 1")
+        await binary_engine.store("Context 2")
         
-        ctx = binary_engine._current_context_vector()
+        ctx = await binary_engine._current_context_vector()
         assert isinstance(ctx, BinaryHDV)
         assert ctx.dimension == 1024
 
@@ -96,19 +100,19 @@ class TestBinaryEngine:
 
 
 class TestRouterBinary:
-    def test_router_reflex(self, binary_engine):
+    async def test_router_reflex(self, binary_engine):
         router = CognitiveRouter(binary_engine)
-        binary_engine.store("What is HAIM?", metadata={"answer": "Holographic memory"})
+        await binary_engine.store("What is HAIM?", metadata={"answer": "Holographic memory"})
         
-        response, debug = router.route("What is HAIM?")
+        response, debug = await router.route("What is HAIM?")
         assert "Reflex" in response
         assert debug["system"] == "Sys1 (Fast)"
 
-    def test_router_reasoning(self, binary_engine):
+    async def test_router_reasoning(self, binary_engine):
         router = CognitiveRouter(binary_engine)
         # Force complexity high
         prompt = "Analyze the structural integrity of the quantum bridge design"
         
-        response, debug = router.route(prompt)
+        response, debug = await router.route(prompt)
         assert "Reasoning" in response
         assert debug["system"] == "Sys2 (Slow)"

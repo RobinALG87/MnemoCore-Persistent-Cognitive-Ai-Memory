@@ -81,16 +81,12 @@ class BinaryHDV:
     def from_seed(cls, seed: str, dimension: int = 16384) -> "BinaryHDV":
         """
         Deterministic vector from a string seed.
-        Uses SHA-256 iterative expansion to fill the vector.
+        Uses SHA-3 (SHAKE-256) for high-performance deterministic expansion.
         """
         n_bytes = dimension // 8
-        result = bytearray()
-        counter = 0
-        while len(result) < n_bytes:
-            h = hashlib.sha256(f"{seed}:{counter}".encode()).digest()
-            result.extend(h)
-            counter += 1
-        data = np.frombuffer(bytes(result[:n_bytes]), dtype=np.uint8).copy()
+        # SHAKE-256 can generate arbitrary length digests in one pass
+        digest = hashlib.shake_256(seed.encode()).digest(n_bytes)
+        data = np.frombuffer(digest, dtype=np.uint8).copy()
         return cls(data=data, dimension=dimension)
 
     # ------------------------------------------------------------------
@@ -149,9 +145,6 @@ class BinaryHDV:
                 # Calculate bits that wrap from previous byte
                 # low_part[i] gets the top `bit_shift` bits of data[i-1]
                 # moved to the bottom.
-                # data[i-1] corresponds to np.roll(data, 1)[i]?
-                # No, np.roll(data, 1) puts data[N-1] at index 0.
-                # Let's use slicing to be explicit and avoid extra roll copy.
 
                 # Construct array of "bits from previous byte"
                 # For index 0, previous is index -1.

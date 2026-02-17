@@ -15,6 +15,7 @@ import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
 
 from .config import get_config
+from .reliability import StorageCircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -76,34 +77,38 @@ class AsyncRedisStorage:
         """
         Store memory metadata in Redis (Key-Value) + Update LTP Index.
         """
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
-            key = f"haim:memory:{node_id}"
-            # Serialize
-            payload = json.dumps(data, default=str)
-            
-            if ttl:
-                await self.redis_client.setex(key, ttl, payload)
-            else:
-                await self.redis_client.set(key, payload)
-
-            # Update LTP Index (Sorted Set)
-            ltp = float(data.get("ltp_strength", 0.0))
-            await self.redis_client.zadd("haim:ltp_index", {node_id: ltp})
-
-        except Exception as e:
-            logger.error(f"AsyncRedis store failed for {node_id}: {e}")
+            await breaker.call(self._store_memory, node_id, data, ttl)
+        except Exception:
+            logger.error(f"AsyncRedis store blocked or failed for {node_id}")
             raise
+
+    async def _store_memory(self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None):
+        key = f"haim:memory:{node_id}"
+        # Serialize
+        payload = json.dumps(data, default=str)
+        
+        if ttl:
+            await self.redis_client.setex(key, ttl, payload)
+        else:
+            await self.redis_client.set(key, payload)
+
+        # Update LTP Index (Sorted Set)
+        ltp = float(data.get("ltp_strength", 0.0))
+        await self.redis_client.zadd("haim:ltp_index", {node_id: ltp})
 
     async def retrieve_memory(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve memory metadata by ID."""
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
             key = f"haim:memory:{node_id}"
-            data = await self.redis_client.get(key)
+            data = await breaker.call(self.redis_client.get, key)
             if data:
                 return json.loads(data)
             return None
-        except Exception as e:
-            logger.error(f"AsyncRedis retrieve failed for {node_id}: {e}")
+        except Exception:
+            logger.error(f"AsyncRedis retrieve blocked or failed for {node_id}")
             return None
 
     async def batch_retrieve(self, node_ids: List[str]) -> List[Optional[Dict[str, Any]]]:
@@ -111,9 +116,10 @@ class AsyncRedisStorage:
         if not node_ids:
             return []
             
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         keys = [f"haim:memory:{mid}" for mid in node_ids]
         try:
-            results = await self.redis_client.mget(keys)
+            results = await breaker.call(self.redis_client.mget, keys)
             parsed = []
             for r in results:
                 if r:
@@ -124,18 +130,19 @@ class AsyncRedisStorage:
                 else:
                     parsed.append(None)
             return parsed
-        except Exception as e:
-            logger.error(f"AsyncRedis batch retrieve failed: {e}")
+        except Exception:
+            logger.error("AsyncRedis batch retrieve blocked or failed")
             return [None] * len(node_ids)
 
     async def delete_memory(self, node_id: str):
         """Delete memory from storage and index."""
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
             key = f"haim:memory:{node_id}"
-            await self.redis_client.delete(key)
-            await self.redis_client.zrem("haim:ltp_index", node_id)
-        except Exception as e:
-            logger.error(f"AsyncRedis delete failed for {node_id}: {e}")
+            await breaker.call(self.redis_client.delete, key)
+            await breaker.call(self.redis_client.zrem, "haim:ltp_index", node_id)
+        except Exception:
+            logger.error(f"AsyncRedis delete blocked or failed for {node_id}")
 
     # --- Index/LTP Operations ---
 
@@ -144,20 +151,22 @@ class AsyncRedisStorage:
         Get IDs of memories with the lowest LTP scores.
         Usage: Consolidation worker calling this to find what to move to COLD.
         """
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
             # ZRANGE 0 (count-1) returns lowest scores
-            members = await self.redis_client.zrange("haim:ltp_index", 0, count - 1)
+            members = await breaker.call(self.redis_client.zrange, "haim:ltp_index", 0, count - 1)
             return members
-        except Exception as e:
-            logger.error(f"AsyncRedis eviction scan failed: {e}")
+        except Exception:
+            logger.error("AsyncRedis eviction scan blocked or failed")
             return []
             
     async def update_ltp(self, node_id: str, new_ltp: float):
         """Update just the LTP score in the index."""
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
-             await self.redis_client.zadd("haim:ltp_index", {node_id: new_ltp})
-        except Exception as e:
-            logger.error(f"AsyncRedis LTP update failed: {e}")
+             await breaker.call(self.redis_client.zadd, "haim:ltp_index", {node_id: new_ltp})
+        except Exception:
+            logger.error("AsyncRedis LTP update blocked or failed")
 
     # --- Streaming (Subconscious Bus) ---
 
@@ -166,6 +175,7 @@ class AsyncRedisStorage:
         Publish an event to the Subconscious Bus (Redis Stream).
         Phase 3.5.3 will consume these.
         """
+        breaker = StorageCircuitBreaker.get_redis_breaker()
         stream_key = self.config.redis.stream_key
         try:
             # XADD expects flat dict of strings
@@ -176,9 +186,9 @@ class AsyncRedisStorage:
                 else:
                     msg[k] = str(v)
             
-            await self.redis_client.xadd(stream_key, msg)
-        except Exception as e:
-            logger.error(f"AsyncRedis publish failed: {e}")
+            await breaker.call(self.redis_client.xadd, stream_key, msg)
+        except Exception:
+            logger.error("AsyncRedis publish blocked or failed")
 
     async def check_health(self) -> bool:
         """Ping Redis to check connectivity."""

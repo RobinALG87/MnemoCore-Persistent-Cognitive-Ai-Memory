@@ -68,7 +68,7 @@ class GPUConfig:
 
 @dataclass(frozen=True)
 class SecurityConfig:
-    api_key: str = "mnemocore-beta-key"
+    api_key: Optional[str] = None
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 100
@@ -172,10 +172,11 @@ def _env_override(key: str, default):
     return val
 
 
-def _build_tier(raw: dict) -> TierConfig:
+def _build_tier(name: str, raw: dict) -> TierConfig:
+    prefix = f"TIERS_{name.upper()}"
     return TierConfig(
-        max_memories=raw.get("max_memories", 0),
-        ltp_threshold_min=raw.get("ltp_threshold_min", 0.0),
+        max_memories=_env_override(f"{prefix}_MAX_MEMORIES", raw.get("max_memories", 0)),
+        ltp_threshold_min=_env_override(f"{prefix}_LTP_THRESHOLD_MIN", raw.get("ltp_threshold_min", 0.0)),
         eviction_policy=raw.get("eviction_policy", "lru"),
         consolidation_interval_hours=raw.get("consolidation_interval_hours"),
         storage_backend=raw.get("storage_backend", "memory"),
@@ -214,7 +215,8 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     raw = {}
     if path is not None and path.exists():
         with open(path) as f:
-            raw = yaml.safe_load(f).get("haim", {})
+            loaded = yaml.safe_load(f) or {}
+            raw = loaded.get("haim") or {}
 
     # Apply env overrides to top-level scalars
     dimensionality = _env_override(
@@ -228,7 +230,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         )
 
     # Build tier configs
-    tiers_raw = raw.get("tiers", {})
+    tiers_raw = raw.get("tiers") or {}
     hot_raw = tiers_raw.get("hot", {"max_memories": 2000, "ltp_threshold_min": 0.7})
     warm_raw = tiers_raw.get(
         "warm",
@@ -249,14 +251,14 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build encoding config
-    enc_raw = raw.get("encoding", {})
+    enc_raw = raw.get("encoding") or {}
     encoding = EncodingConfig(
         mode=_env_override("ENCODING_MODE", enc_raw.get("mode", "binary")),
         token_method=enc_raw.get("token_method", "bundle"),
     )
 
     # Build LTP config
-    ltp_raw = raw.get("ltp", {})
+    ltp_raw = raw.get("ltp") or {}
     ltp = LTPConfig(
         initial_importance=ltp_raw.get("initial_importance", 0.5),
         decay_lambda=ltp_raw.get("decay_lambda", 0.01),
@@ -265,7 +267,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build paths config
-    paths_raw = raw.get("paths", {})
+    paths_raw = raw.get("paths") or {}
     paths = PathsConfig(
         data_dir=_env_override("DATA_DIR", paths_raw.get("data_dir", "./data")),
         memory_file=_env_override("MEMORY_FILE", paths_raw.get("memory_file", "./data/memory.jsonl")),
@@ -277,7 +279,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build redis config
-    redis_raw = raw.get("redis", {})
+    redis_raw = raw.get("redis") or {}
     redis = RedisConfig(
         url=_env_override("REDIS_URL", redis_raw.get("url", "redis://localhost:6379/0")),
         stream_key=redis_raw.get("stream_key", "haim:subconscious"),
@@ -287,7 +289,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build qdrant config
-    qdrant_raw = raw.get("qdrant", {})
+    qdrant_raw = raw.get("qdrant") or {}
     qdrant = QdrantConfig(
         url=_env_override(
             "QDRANT_URL", qdrant_raw.get("url", "http://localhost:6333")
@@ -302,7 +304,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build GPU config
-    gpu_raw = raw.get("gpu", {})
+    gpu_raw = raw.get("gpu") or {}
     gpu = GPUConfig(
         enabled=_env_override("GPU_ENABLED", gpu_raw.get("enabled", False)),
         device=gpu_raw.get("device", "cuda:0"),
@@ -311,7 +313,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build observability config
-    obs_raw = raw.get("observability", {})
+    obs_raw = raw.get("observability") or {}
     observability = ObservabilityConfig(
         metrics_port=obs_raw.get("metrics_port", 9090),
         log_level=_env_override("LOG_LEVEL", obs_raw.get("log_level", "INFO")),
@@ -319,7 +321,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build security config
-    sec_raw = raw.get("security", {})
+    sec_raw = raw.get("security") or {}
 
     # Parse CORS origins from env (comma-separated) or config
     cors_env = os.environ.get("HAIM_CORS_ORIGINS")
@@ -329,7 +331,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         cors_origins = sec_raw.get("cors_origins", ["*"])
 
     security = SecurityConfig(
-        api_key=_env_override("API_KEY", sec_raw.get("api_key", "mnemocore-beta-key")),
+        api_key=_env_override("API_KEY", sec_raw.get("api_key")),
         cors_origins=cors_origins,
         rate_limit_enabled=_env_override("RATE_LIMIT_ENABLED", sec_raw.get("rate_limit_enabled", True)),
         rate_limit_requests=_env_override("RATE_LIMIT_REQUESTS", sec_raw.get("rate_limit_requests", 100)),
@@ -337,7 +339,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     # Build MCP config
-    mcp_raw = raw.get("mcp", {})
+    mcp_raw = raw.get("mcp") or {}
     allow_tools_default = [
         "memory_store",
         "memory_query",
@@ -352,25 +354,34 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         host=_env_override("MCP_HOST", mcp_raw.get("host", "127.0.0.1")),
         port=_env_override("MCP_PORT", mcp_raw.get("port", 8110)),
         api_base_url=_env_override("MCP_API_BASE_URL", mcp_raw.get("api_base_url", "http://localhost:8100")),
-        api_key=_env_override("MCP_API_KEY", mcp_raw.get("api_key", sec_raw.get("api_key", "mnemocore-beta-key"))),
+        api_key=_env_override("MCP_API_KEY", mcp_raw.get("api_key", sec_raw.get("api_key"))),
         timeout_seconds=_env_override("MCP_TIMEOUT_SECONDS", mcp_raw.get("timeout_seconds", 15)),
         allow_tools=mcp_raw.get("allow_tools", allow_tools_default),
     )
 
     # Build hysteresis config
-    hyst_raw = raw.get("hysteresis", {})
+    hyst_raw = raw.get("hysteresis") or {}
     hysteresis = HysteresisConfig(
-        promote_delta=hyst_raw.get("promote_delta", 0.15),
-        demote_delta=hyst_raw.get("demote_delta", 0.10),
+        promote_delta=_env_override("HYSTERESIS_PROMOTE_DELTA", hyst_raw.get("promote_delta", 0.15)),
+        demote_delta=_env_override("HYSTERESIS_DEMOTE_DELTA", hyst_raw.get("demote_delta", 0.10)),
+    )
+
+    # Build LTP config
+    ltp_raw = raw.get("ltp") or {}
+    ltp = LTPConfig(
+        initial_importance=_env_override("LTP_INITIAL_IMPORTANCE", ltp_raw.get("initial_importance", 0.5)),
+        decay_lambda=_env_override("LTP_DECAY_LAMBDA", ltp_raw.get("decay_lambda", 0.01)),
+        permanence_threshold=_env_override("LTP_PERMANENCE_THRESHOLD", ltp_raw.get("permanence_threshold", 0.95)),
+        half_life_days=_env_override("LTP_HALF_LIFE_DAYS", ltp_raw.get("half_life_days", 30.0)),
     )
 
     return HAIMConfig(
         version=raw.get("version", "3.0"),
         dimensionality=dimensionality,
         encoding=encoding,
-        tiers_hot=_build_tier(hot_raw),
-        tiers_warm=_build_tier(warm_raw),
-        tiers_cold=_build_tier(cold_raw),
+        tiers_hot=_build_tier("hot", hot_raw),
+        tiers_warm=_build_tier("warm", warm_raw),
+        tiers_cold=_build_tier("cold", cold_raw),
         ltp=ltp,
         hysteresis=hysteresis,
         redis=redis,

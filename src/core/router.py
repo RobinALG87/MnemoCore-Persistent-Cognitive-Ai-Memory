@@ -18,13 +18,13 @@ class CognitiveRouter:
         self.engine = engine
         self.complexity_threshold = 0.6  # Threshold for switching to Sys2
 
-    def route(self, impulse: str, context: dict = None) -> Tuple[str, Dict[str, Any]]:
+    async def route(self, impulse: str, context: dict = None) -> Tuple[str, Dict[str, Any]]:
         """
         Route the impulse to the appropriate system.
         Returns: (response, debug_info)
         """
         start_time = time.time()
-        complexity = self._assess_complexity(impulse)
+        complexity = await self._assess_complexity(impulse)
         
         debug_info = {
             "impulse": impulse,
@@ -35,16 +35,16 @@ class CognitiveRouter:
         if complexity < self.complexity_threshold:
             # System 1: Fast Reflex
             debug_info["system"] = "Sys1 (Fast)"
-            response = self._system_1_reflex(impulse)
+            response = await self._system_1_reflex(impulse)
         else:
             # System 2: Heavy Reasoning
             debug_info["system"] = "Sys2 (Slow)"
-            response = self._system_2_reasoning(impulse, context)
+            response = await self._system_2_reasoning(impulse, context)
 
         debug_info["duration"] = time.time() - start_time
         return response, debug_info
 
-    def _assess_complexity(self, text: str) -> float:
+    async def _assess_complexity(self, text: str) -> float:
         """
         Heuristic to estimate cognitive load.
         """
@@ -62,11 +62,11 @@ class CognitiveRouter:
         uncertainty = ["maybe", "unsure", "unknown", "complex"]
         if any(u in text.lower() for u in uncertainty):
             score += 0.2
-
+ 
         # Epistemic check (query engine for familiarity)
         # Low familiarity (high surprise) -> Higher complexity
         try:
-            results = self.engine.query(text, top_k=1, associative_jump=False)
+            results = await self.engine.query(text, top_k=1, associative_jump=False)
             if results and results[0][1] > 0.8:
                 # Strong memory match -> Familiar -> Lower complexity
                 score -= 0.3
@@ -78,12 +78,12 @@ class CognitiveRouter:
 
         return min(1.0, max(0.0, score))
 
-    def _system_1_reflex(self, impulse: str) -> str:
+    async def _system_1_reflex(self, impulse: str) -> str:
         """
         Fast retrieval and simple association.
         """
         # 1. Quick memory lookup
-        results = self.engine.query(impulse, top_k=3)
+        results = await self.engine.query(impulse, top_k=3)
         
         if not results:
             return "I don't have an immediate reflex for that."
@@ -91,12 +91,12 @@ class CognitiveRouter:
         # 2. Synthesize simple answer from top memory (simulated)
         # Use engine.get_memory() instead of direct dict access
         top_mem_id, score = results[0]
-        node = self.engine.get_memory(top_mem_id)
+        node = await self.engine.get_memory(top_mem_id)
         
         content = node.content if node else 'Unknown'
         return f"[Reflex] Based on memory ({score:.2f}): {content}"
 
-    def _system_2_reasoning(self, impulse: str, context: Optional[dict]) -> str:
+    async def _system_2_reasoning(self, impulse: str, context: Optional[dict]) -> str:
         """Slow, deliberative process with Epistemic Drive."""
         eig: Optional[float] = None
 
@@ -119,7 +119,7 @@ class CognitiveRouter:
                     if bin_vecs:
                         ctx_vec = majority_bundle(bin_vecs)
                     else:
-                        ctx_vec = self.engine._current_context_vector() # Fallback
+                        ctx_vec = await self.engine._current_context_vector() # Fallback
                 else:
                     # Legacy Float
                     combined = np.zeros(self.engine.dimension)
@@ -131,19 +131,19 @@ class CognitiveRouter:
                     ctx_vec.vector[ctx_vec.vector == 0] = 1
                     ctx_vec.vector = ctx_vec.vector.astype(int)
             else:
-                ctx_vec = self.engine._current_context_vector(sample_n=50)
+                ctx_vec = await self.engine._current_context_vector(sample_n=50)
 
             # Ensure compatibility
             if isinstance(candidate_vec, type(ctx_vec)):
                 eig = self.engine.calculate_eig(candidate_vec, ctx_vec)
 
         # 2. Deep Search (Associative Jumps)
-        results = self.engine.query(impulse, top_k=10, associative_jump=True)
+        results = await self.engine.query(impulse, top_k=10, associative_jump=True)
         
         # 3. Consolidation / Synthesis
         memories = []
         for mid, score in results:
-            node = self.engine.get_memory(mid)
+            node = await self.engine.get_memory(mid)
             if node:
                 memories.append(f"- {node.content} (conf: {score:.2f})")
         

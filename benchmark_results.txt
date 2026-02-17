@@ -1,0 +1,8 @@
+Benchmark Results:
+Synapse Lookup Time: 0.0470s
+Avg time per lookup: 0.0470ms
+Vector Context Time: 0.0706s
+Top memory allocations:
+C:\Users\Robin\AppData\Local\Programs\Python\Python312\Lib\tracemalloc.py:560: size=312 B (+312 B), count=2 (+2), average=156 B
+C:\Users\Robin\AppData\Local\Programs\Python\Python312\Lib\tracemalloc.py:423: size=312 B (+312 B), count=2 (+2), average=156 B
+C:\Users\Robin\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\core\shape_base.py:455: size=216 B (+216 B), count=6 (+6), average=36 B

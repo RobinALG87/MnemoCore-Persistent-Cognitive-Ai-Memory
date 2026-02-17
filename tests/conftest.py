@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 @pytest.fixture(scope="session", autouse=True)
 def mock_hardware_dependencies():
     """Globally mock Qdrant and Redis to prevent hangs during testing."""
+    import src.core.async_storage # Explicit import to see if it fails
     
     # 1. Mock Redis
     mock_redis_instance = AsyncMock()
@@ -19,12 +20,22 @@ def mock_hardware_dependencies():
     mock_redis_client.pipeline.return_value = mock_pipeline
     mock_redis_instance.redis_client = mock_redis_client
     
+    # Ensure modules are imported so patch can find them in src.core
+    import src.core.async_storage
+    import src.core.qdrant_store
+    
     with patch("src.core.async_storage.AsyncRedisStorage.get_instance", return_value=mock_redis_instance), \
          patch("src.core.qdrant_store.QdrantStore.get_instance") as mock_qdrant_get:
         
         mock_qdrant_instance = MagicMock()
         mock_qdrant_get.return_value = mock_qdrant_instance
-        mock_qdrant_instance.ensure_collections.return_value = None
+        # Methods that are now awaited in TierManager/Engine
+        mock_qdrant_instance.ensure_collections = AsyncMock(return_value=None)
+        mock_qdrant_instance.upsert = AsyncMock(return_value=None)
+        mock_qdrant_instance.search = AsyncMock(return_value=[])
+        mock_qdrant_instance.delete = AsyncMock(return_value=None)
+        mock_qdrant_instance.get_point = AsyncMock(return_value=None)
+        mock_qdrant_instance.scroll = AsyncMock(return_value=([], None))
         
         yield (mock_qdrant_instance, mock_redis_instance)
 

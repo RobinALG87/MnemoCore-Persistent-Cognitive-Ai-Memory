@@ -102,6 +102,22 @@ MnemoCore is configured via `config.yaml`. Key sections include:
 *   **`haim.redis`**: Redis connection details.
 *   **`haim.qdrant`**: Qdrant connection details (Phase 3.5).
 *   **`haim.security`**: API Key configuration.
+*   **`haim.observability`**: Metrics and logging configuration.
+
+### 🔒 Security
+
+**CRITICAL**: You must set an API Key to run MnemoCore. The default key has been removed for security.
+
+Set it via Environment Variable:
+```bash
+export HAIM_API_KEY="your-secure-secret-key"
+```
+
+Or in `config.yaml`:
+```yaml
+security:
+  api_key: "your-secure-secret-key"
+```
 
 Example `config.yaml` snippet:
 ```yaml
