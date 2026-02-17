@@ -40,7 +40,7 @@ class ConceptualMemory:
             attr_hdv = self.get_symbol(attr)
             val_hdv = self.get_symbol(val)
             # Bind attribute to value
-            pair_hdv = attr_hdv ^ val_hdv
+            pair_hdv = attr_hdv.bind(val_hdv)
             bundled_vector += pair_hdv.vector
             
         concept_hdv = HDV(vector=bundled_vector, dimension=self.dimension).normalize()
@@ -54,7 +54,7 @@ class ConceptualMemory:
         """
         attr_hdv = self.get_symbol(attribute)
         val_hdv = self.get_symbol(value)
-        pair_hdv = attr_hdv ^ val_hdv
+        pair_hdv = attr_hdv.bind(val_hdv)
         
         if name in self.concepts:
             # Superposition: Add to existing vector
@@ -93,7 +93,7 @@ class ConceptualMemory:
         # M = C * inverse(A)
         mapping = C.unbind(A)
         # D = M * B
-        D_hat = mapping ^ B
+        D_hat = mapping.bind(B)
         
         # Search in symbols for the nearest value
         matches = []

@@ -31,6 +31,10 @@ class HDV:
         )
 
     def __xor__(self, other: 'HDV') -> 'HDV':
+        """Binding: v_A ⊗ v_B (HRR circular convolution) (Deprecated: Use .bind() instead)"""
+        return self.bind(other)
+
+    def bind(self, other: 'HDV') -> 'HDV':
         """Binding: v_A ⊗ v_B (HRR circular convolution)"""
         if self.dimension != other.dimension:
              raise ValueError("Dimensions must match for binding")
