@@ -21,7 +21,10 @@ class QdrantStore:
 
     def __init__(self):
         self.config = get_config()
-        self.client = QdrantClient(url=self.config.qdrant.url)
+        self.client = QdrantClient(
+            url=self.config.qdrant.url,
+            api_key=self.config.qdrant.api_key
+        )
         self.dim = self.config.dimensionality
 
     @classmethod

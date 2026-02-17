@@ -43,6 +43,7 @@ class RedisConfig:
     stream_key: str = "haim:subconscious"
     max_connections: int = 10
     socket_timeout: int = 5
+    password: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class QdrantConfig:
     always_ram: bool = True
     hnsw_m: int = 16
     hnsw_ef_construct: int = 100
+    api_key: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -255,6 +257,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         stream_key=redis_raw.get("stream_key", "haim:subconscious"),
         max_connections=redis_raw.get("max_connections", 10),
         socket_timeout=redis_raw.get("socket_timeout", 5),
+        password=_env_override("REDIS_PASSWORD", redis_raw.get("password")),
     )
 
     # Build qdrant config
@@ -269,6 +272,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         always_ram=qdrant_raw.get("always_ram", True),
         hnsw_m=qdrant_raw.get("hnsw_m", 16),
         hnsw_ef_construct=qdrant_raw.get("hnsw_ef_construct", 100),
+        api_key=_env_override("QDRANT_API_KEY", qdrant_raw.get("api_key")),
     )
 
     # Build GPU config
