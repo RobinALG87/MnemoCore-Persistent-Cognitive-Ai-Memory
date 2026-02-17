@@ -1,4 +1,5 @@
 from typing import List, Tuple, Dict, Optional, Union, Any
+from collections import defaultdict
 import heapq
 from itertools import islice
 import numpy as np
@@ -34,6 +35,9 @@ class HAIMEngine:
         self.binary_encoder = TextEncoder(self.dimension)
         
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
+        # Adjacency list for O(1) synapse lookup per node
+        # Maps node_id -> List[SynapticConnection]
+        self.adjacency_list: Dict[str, List[SynapticConnection]] = defaultdict(list)
 
         # Conceptual Layer (VSA Soul)
         data_dir = self.config.paths.data_dir
@@ -192,11 +196,22 @@ class HAIMEngine:
             self.subconscious_queue.remove(node_id)
             
         # 3. Clean up synapses
-        keys_to_remove = [k for k in self.synapses.keys() if node_id in k]
-        for k in keys_to_remove:
-            del self.synapses[k]
+        synapses_removed = False
+        if node_id in self.adjacency_list:
+            synapses_removed = True
+            # Copy list because we modify it inside the loop via helper
+            synapses_to_remove = list(self.adjacency_list[node_id])
+            for syn in synapses_to_remove:
+                self._remove_from_adjacency(syn)
+                key = tuple(sorted([syn.neuron_a_id, syn.neuron_b_id]))
+                if key in self.synapses:
+                    del self.synapses[key]
+
+            # Clean up empty entry
+            if not self.adjacency_list[node_id]:
+                del self.adjacency_list[node_id]
         
-        if keys_to_remove:
+        if synapses_removed:
             self._save_synapses()
             
         return deleted
@@ -299,30 +314,36 @@ class HAIMEngine:
 
         synapse_key = tuple(sorted([id_a, id_b]))
         if synapse_key not in self.synapses:
-            self.synapses[synapse_key] = SynapticConnection(synapse_key[0], synapse_key[1])
+            new_synapse = SynapticConnection(synapse_key[0], synapse_key[1])
+            self.synapses[synapse_key] = new_synapse
+            self._add_to_adjacency(new_synapse)
 
         self.synapses[synapse_key].fire(success=success)
         self._save_synapses()
 
     def get_node_boost(self, node_id: str) -> float:
         boost = 1.0
-        # Iterate over synapses is inefficient, but okay for Phase 3.0 prototype
-        # Correct approach: Adjacency list
-        for synapse_key, synapse in self.synapses.items():
-            if node_id in synapse_key:
-                boost *= (1.0 + synapse.get_current_strength())
+        # Optimized with adjacency list
+        for synapse in self.adjacency_list[node_id]:
+            boost *= (1.0 + synapse.get_current_strength())
         return boost
 
     def cleanup_decay(self, threshold: float = 0.1):
         """Remove synapses that have decayed below the threshold."""
-        to_remove = []
+        to_remove_keys = []
+        to_remove_synapses = []
+
         for key, synapse in self.synapses.items():
             if synapse.get_current_strength() < threshold:
-                to_remove.append(key)
+                to_remove_keys.append(key)
+                to_remove_synapses.append(synapse)
 
-        if to_remove:
-            logger.info(f"Cleaning up {len(to_remove)} decayed synapses")
-            for key in to_remove:
+        if to_remove_keys:
+            logger.info(f"Cleaning up {len(to_remove_keys)} decayed synapses")
+            for synapse in to_remove_synapses:
+                self._remove_from_adjacency(synapse)
+
+            for key in to_remove_keys:
                 del self.synapses[key]
             self._save_synapses()
 
@@ -354,6 +375,19 @@ class HAIMEngine:
     def get_memory(self, node_id: str) -> Optional[MemoryNode]:
         """Retrieve memory via TierManager."""
         return self.tier_manager.get_memory(node_id)
+
+    def _add_to_adjacency(self, synapse: SynapticConnection):
+        """Add synapse to adjacency list for both connected nodes."""
+        self.adjacency_list[synapse.neuron_a_id].append(synapse)
+        self.adjacency_list[synapse.neuron_b_id].append(synapse)
+
+    def _remove_from_adjacency(self, synapse: SynapticConnection):
+        """Remove synapse from adjacency list for both connected nodes."""
+        if synapse in self.adjacency_list[synapse.neuron_a_id]:
+            self.adjacency_list[synapse.neuron_a_id].remove(synapse)
+
+        if synapse in self.adjacency_list[synapse.neuron_b_id]:
+            self.adjacency_list[synapse.neuron_b_id].remove(synapse)
 
     # --- Legacy Helpers ---
 
@@ -432,6 +466,7 @@ class HAIMEngine:
                     if 'last_fired' in rec:
                         syn.last_fired = datetime.fromisoformat(rec['last_fired'])
                     self.synapses[tuple(sorted([syn.neuron_a_id, syn.neuron_b_id]))] = syn
+                    self._add_to_adjacency(syn)
         except Exception as e:
             logger.error(f"Error loading synapses: {e}")
 

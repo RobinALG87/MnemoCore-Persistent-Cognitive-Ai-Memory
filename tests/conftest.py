@@ -1,5 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
+# Ensure modules are imported so patch targets exist
+import src.core.async_storage
+import src.core.qdrant_store
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_hardware_dependencies():
@@ -26,6 +29,20 @@ def mock_hardware_dependencies():
         mock_qdrant_get.return_value = mock_qdrant_instance
         mock_qdrant_instance.ensure_collections.return_value = None
         
+        # Configure get_point to return a valid-ish record to prevent crashes
+        mock_record = MagicMock()
+        mock_record.payload = {
+            "content": "mock_content",
+            "metadata": {},
+            "created_at": "2023-01-01T00:00:00+00:00",
+            "last_accessed": "2023-01-01T00:00:00+00:00",
+            "ltp_strength": 0.5,
+            "dimension": 1024,
+            "hdv_type": "binary"
+        }
+        mock_record.vector = [0] * 1024
+        mock_qdrant_instance.get_point.return_value = mock_record
+
         yield (mock_qdrant_instance, mock_redis_instance)
 
 @pytest.fixture(autouse=True)

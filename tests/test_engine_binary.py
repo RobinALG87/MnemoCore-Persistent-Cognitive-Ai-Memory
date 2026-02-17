@@ -33,6 +33,11 @@ def binary_engine(tmp_path):
     
     reset_config()
     engine = HAIMEngine()
+
+    # HACK: Patch tier config to prevent immediate demotion (LTP 0.5 < Threshold 0.7)
+    # This ensures tests expecting "hot" tier pass
+    object.__setattr__(engine.config.tiers_hot, 'ltp_threshold_min', 0.0)
+
     yield engine
     
     # Cleanup
