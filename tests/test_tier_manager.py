@@ -145,7 +145,8 @@ class TestTierManager:
         # Setup: n1 in WARM with high LTP
         n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
         n1.tier = "warm"
-        n1.ltp_strength = 0.95 # Should trigger promotion (> 0.7 + 0.15 = 0.85)
+        n1.access_count = 10 # Set high access count so calculate_ltp() yields > 0.85
+        n1.calculate_ltp()
         
         # Save to WARM manually
         tier_manager._save_to_warm(n1)
