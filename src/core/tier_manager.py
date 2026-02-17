@@ -133,8 +133,7 @@ class TierManager:
         if not self.hot:
             return
 
-        sorted_nodes = sorted(self.hot.values(), key=lambda n: n.ltp_strength)
-        victim = sorted_nodes[0]
+        victim = min(self.hot.values(), key=lambda n: n.ltp_strength)
         
         logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
         del self.hot[victim.id]
