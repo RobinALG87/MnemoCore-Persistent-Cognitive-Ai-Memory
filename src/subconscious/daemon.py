@@ -435,12 +435,124 @@ Output just the insight, max 60 words."""
             f"adaptation={metrics.get('adaptation', 'none')} interval={self.current_cycle_interval}s"
         )
     
+    async def _consume_events(self):
+        """Consume events from the Subconscious Bus (Redis Stream)."""
+        if not self.storage: return
+        
+        last_id = "$" # New events only
+        stream_key = self.storage.config.redis.stream_key
+        
+        self.log(f"Starting event consumer on {stream_key}")
+        
+        while self.running:
+            try:
+                # XREAD is blocking
+                streams = await self.storage.redis_client.xread(
+                    {stream_key: last_id}, count=1, block=1000
+                )
+                
+                if not streams:
+                    await asyncio.sleep(0.1)
+                    continue
+                    
+                for _, events in streams:
+                    for event_id, event_data in events:
+                        last_id = event_id
+                        await self._process_event(event_data)
+                        
+            except Exception as e:
+                self.log(f"Event consumer error: {e}")
+                await asyncio.sleep(1)
+
+    async def _process_event(self, event_data: Dict[str, Any]):
+        """Handle incoming events."""
+        event_type = event_data.get("type")
+        
+        if event_type == "memory.created":
+            mem_id = event_data.get("id")
+            if not mem_id: return
+            
+            # Check if we already have it (created by us?)
+            if mem_id in self.engine.tier_manager.hot:
+                return
+                
+            self.log(f"Received sync event: memory.created ({mem_id})")
+            
+            # Fetch full memory from Redis
+            data = await self.storage.retrieve_memory(mem_id)
+            if not data:
+                self.log(f"Could not retrieve memory {mem_id} from storage")
+                return
+                
+            # Reconstruct and add to Engine
+            try:
+                # Need to handle HDV reconstruction. 
+                # For now, we might need to load it via Engine's logic or construct manually.
+                # Engine's logic is best to ensure consistency.
+                # But Engine doesn't have a "load_from_redis" method readily available on single node.
+                # TierManager has _load_from_warm, but that's for Qdrant/File.
+                # We can manually reconstruct ephemeral node for HOT tier.
+                
+                # Check if it has HDV vector in Redis? 
+                # AsyncRedisStorage store_memory stores metadata + content.
+                # It does NOT store the vector currently in the metadata payload in `store_memory` in `api/main.py`.
+                # API calls engine.store -> which creates node -> then API calls storage.store_memory.
+                # The node in engine has the vector.
+                # But Daemon is a separate process. It needs the vector.
+                
+                # Critical Gap: Redis payload doesn't have the vector.
+                # We need to fetch it from Qdrant/Warm if it was persisted there?
+                # Engine.store puts it in HOT (RAM) and Appends to `memory.jsonl` (Legacy).
+                # It does NOT immediately put it in Qdrant (Warm).
+                
+                # So Daemon cannot load it from Qdrant yet.
+                # It can load it from `memory.jsonl` if it reads the file?
+                # Or we must include the vector in the Redis payload or `memory.created` event?
+                # Including vector in Redis event is heavy.
+                
+                # Option A: Read from `memory.jsonl` tail?
+                # Option B: Pass vector in Redis (might be large).
+                # Option C: API should also save to Qdrant immediately if we want shared state?
+                # But TierManager logic says "Starts in HOT".
+                
+                # Workaround for Phase 3.5:
+                # Since Engine appends to `memory.jsonl`, we can try to re-load from there.
+                # Or, we update API to include the vector/seed in Redis?
+                # Re-encoding in Daemon is an option if we have the content.
+                # HAIM is distinct: Same content = Same Vector (if deterministic).
+                
+                # Let's use re-encoding for now.
+                content = data.get("content", "")
+                if content:
+                    # Encode
+                    hdv = self.engine.encode_content(content)
+                    
+                    # Create Node
+                    node = MemoryNode(
+                        id=data["id"],
+                        hdv=hdv,
+                        content=content,
+                        metadata=data.get("metadata", {})
+                    )
+                    node.ltp_strength = float(data.get("ltp_strength", 0.5))
+                    node.created_at = datetime.fromisoformat(data["created_at"])
+                    
+                    # Add to Daemon's Engine
+                    self.engine.tier_manager.add_memory(node)
+                    self.log(f"Synced memory {mem_id} to HOT tier")
+
+            except Exception as e:
+                self.log(f"Failed to process sync for {mem_id}: {e}")
+
     async def run(self):
         """Main daemon loop."""
         self.running = True
         self.storage = AsyncRedisStorage.get_instance() # Initialize singleton
         self.log("Subconscious daemon starting...")
         self.log(f"Model: {MODEL} | Cycle interval: {CYCLE_INTERVAL}s")
+        
+        # Start event consumer task
+        asyncio.create_task(self._consume_events())
         
         while self.running:
             try:
@@ -455,6 +567,7 @@ Output just the insight, max 60 words."""
         self.log("Daemon stopping...")
         if self.storage:
             pass
+            # await self.storage.close() # Can't await in sync stop, let event loop handle or cleanup elsewhere
 
 
 async def main():

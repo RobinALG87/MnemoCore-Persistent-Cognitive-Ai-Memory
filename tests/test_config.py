@@ -146,6 +146,22 @@ class TestEnvironmentOverrides:
         finally:
             del os.environ["HAIM_LOG_LEVEL"]
 
+    def test_mcp_enabled_override(self, sample_config_path):
+        os.environ["HAIM_MCP_ENABLED"] = "true"
+        try:
+            config = load_config(sample_config_path)
+            assert config.mcp.enabled is True
+        finally:
+            del os.environ["HAIM_MCP_ENABLED"]
+
+    def test_mcp_api_base_url_override(self, sample_config_path):
+        os.environ["HAIM_MCP_API_BASE_URL"] = "http://localhost:8200"
+        try:
+            config = load_config(sample_config_path)
+            assert config.mcp.api_base_url == "http://localhost:8200"
+        finally:
+            del os.environ["HAIM_MCP_API_BASE_URL"]
+
 
 class TestConfigSingleton:
     def test_get_config_returns_same_instance(self):
@@ -224,3 +240,36 @@ class TestSecurityOverrides:
         config = load_config(config_path)
         assert config.redis.password == "yaml_password"
         assert config.qdrant.api_key == "yaml_api_key"
+
+
+class TestMCPConfig:
+    def test_mcp_defaults(self, sample_config_path):
+        config = load_config(sample_config_path)
+        assert config.mcp.enabled is False
+        assert config.mcp.transport == "stdio"
+        assert "memory_health" in config.mcp.allow_tools
+
+    def test_mcp_config_file_values(self, tmp_path):
+        config_data = {
+            "haim": {
+                "dimensionality": 1024,
+                "mcp": {
+                    "enabled": True,
+                    "transport": "sse",
+                    "host": "0.0.0.0",
+                    "port": 8123,
+                    "api_base_url": "http://localhost:8100",
+                    "timeout_seconds": 20,
+                    "allow_tools": ["memory_health", "memory_stats"],
+                },
+            }
+        }
+        config_path = tmp_path / "config_mcp.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_config(config_path)
+        assert config.mcp.enabled is True
+        assert config.mcp.transport == "sse"
+        assert config.mcp.port == 8123
+        assert config.mcp.allow_tools == ["memory_health", "memory_stats"]

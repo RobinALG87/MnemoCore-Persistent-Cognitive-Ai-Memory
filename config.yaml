@@ -83,3 +83,19 @@ haim:
   # Security (Phase 3.5.1)
   security:
     api_key: "mnemocore-beta-key"
+
+  # MCP (Model Context Protocol) bridge
+  mcp:
+    enabled: false
+    transport: "stdio"  # "stdio" recommended for local MCP clients
+    host: "127.0.0.1"
+    port: 8110
+    api_base_url: "http://localhost:8100"
+    timeout_seconds: 15
+    allow_tools:
+      - "memory_store"
+      - "memory_query"
+      - "memory_get"
+      - "memory_delete"
+      - "memory_stats"
+      - "memory_health"

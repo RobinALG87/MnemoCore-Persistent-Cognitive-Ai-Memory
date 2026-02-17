@@ -19,6 +19,7 @@ It is not a promise, delivery guarantee, or commitment to specific timelines.
 3. Improve deletion semantics and API consistency.
 4. Expand tests around degraded dependency modes (Redis/Qdrant outages).
 5. Stabilize API contracts and publish versioned compatibility notes.
+6. Introduce MCP server integration for agent tool access (see `docs/MCP_IMPLEMENTATION_PLAN.md`).
 
 ## Mid-Term Priorities
 

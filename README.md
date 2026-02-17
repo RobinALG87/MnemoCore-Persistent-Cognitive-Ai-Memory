@@ -180,6 +180,28 @@ curl -X POST "http://localhost:8100/analogy" \
 # Expected result: "queen" (if concepts are learned)
 ```
 
+### MCP Server
+
+MnemoCore can be exposed as an MCP server for agent tool integrations.
+
+Start API first:
+```bash
+uvicorn src.api.main:app --host 0.0.0.0 --port 8100 --reload
+```
+
+Enable MCP in `config.yaml`:
+```yaml
+haim:
+    mcp:
+        enabled: true
+        transport: "stdio"
+```
+
+Run MCP server:
+```bash
+python -m src.mcp.server
+```
+
 ---
 
 ## 🗺️ Roadmap (Phase 3.5+)

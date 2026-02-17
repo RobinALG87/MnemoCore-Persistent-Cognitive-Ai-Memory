@@ -1,0 +1,1 @@
+"""MnemoCore MCP package."""

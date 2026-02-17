@@ -83,6 +83,27 @@ class ObservabilityConfig:
 
 
 @dataclass(frozen=True)
+class MCPConfig:
+    enabled: bool = False
+    transport: str = "stdio"
+    host: str = "127.0.0.1"
+    port: int = 8110
+    api_base_url: str = "http://localhost:8100"
+    api_key: Optional[str] = None
+    timeout_seconds: int = 15
+    allow_tools: list[str] = field(
+        default_factory=lambda: [
+            "memory_store",
+            "memory_query",
+            "memory_get",
+            "memory_delete",
+            "memory_stats",
+            "memory_health",
+        ]
+    )
+
+
+@dataclass(frozen=True)
 class PathsConfig:
     data_dir: str = "./data"
     memory_file: str = "./data/memory.jsonl"
@@ -131,6 +152,7 @@ class HAIMConfig:
     gpu: GPUConfig = field(default_factory=GPUConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
 
 
@@ -314,6 +336,27 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         rate_limit_window=_env_override("RATE_LIMIT_WINDOW", sec_raw.get("rate_limit_window", 60)),
     )
 
+    # Build MCP config
+    mcp_raw = raw.get("mcp", {})
+    allow_tools_default = [
+        "memory_store",
+        "memory_query",
+        "memory_get",
+        "memory_delete",
+        "memory_stats",
+        "memory_health",
+    ]
+    mcp = MCPConfig(
+        enabled=_env_override("MCP_ENABLED", mcp_raw.get("enabled", False)),
+        transport=_env_override("MCP_TRANSPORT", mcp_raw.get("transport", "stdio")),
+        host=_env_override("MCP_HOST", mcp_raw.get("host", "127.0.0.1")),
+        port=_env_override("MCP_PORT", mcp_raw.get("port", 8110)),
+        api_base_url=_env_override("MCP_API_BASE_URL", mcp_raw.get("api_base_url", "http://localhost:8100")),
+        api_key=_env_override("MCP_API_KEY", mcp_raw.get("api_key", sec_raw.get("api_key", "mnemocore-beta-key"))),
+        timeout_seconds=_env_override("MCP_TIMEOUT_SECONDS", mcp_raw.get("timeout_seconds", 15)),
+        allow_tools=mcp_raw.get("allow_tools", allow_tools_default),
+    )
+
     # Build hysteresis config
     hyst_raw = raw.get("hysteresis", {})
     hysteresis = HysteresisConfig(
@@ -335,6 +378,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         gpu=gpu,
         security=security,
         observability=observability,
+        mcp=mcp,
         paths=paths,
     )
 
