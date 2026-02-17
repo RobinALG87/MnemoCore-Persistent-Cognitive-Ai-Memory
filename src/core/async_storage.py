@@ -49,11 +49,18 @@ class AsyncRedisStorage:
         # Use class-level pool to share connections if multiple instances are created accidentally
         if AsyncRedisStorage._pool is None:
             logger.info(f"Initializing Async Redis Pool: {self.config.redis.url}")
+
+            kwargs = {
+                "max_connections": self.config.redis.max_connections,
+                "socket_timeout": self.config.redis.socket_timeout,
+                "decode_responses": True,
+            }
+            if self.config.redis.password:
+                kwargs["password"] = self.config.redis.password
+
             AsyncRedisStorage._pool = ConnectionPool.from_url(
                 self.config.redis.url,
-                max_connections=self.config.redis.max_connections,
-                socket_timeout=self.config.redis.socket_timeout,
-                decode_responses=True  # Auto-decode bytes to str
+                **kwargs
             )
         
         self.redis_client = redis.Redis(connection_pool=AsyncRedisStorage._pool)

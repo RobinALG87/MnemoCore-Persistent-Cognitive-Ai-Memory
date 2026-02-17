@@ -184,3 +184,43 @@ class TestConfigValidation:
                 yaml.dump(data, f)
             with pytest.raises(ValueError):
                 load_config(path)
+
+class TestSecurityOverrides:
+    def test_redis_password_override(self, sample_config_path):
+        os.environ["HAIM_REDIS_PASSWORD"] = "secret_password"
+        try:
+            config = load_config(sample_config_path)
+            assert config.redis.password == "secret_password"
+        finally:
+            del os.environ["HAIM_REDIS_PASSWORD"]
+
+    def test_qdrant_api_key_override(self, sample_config_path):
+        os.environ["HAIM_QDRANT_API_KEY"] = "secret_api_key"
+        try:
+            config = load_config(sample_config_path)
+            assert config.qdrant.api_key == "secret_api_key"
+        finally:
+            del os.environ["HAIM_QDRANT_API_KEY"]
+
+    def test_config_file_values(self, tmp_path):
+        """Test that values can also be loaded from yaml directly."""
+        config_data = {
+            "haim": {
+                "dimensionality": 1024,
+                "redis": {
+                    "url": "redis://localhost:6379/0",
+                    "password": "yaml_password"
+                },
+                "qdrant": {
+                    "url": "http://localhost:6333",
+                    "api_key": "yaml_api_key"
+                }
+            }
+        }
+        config_path = tmp_path / "config_security.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_config(config_path)
+        assert config.redis.password == "yaml_password"
+        assert config.qdrant.api_key == "yaml_api_key"
