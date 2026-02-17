@@ -24,3 +24,4 @@ msgpack
 plotly
 pandas
 pytest-asyncio
+mcp

@@ -182,6 +182,47 @@ curl -X POST "http://localhost:8100/analogy" \
 
 ---
 
+## 🤖 Model Context Protocol (MCP)
+
+MnemoCore provides an MCP server implementation, allowing seamless integration with AI agents like **Claude Desktop**, **Gemini**, and others.
+
+### Features
+*   **Tools**: Store and query memories, perform analogical reasoning, and delete memories.
+*   **Resources**: Access recent memories (`mnemocore://memories/recent`) and engine stats (`mnemocore://stats`).
+*   **Prompts**: Built-in prompts for recalling information and "dreaming" (subconscious processing).
+
+### Running the MCP Server
+
+You can run the MCP server directly using the launcher script:
+
+```bash
+python run_mcp.py
+```
+
+### Claude Desktop Configuration
+
+To use MnemoCore as a memory tool for Claude Desktop, add the following to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mnemocore": {
+      "command": "python",
+      "args": [
+        "/absolute/path/to/mnemocore/run_mcp.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/mnemocore"
+      }
+    }
+  }
+}
+```
+
+Make sure to replace `/absolute/path/to/mnemocore` with the actual path to your cloned repository.
+
+---
+
 ## 🗺️ Roadmap (Phase 3.5+)
 
 *   **[Phase 3.5] Distributed Vector Database**: Full integration with **Qdrant** for billion-scale memory support.
