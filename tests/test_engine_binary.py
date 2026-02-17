@@ -32,7 +32,18 @@ def binary_engine(tmp_path):
     os.environ["HAIM_DIMENSIONALITY"] = "1024" # Small for tests
     
     reset_config()
+
+    # Manually lower threshold to prevent immediate eviction during tests
+    config = get_config()
+    from dataclasses import replace
+    import src.core.config
+    new_hot = replace(config.tiers_hot, ltp_threshold_min=0.1)
+    new_config = replace(config, tiers_hot=new_hot)
+    src.core.config._CONFIG = new_config
+
     engine = HAIMEngine()
+    # Force file-based tiering (disable Qdrant mock usage)
+    engine.tier_manager.use_qdrant = False
     yield engine
     
     # Cleanup

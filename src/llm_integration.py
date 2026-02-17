@@ -32,7 +32,7 @@ class HAIMLLMIntegrator:
         # Extract memory content
         memory_fragments = []
         for node_id, similarity in results:
-            node = self.haim.tier_manager.get_memory(node_id)
+            node = self.haim.get_memory(node_id)
             if node:
                 memory_fragments.append({
                     "content": node.content,
@@ -114,7 +114,7 @@ Reconstruction:"""
         # Extract relevant memories
         relevant_memories = []
         for node_id, similarity in results:
-            node = self.haim.tier_manager.get_memory(node_id)
+            node = self.haim.get_memory(node_id)
             if node:
                 relevant_memories.append({
                     "content": node.content,
@@ -182,7 +182,7 @@ Evaluation:"""
         Reconsolidate memory with new context
         Similar to how human memories are rewritten when recalled
         """
-        node = self.haim.tier_manager.get_memory(node_id)
+        node = self.haim.get_memory(node_id)
         if not node:
             return
 
@@ -244,7 +244,7 @@ class MultiAgentHAIM:
         node_id = self.shared_memory.store(content, metadata)
 
         # Update metadata with agent info
-        node = self.shared_memory.tier_manager.get_memory(node_id)
+        node = self.shared_memory.get_memory(node_id)
         if node:
             node.metadata = node.metadata or {}
             node.metadata["learned_by"] = agent_id
@@ -272,7 +272,7 @@ class MultiAgentHAIM:
         # Enrich with agent context
         enriched = []
         for node_id, similarity in results:
-            node = self.shared_memory.tier_manager.get_memory(node_id)
+            node = self.shared_memory.get_memory(node_id)
             if node:
                 enriched.append({
                     "node_id": node_id,
@@ -315,7 +315,7 @@ class MultiAgentHAIM:
             raise ValueError(f"Agent {agent_id} not found")
 
         # Get all active nodes (in production, filter by relevance)
-        active_nodes = list(self.shared_memory.tier_manager.hot.values())
+        active_nodes = self.shared_memory.get_active_memories()
 
         # TODO: orchestrate_orch_or() not implemented in HAIMEngine
         # For now, return top nodes sorted by LTP strength as a proxy for "collapse"

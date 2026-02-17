@@ -75,14 +75,12 @@ class HAIMEngine:
     def _current_context_vector(self, sample_n: int = 50) -> Union[HDV, BinaryHDV]:
         """Superpose a slice of working memory (HOT tier) into a single context vector."""
         # Get recent nodes from HOT tier
-        # Optimized to avoid O(N) list copy
         if sample_n <= 0:
             recent_nodes = []
         else:
-            # Get last sample_n items (newest) efficiently
-            recent_nodes = list(islice(reversed(self.tier_manager.hot.values()), sample_n))
-            # Reverse back to maintain chronological order (oldest -> newest)
-            recent_nodes.reverse()
+            # Use safe accessor
+            hot_memories = self.tier_manager.get_hot_memories()
+            recent_nodes = hot_memories[-sample_n:] if sample_n < len(hot_memories) else hot_memories
         
         if not recent_nodes:
             if self.config.encoding.mode == "binary":
@@ -227,7 +225,7 @@ class HAIMEngine:
 
         # 1. Primary Search (Scan HOT + cached WARM?)
         # For Phase 3.0, we iterate over HOT nodes.
-        nodes_to_search = list(self.tier_manager.hot.values())
+        nodes_to_search = self.tier_manager.get_hot_memories()
         
         # TODO: Phase 3.5 Qdrant search for WARM/COLD
         
@@ -342,6 +340,10 @@ class HAIMEngine:
     def get_memory(self, node_id: str) -> Optional[MemoryNode]:
         """Retrieve memory via TierManager."""
         return self.tier_manager.get_memory(node_id)
+
+    def get_active_memories(self) -> List[MemoryNode]:
+        """Get all memories currently in the active (HOT) tier."""
+        return self.tier_manager.get_hot_memories()
 
     # --- Legacy Helpers ---
 

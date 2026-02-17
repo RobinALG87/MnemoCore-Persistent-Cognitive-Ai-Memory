@@ -97,6 +97,11 @@ class TierManager:
             
         return None
 
+    def get_hot_memories(self) -> List[MemoryNode]:
+        """Return a list of all memories currently in the HOT tier."""
+        with self.lock:
+            return list(self.hot.values())
+
     def delete_memory(self, node_id: str):
         """Robust delete from all tiers."""
         with self.lock:
@@ -250,13 +255,22 @@ class TierManager:
                         hdv = HDV(dimension=payload["dimension"])
                         hdv.vector = np.array(vec_data)
                     
+                    # Handle potential non-string dates from Qdrant
+                    created_at = payload["created_at"]
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at)
+
+                    last_accessed = payload["last_accessed"]
+                    if isinstance(last_accessed, str):
+                        last_accessed = datetime.fromisoformat(last_accessed)
+
                     return MemoryNode(
                         id=payload.get("id", node_id), # Some payloads might store ID
                         hdv=hdv,
                         content=payload["content"],
                         metadata=payload["metadata"],
-                        created_at=datetime.fromisoformat(payload["created_at"]),
-                        last_accessed=datetime.fromisoformat(payload["last_accessed"]),
+                        created_at=created_at,
+                        last_accessed=last_accessed,
                         tier="warm",
                         access_count=payload.get("access_count", 0),
                         ltp_strength=payload.get("ltp_strength", 0.0),
