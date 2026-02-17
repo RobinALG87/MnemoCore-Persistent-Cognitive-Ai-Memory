@@ -13,11 +13,25 @@ def mock_module(name):
     sys.modules[name] = m
     return m
 
+# Try to import real modules first
+try:
+    import src.core.engine
+    import src.core.node
+    import src.core.qdrant_store
+    import src.core.async_storage
+    import src.meta.learning_journal
+except ImportError:
+    pass
+
 # Mock dependencies if they are not importable
 if "src.core.engine" not in sys.modules:
     mock_module("src.core")
     mock_module("src.core.engine")
     sys.modules["src.core.engine"].HAIMEngine = MagicMock()
+    mock_module("src.core.node")
+    sys.modules["src.core.node"].MemoryNode = MagicMock()
+    mock_module("src.core.qdrant_store")
+    sys.modules["src.core.qdrant_store"].QdrantStore = MagicMock()
 
 if "src.core.async_storage" not in sys.modules:
     mock_module("src.core.async_storage")

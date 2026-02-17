@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.core.engine import HAIMEngine
 from src.core.async_storage import AsyncRedisStorage
 from src.meta.learning_journal import LearningJournal
+from src.core.node import MemoryNode
 
 # Config
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -209,14 +210,14 @@ class SubconsciousDaemon:
             self.log(f"Ollama connection error: {e}")
             return ""
     
-    async def extract_concepts(self, memories: List[Dict]) -> List[Dict]:
+    async def extract_concepts(self, memories: List[MemoryNode]) -> List[Dict]:
         """Extract concepts from recent memories."""
         if not memories:
             return []
             
         # Sample up to 5 memories
         sample = random.sample(memories, min(5, len(memories)))
-        contents = [m.get("content", "")[:200] for m in sample]
+        contents = [m.content[:200] for m in sample]
         
         prompt = f"""Analyze these memory fragments and extract key concepts.
 Output JSON array of concepts with attributes.
@@ -240,7 +241,7 @@ Only output valid JSON array, nothing else."""
             pass
         return []
     
-    async def draw_parallels(self, memories: List[Dict]) -> List[str]:
+    async def draw_parallels(self, memories: List[MemoryNode]) -> List[str]:
         """Find unexpected connections between memories."""
         if len(memories) < 2:
             return []
@@ -250,9 +251,9 @@ Only output valid JSON array, nothing else."""
         
         prompt = f"""Find a non-obvious parallel or connection between these two ideas:
 
-1: {sample[0].get('content', '')[:200]}
+1: {sample[0].content[:200]}
 
-2: {sample[1].get('content', '')[:200]}
+2: {sample[1].content[:200]}
 
 Output ONE insight about how these connect. Be creative but logical. Max 50 words."""
 
@@ -262,7 +263,7 @@ Output ONE insight about how these connect. Be creative but logical. Max 50 word
             return [response]
         return []
     
-    async def value_memories(self, memories: List[Dict]) -> Dict[str, float]:
+    async def value_memories(self, memories: List[MemoryNode]) -> Dict[str, float]:
         """Re-evaluate memory importance based on patterns."""
         if not memories:
             return {}
@@ -273,7 +274,7 @@ Output ONE insight about how these connect. Be creative but logical. Max 50 word
         prompt = f"""Rate each memory's strategic value (0.0-1.0) for a tech entrepreneur focused on expansion.
 
 Memories:
-{chr(10).join(f'{i+1}. {m.get("content", "")[:100]}' for i, m in enumerate(sample))}
+{chr(10).join(f'{i+1}. {m.content[:100]}' for i, m in enumerate(sample))}
 
 Output format: {{"1": 0.8, "2": 0.3, ...}}
 Only output valid JSON object."""
@@ -290,19 +291,19 @@ Only output valid JSON object."""
                 for i, m in enumerate(sample):
                     key = str(i + 1)
                     if key in values:
-                        result[m.get("id", f"mem_{i}")] = float(values[key])
+                        result[m.id] = float(values[key])
                 return result
         except:
             pass
         return {}
     
-    async def generate_insight(self, memories: List[Dict]) -> Optional[str]:
+    async def generate_insight(self, memories: List[MemoryNode]) -> Optional[str]:
         """Generate a meta-insight from memory patterns."""
         if len(memories) < 3:
             return None
             
         sample = random.sample(memories, min(8, len(memories)))
-        contents = [m.get("content", "")[:150] for m in sample]
+        contents = [m.content[:150] for m in sample]
         
         prompt = f"""You are analyzing patterns in an entrepreneur's memory system.
         
@@ -349,16 +350,13 @@ Output just the insight, max 60 words."""
             "parallels": 0,
             "meta_insights": 0,
             "valuations": 0,
-            "memories": len(self.engine.memory_nodes),
+            "memories": len(self.engine.tier_manager.hot),
             "synapses": len(self.engine.synapses),
         }
 
         
-        # Get all memories as list
-        memories = [
-            {"id": nid, "content": node.content, "metadata": node.metadata}
-            for nid, node in self.engine.memory_nodes.items()
-        ]
+        # Get all hot memories as list (references only, no copy)
+        memories = list(self.engine.tier_manager.hot.values())
         
         if not memories:
             self.log("No memories to process")
@@ -399,8 +397,8 @@ Output just the insight, max 60 words."""
         if self.cycle_count % self.schedule["value_every"] == 0:
             values = await self.value_memories(memories)
             for mem_id, value in values.items():
-                if mem_id in self.engine.memory_nodes:
-                    self.engine.memory_nodes[mem_id].pragmatic_value = value
+                if mem_id in self.engine.tier_manager.hot:
+                    self.engine.tier_manager.hot[mem_id].pragmatic_value = value
                     metrics["valuations"] += 1
             self.log(f"Valued {len(values)} memories")
         
@@ -423,7 +421,7 @@ Output just the insight, max 60 words."""
             removed = max(0, before - len(self.engine.synapses))
             self.log(f"Synapse cleanup complete (removed {removed})")
 
-        metrics["memories"] = len(self.engine.memory_nodes)
+        metrics["memories"] = len(self.engine.tier_manager.hot)
         metrics["synapses"] = len(self.engine.synapses)
         self._adapt_evolution_policy(metrics)
         self._record_cycle_learning(metrics)
