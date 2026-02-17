@@ -81,8 +81,7 @@ class HAIMEngine:
         else:
             # Get last sample_n items (newest) efficiently
             recent_nodes = list(islice(reversed(self.tier_manager.hot.values()), sample_n))
-            # Reverse back to maintain chronological order (oldest -> newest)
-            recent_nodes.reverse()
+            # No need to reverse back; superposition is commutative
         
         if not recent_nodes:
             if self.config.encoding.mode == "binary":
