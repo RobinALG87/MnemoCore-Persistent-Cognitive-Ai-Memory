@@ -355,6 +355,18 @@ class HAIMEngine:
         """Retrieve memory via TierManager."""
         return self.tier_manager.get_memory(node_id)
 
+    def get_recent_memories(self, n: int = 20) -> List[MemoryNode]:
+        """Retrieve the most recent memories from the HOT tier."""
+        try:
+            # Get active memories from tier manager
+            hot_memories = list(self.tier_manager.hot.values())
+            # Sort by creation time descending
+            hot_memories.sort(key=lambda x: x.created_at, reverse=True)
+            return hot_memories[:n]
+        except Exception as e:
+            logger.error(f"Error retrieving recent memories: {e}")
+            return []
+
     # --- Legacy Helpers ---
 
     def _legacy_encode_content_numpy(self, content: str) -> np.ndarray:
