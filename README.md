@@ -17,12 +17,21 @@
 
 ## Quick Install
 
+**Option A — install from PyPI (recommended):**
+
+```bash
+pip install mnemocore
+```
+
+**Option B — install from source (for development):**
+
 ```bash
 git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git
 cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
 python -m venv .venv && .\.venv\Scripts\activate   # Windows
 # source .venv/bin/activate                        # Linux / macOS
-pip install -e .
+pip install -e .          # editable install
+pip install -e ".[dev]"   # + pytest, mypy, black, etc.
 ```
 
 > **Set your API key before starting:**
