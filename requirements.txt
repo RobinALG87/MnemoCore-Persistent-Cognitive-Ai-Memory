@@ -10,6 +10,7 @@ pyyaml>=6.0
 
 # Phase 3.0 - Testing
 pytest>=7.0.0
+hypothesis>=6.0.0
 
 # Phase 3.5 - Distributed Infrastructure
 redis>=5.0.0

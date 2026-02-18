@@ -173,12 +173,27 @@ class TierManager:
     async def add_memory(self, node: MemoryNode):
         """Add a new memory node. New memories are always HOT initially."""
         node.tier = "hot"
+
+        # Phase 1: Add to HOT tier under lock (no I/O)
+        victim_to_evict = None
         async with self.lock:
             self.hot[node.id] = node
             self._add_to_faiss(node)
 
+            # Check if we need to evict - decide under lock, execute outside
             if len(self.hot) > self.config.tiers_hot.max_memories:
-                await self._evict_from_hot()
+                victim = min(self.hot.values(), key=lambda n: n.ltp_strength)
+                if victim.id != node.id:  # Don't evict the node we just added
+                    # Remove from HOT under lock
+                    logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
+                    del self.hot[victim.id]
+                    self._remove_from_faiss(victim.id)
+                    victim.tier = "warm"
+                    victim_to_evict = victim
+
+        # Phase 2: Perform I/O outside lock
+        if victim_to_evict:
+            await self._save_to_warm(victim_to_evict)
 
     def _add_to_faiss(self, node: MemoryNode):
         """Add node to the ANN index (HNSW preferred, legacy flat as fallback)."""
@@ -207,27 +222,40 @@ class TierManager:
     async def get_memory(self, node_id: str) -> Optional[MemoryNode]:
         """Retrieve memory by ID from any tier."""
         # Check HOT
+        demote_candidate = None
         async with self.lock:
             if node_id in self.hot:
                 node = self.hot[node_id]
                 node.access()
-                await self._check_demotion(node)
+                # Check if node should be demoted - but do I/O AFTER releasing lock
+                if self._should_demote(node):
+                    # Node will be demoted, but we need to save it first
+                    # Keep a reference and do I/O outside lock
+                    demote_candidate = node
                 return node
+
+        # If demotion is needed, save to WARM first, then remove from HOT
+        # This ensures the node is always findable during the transition
+        if demote_candidate:
+            logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
+            # Step 1: Save to WARM (I/O outside lock)
+            await self._save_to_warm(demote_candidate)
+            # Step 2: Remove from HOT (under lock)
+            async with self.lock:
+                # Double-check it's still in HOT (might have been accessed again)
+                if demote_candidate.id in self.hot:
+                    del self.hot[demote_candidate.id]
+                    self._remove_from_faiss(demote_candidate.id)
+                    demote_candidate.tier = "warm"
 
         # Check WARM (Qdrant or Disk)
         warm_node = await self._load_from_warm(node_id)
         if warm_node:
             warm_node.tier = "warm"
             warm_node.access()
-            # Decide promotion under lock, then do I/O outside lock
-            should_promote = False
-            async with self.lock:
-                should_promote = self._check_promotion(warm_node)
-            if should_promote:
-                await self._delete_from_warm(warm_node.id)
-                if len(self.hot) > self.config.tiers_hot.max_memories:
-                    async with self.lock:
-                        await self._evict_from_hot()
+            # Check promotion (pure function, no lock needed)
+            if self._should_promote(warm_node):
+                await self._promote_to_hot(warm_node)
             return warm_node
 
         return None
@@ -331,18 +359,21 @@ class TierManager:
 
         return deleted
 
-    async def _evict_from_hot(self):
-        """Evict lowest-LTP memory from HOT to WARM. Assumes lock is held."""
+    def _prepare_eviction_from_hot(self) -> Optional[MemoryNode]:
+        """
+        Prepare eviction by finding and removing the victim from HOT.
+        Returns the victim node to be saved to WARM (caller must do I/O outside lock).
+        Returns None if HOT tier is empty.
+        """
         if not self.hot:
-            return
+            return None
 
         victim = min(self.hot.values(), key=lambda n: n.ltp_strength)
-
         logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
         del self.hot[victim.id]
         self._remove_from_faiss(victim.id)
         victim.tier = "warm"
-        await self._save_to_warm(victim)
+        return victim
 
     async def _save_to_warm(self, node: MemoryNode):
         """
@@ -526,36 +557,58 @@ class TierManager:
             return await self._run_in_thread(_fs_load)
         return None
 
-    def _check_promotion(self, node: MemoryNode) -> bool:
-        """Check if WARM node should be promoted to HOT. Assumes lock is held.
-
-        Returns True if the node was promoted (in-memory state updated).
-        The caller is responsible for performing I/O (delete from WARM,
-        possible eviction) OUTSIDE the lock to avoid blocking HOT-tier
-        operations during network round-trips.
-        """
+    def _should_promote(self, node: MemoryNode) -> bool:
+        """Pure check: return True if node qualifies for promotion (no mutation)."""
         threshold = self.config.tiers_hot.ltp_threshold_min
         delta = self.config.hysteresis.promote_delta
+        return node.ltp_strength > (threshold + delta)
 
-        if node.ltp_strength > (threshold + delta):
-            logger.info(f"Promoting {node.id} to HOT (LTP: {node.ltp_strength:.4f})")
-            node.tier = "hot"
-            self.hot[node.id] = node
-            self._add_to_faiss(node)
-            return True
-        return False
-
-    async def _check_demotion(self, node: MemoryNode):
-        """Check if HOT node should be demoted to WARM. Assumes lock is held."""
+    def _should_demote(self, node: MemoryNode) -> Optional[MemoryNode]:
+        """
+        Pure check: return the node if it qualifies for demotion (after updating its tier).
+        Returns None if no demotion needed. No I/O performed.
+        """
         threshold = self.config.tiers_hot.ltp_threshold_min
         delta = self.config.hysteresis.demote_delta
 
         if node.ltp_strength < (threshold - delta):
-            logger.info(f"Demoting {node.id} to WARM (LTP: {node.ltp_strength:.4f})")
-            del self.hot[node.id]
-            self._remove_from_faiss(node.id)
-            node.tier = "warm"
-            await self._save_to_warm(node)
+            return node
+        return None
+
+    async def _promote_to_hot(self, node: MemoryNode):
+        """Promote node from WARM to HOT (I/O first, then atomic state update).
+
+        Order is critical:
+        1. Delete from WARM (I/O) - no lock held
+        2. Insert into HOT (in-memory) - under lock
+        This prevents double-promotion from concurrent callers.
+        """
+        # Step 1: I/O outside lock (may fail gracefully)
+        deleted = await self._delete_from_warm(node.id)
+        if not deleted:
+            logger.debug(f"Skipping promotion of {node.id}: not found in WARM (already promoted?)")
+            return
+
+        # Step 2: Atomic state transition under lock
+        victim_to_save = None
+        async with self.lock:
+            # Double-check: another caller may have already promoted this node
+            if node.id in self.hot:
+                logger.debug(f"{node.id} already in HOT, skipping duplicate promotion")
+                return
+
+            logger.info(f"Promoting {node.id} to HOT (LTP: {node.ltp_strength:.4f})")
+            node.tier = "hot"
+            self.hot[node.id] = node
+            self._add_to_faiss(node)
+
+            # Check if we need to evict - prepare under lock, execute outside
+            if len(self.hot) > self.config.tiers_hot.max_memories:
+                victim_to_save = self._prepare_eviction_from_hot()
+
+        # Step 3: Perform eviction I/O outside lock
+        if victim_to_save:
+            await self._save_to_warm(victim_to_save)
 
     async def get_stats(self) -> Dict:
         """Get statistics about memory distribution across tiers."""
@@ -649,6 +702,7 @@ class TierManager:
                                 last_accessed=datetime.fromisoformat(data["last_accessed"]),
                                 tier="warm",
                                 ltp_strength=data.get("ltp_strength", 0.0),
+                                previous_id=data.get("previous_id"),  # Phase 4.3: episodic chain
                             )
                         )
                     except Exception as exc:

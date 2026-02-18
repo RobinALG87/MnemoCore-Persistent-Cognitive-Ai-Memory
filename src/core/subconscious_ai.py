@@ -281,11 +281,10 @@ class ResourceGuard:
     def check_rate_limit(self) -> bool:
         """Check if we're under the hourly rate limit."""
         now = time.time()
-        # Remove calls older than 1 hour
-        self._call_history = deque(
-            [t for t in self._call_history if now - t < 3600],
-            maxlen=1000
-        )
+        cutoff = now - 3600
+        # Remove calls older than 1 hour using O(1) popleft()
+        while self._call_history and self._call_history[0] < cutoff:
+            self._call_history.popleft()
         if len(self._call_history) >= self.rate_limit_per_hour:
             logger.debug(f"Rate limit reached: {len(self._call_history)}/{self.rate_limit_per_hour}")
             return False
@@ -310,6 +309,11 @@ class ResourceGuard:
         # Exponential backoff
         backoff = min(base_interval * (2 ** self._consecutive_errors), max_backoff)
         return backoff
+
+    @property
+    def consecutive_errors(self) -> int:
+        """Expose consecutive errors count for stats reporting."""
+        return self._consecutive_errors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -553,7 +557,7 @@ Memories:
 Return JSON format:
 {{"categories": ["cat1", "cat2"], "memory_tags": {{"1": ["tag1"], "2": ["tag2"]}}}}"""
 
-        response = await self._model_client.generate(prompt, max_tokens=256)
+        response = await self._model_client.generate(prompt, max_tokens=512)
         output = {"raw_response": response}
 
         # Parse response
@@ -567,13 +571,32 @@ Return JSON format:
 
                 # Apply tags if not dry run
                 if not self.cfg.dry_run and "memory_tags" in parsed:
+                    updated_nodes: List["MemoryNode"] = []
                     for idx_str, tags in parsed["memory_tags"].items():
                         idx = int(idx_str) - 1
                         if 0 <= idx < len(unsorted):
                             mem = unsorted[idx]
                             mem.metadata["tags"] = tags
                             mem.metadata["category"] = parsed.get("categories", ["unknown"])[0]
+                            updated_nodes.append(mem)
                             output["applied"] = output.get("applied", 0) + 1
+
+                    if updated_nodes:
+                        persist_tasks = [
+                            self.engine.persist_memory_snapshot(mem)
+                            for mem in updated_nodes
+                        ]
+                        persist_results = await asyncio.gather(
+                            *persist_tasks,
+                            return_exceptions=True,
+                        )
+                        persisted = sum(
+                            1 for r in persist_results if not isinstance(r, Exception)
+                        )
+                        output["persisted"] = persisted
+                        for r in persist_results:
+                            if isinstance(r, Exception):
+                                logger.warning(f"Failed to persist sorting metadata update: {r}")
         except json.JSONDecodeError:
             output["parse_error"] = "Could not parse JSON response"
 
@@ -627,7 +650,7 @@ Memories:
 For each memory, suggest 2-3 keywords or concepts that could connect it to related memories.
 Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}"""
 
-        response = await self._model_client.generate(prompt, max_tokens=256)
+        response = await self._model_client.generate(prompt, max_tokens=512)
         output = {"raw_response": response}
 
         # Parse and potentially create associations
@@ -638,9 +661,48 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
                 parsed = json.loads(response[json_start:json_end])
                 output["parsed"] = parsed
 
+                # Create synaptic bridges based on suggested concepts
+                if not self.cfg.dry_run and "bridges" in parsed:
+                    bindings_created = 0
+                    for idx_str, concepts in parsed["bridges"].items():
+                        try:
+                            idx = int(idx_str) - 1
+                            if 0 <= idx < len(weak_memories):
+                                weak_mem = weak_memories[idx]
+                                for concept in concepts[:2]:  # Limit to 2 concepts per memory
+                                    # Encode the bridging concept and search for related memories
+                                    concept_vec = self.engine.binary_encoder.encode(concept)
+                                    hits = await self.engine.tier_manager.search(concept_vec, top_k=3)
+                                    for hit_id, score in hits:
+                                        if hit_id != weak_mem.id and score > 0.2:
+                                            await self.engine.bind_memories(
+                                                weak_mem.id, hit_id, success=True
+                                            )
+                                            bindings_created += 1
+                        except (ValueError, IndexError) as e:
+                            logger.debug(f"Skipping invalid bridge index {idx_str}: {e}")
+                    output["bindings_created"] = bindings_created
+
                 # Mark as analyzed to avoid re-processing
                 for mem in weak_memories:
                     mem.metadata["dream_analyzed"] = True
+
+                if not self.cfg.dry_run:
+                    persist_tasks = [
+                        self.engine.persist_memory_snapshot(mem)
+                        for mem in weak_memories
+                    ]
+                    persist_results = await asyncio.gather(
+                        *persist_tasks,
+                        return_exceptions=True,
+                    )
+                    persisted = sum(
+                        1 for r in persist_results if not isinstance(r, Exception)
+                    )
+                    output["persisted"] = persisted
+                    for r in persist_results:
+                        if isinstance(r, Exception):
+                            logger.warning(f"Failed to persist dreaming metadata update: {r}")
 
                 output["bridges_found"] = len(parsed.get("bridges", {}))
         except json.JSONDecodeError:
@@ -756,7 +818,7 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
             "total_cycles": self._total_cycles,
             "successful_cycles": self._successful_cycles,
             "failed_cycles": self._failed_cycles,
-            "consecutive_errors": self._resource_guard._consecutive_errors,
+            "consecutive_errors": self._resource_guard.consecutive_errors,
             "suggestions_generated": self._suggestions_generated,
             "suggestions_applied": self._suggestions_applied,
             "operations": {

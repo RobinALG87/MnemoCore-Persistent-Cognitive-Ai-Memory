@@ -185,11 +185,11 @@ async def test_persist_memory_concurrent_stores_keep_linear_previous_chain(isola
 
 
 @pytest.mark.asyncio
-async def test_get_stats_reports_engine_version_43(isolated_engine):
+async def test_get_stats_reports_engine_version_45(isolated_engine):
     engine = isolated_engine
     engine.tier_manager.get_stats = AsyncMock(return_value={"hot_count": 0, "warm_count": 0})
     stats = await engine.get_stats()
-    assert stats["engine_version"] == "4.3.0"
+    assert stats["engine_version"] == "4.5.0"
 
 
 @pytest.mark.asyncio

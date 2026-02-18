@@ -39,6 +39,9 @@ from .gap_filler import GapFiller, GapFillerConfig
 from .synapse_index import SynapseIndex
 from .subconscious_ai import SubconsciousAIWorker
 
+# Phase 4.5: Recursive Synthesis Engine
+from .recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+
 # Observability imports (Phase 4.1)
 from .metrics import (
     timer, traced, get_trace_id, set_trace_id,
@@ -126,6 +129,9 @@ class HAIMEngine:
 
         # ── Phase 4.4: subconscious AI worker (BETA) ───────────────────
         self._subconscious_ai: Optional[SubconsciousAIWorker] = None
+
+        # ── Phase 4.5: recursive synthesizer ───────────────────────────
+        self._recursive_synthesizer: Optional[RecursiveSynthesizer] = None
 
         # Conceptual Layer (VSA Soul)
         data_dir = self.config.paths.data_dir
@@ -735,7 +741,7 @@ class HAIMEngine:
             syn_count = len(self._synapse_index)
 
         stats = {
-            "engine_version": "4.3.0",
+            "engine_version": "4.5.0",
             "dimension": self.dimension,
             "encoding": "binary_hdv",
             "tiers": tier_stats,
@@ -753,6 +759,10 @@ class HAIMEngine:
             # Phase 4.4: Subconscious AI worker stats (BETA)
             "subconscious_ai": (
                 self._subconscious_ai.stats if self._subconscious_ai else {}
+            ),
+            # Phase 4.5: RecursiveSynthesizer stats
+            "recursive_synthesizer": (
+                self._recursive_synthesizer.stats if self._recursive_synthesizer else {}
             ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -787,6 +797,26 @@ class HAIMEngine:
         )
         await self._gap_filler.start()
         logger.info("Phase 4.0 GapFiller started.")
+
+    async def enable_recursive_synthesis(
+        self,
+        llm_call: Optional[Any] = None,
+        config: Optional["SynthesizerConfig"] = None,
+    ) -> None:
+        """
+        Enable Phase 4.5 Recursive Synthesis Engine.
+
+        Args:
+            llm_call: Optional callable for LLM-powered decomposition and synthesis.
+                     Signature: (prompt: str) -> str.
+            config: Optional SynthesizerConfig overrides.
+        """
+        self._recursive_synthesizer = RecursiveSynthesizer(
+            engine=self,
+            config=config or SynthesizerConfig(),
+            llm_call=llm_call,
+        )
+        logger.info("Phase 4.5 RecursiveSynthesizer enabled.")
 
     async def record_retrieval_feedback(
         self,
@@ -955,6 +985,10 @@ class HAIMEngine:
                 logger.error(f"Failed to persist memory: {e}")
 
         await self._run_in_thread(_append)
+
+    async def persist_memory_snapshot(self, node: MemoryNode) -> None:
+        """Persist a current snapshot of a memory node to the append-only log."""
+        await self._append_persisted(node)
 
     # --- Conceptual Proxy ---
 

@@ -116,35 +116,38 @@ class TestTierManager:
         assert tier_manager.hot["n1"].tier == "hot"
 
     async def test_eviction_to_warm(self, tier_manager, test_config):
-        # We can't change max_memories easily on frozen config, 
+        # We can't change max_memories easily on frozen config,
         # so we fill it up to default (2000) or check logic manually.
-        # Let's mock the config or just test _evict_from_hot directly.
-        
+        # Let's mock the config or just test eviction directly.
+
         # Add two nodes
         n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
         n1.ltp_strength = 0.1 # Low
-        
+
         n2 = MemoryNode(id="n2", hdv=BinaryHDV.random(1024), content="c2")
         n2.ltp_strength = 0.9 # High
-        
+
         await tier_manager.add_memory(n1)
         await tier_manager.add_memory(n2)
-        
-        # Force eviction of lowest LTP (n1)
-        await tier_manager._evict_from_hot()
-        
+
+        # Force eviction of lowest LTP (n1) - use new two-phase method
+        async with tier_manager.lock:
+            victim = tier_manager._prepare_eviction_from_hot()
+        if victim:
+            await tier_manager._save_to_warm(victim)
+
         assert "n1" not in tier_manager.hot
         assert "n2" in tier_manager.hot
-        
+
         # Check if n1 is in WARM
         warm_file = tier_manager.warm_path / "n1.json"
-        
+
         # Verify metadata
         # Might need a small wait if IO is threaded?
         # But _evict awaits _save_to_warm which awaits _run_in_thread. So it should be done.
-        
+
         assert warm_file.exists()
-        
+
         with open(warm_file) as f:
             meta = json.load(f)
         assert meta["tier"] == "warm"
