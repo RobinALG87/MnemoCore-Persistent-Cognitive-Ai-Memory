@@ -345,7 +345,11 @@ class TierManager:
                         "epistemic_value": node.epistemic_value,
                         "pragmatic_value": node.pragmatic_value,
                         "dimension": node.hdv.dimension,
-                        "hdv_type": "binary"
+                        "hdv_type": "binary",
+                        # Phase 4.3: Temporal metadata for time-based indexing
+                        "unix_timestamp": node.unix_timestamp,
+                        "iso_date": node.iso_date,
+                        "previous_id": node.previous_id,
                     }
                 )
 
@@ -386,7 +390,11 @@ class TierManager:
                 "epistemic_value": node.epistemic_value,
                 "pragmatic_value": node.pragmatic_value,
                 "hdv_type": "binary",
-                "dimension": node.hdv.dimension
+                "dimension": node.hdv.dimension,
+                # Phase 4.3: Temporal metadata
+                "unix_timestamp": node.unix_timestamp,
+                "iso_date": node.iso_date,
+                "previous_id": node.previous_id,
             }
             with open(meta_path, "w") as f:
                 json.dump(data, f)
@@ -434,7 +442,8 @@ class TierManager:
                         access_count=payload.get("access_count", 0),
                         ltp_strength=payload.get("ltp_strength", 0.0),
                         epistemic_value=payload.get("epistemic_value", 0.0),
-                        pragmatic_value=payload.get("pragmatic_value", 0.0)
+                        pragmatic_value=payload.get("pragmatic_value", 0.0),
+                        previous_id=payload.get("previous_id"),  # Phase 4.3
                     )
                 return None  # Not found
             except CircuitOpenError as e:
@@ -474,7 +483,8 @@ class TierManager:
                         access_count=data.get("access_count", 0),
                         ltp_strength=data.get("ltp_strength", 0.0),
                         epistemic_value=data.get("epistemic_value", 0.0),
-                        pragmatic_value=data.get("pragmatic_value", 0.0)
+                        pragmatic_value=data.get("pragmatic_value", 0.0),
+                        previous_id=data.get("previous_id"),  # Phase 4.3
                     )
                 except (json.JSONDecodeError, ValueError, KeyError) as e:
                     logger.error(f"Data corruption in filesystem for {node_id}: {e}")
@@ -680,13 +690,30 @@ class TierManager:
                 for nid, meta in candidates:
                     await self._archive_to_cold(nid, meta)
 
-    async def search(self, query_vec: BinaryHDV, top_k: int = 5) -> List[Tuple[str, float]]:
+    async def search(
+        self,
+        query_vec: BinaryHDV,
+        top_k: int = 5,
+        time_range: Optional[Tuple[datetime, datetime]] = None,
+    ) -> List[Tuple[str, float]]:
         """
         Global search across all tiers.
         Combines FAISS (HOT) and Qdrant (WARM).
+
+        Phase 4.3: time_range filters results to memories within the given datetime range.
         """
-        # 1. Search HOT via FAISS
+        # 1. Search HOT via FAISS (time filtering done post-hoc for in-memory)
         hot_results = self.search_hot(query_vec, top_k)
+
+        # Apply time filter to HOT results if needed
+        if time_range:
+            start_ts = time_range[0].timestamp()
+            end_ts = time_range[1].timestamp()
+            hot_results = [
+                (nid, score) for nid, score in hot_results
+                if nid in self.hot and
+                   start_ts <= self.hot[nid].created_at.timestamp() <= end_ts
+            ]
 
         # 2. Search WARM via Qdrant
         warm_results = []
@@ -697,7 +724,8 @@ class TierManager:
                 hits = await self.qdrant.search(
                     collection=self.config.qdrant.collection_warm,
                     query_vector=q_vec,
-                    limit=top_k
+                    limit=top_k,
+                    time_range=time_range,  # Phase 4.3: Pass time filter to Qdrant
                 )
                 warm_results = [(hit.id, hit.score) for hit in hits]
             except Exception as e:

@@ -2,9 +2,12 @@
 Qdrant Vector Store Layer
 =========================
 Provides async access to Qdrant for vector storage and similarity search.
+
+Phase 4.3: Temporal Recall - supports time-based filtering and indexing.
 """
 
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Tuple
+from datetime import datetime
 import asyncio
 
 from qdrant_client import AsyncQdrantClient, models
@@ -110,6 +113,20 @@ class QdrantStore:
                 )
             )
 
+        # Phase 4.3: Create payload index on unix_timestamp for temporal queries
+        for collection_name in [self.collection_hot, self.collection_warm]:
+            try:
+                await self.client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="unix_timestamp",
+                    field_schema=models.PayloadSchemaType.INTEGER,
+                )
+                logger.info(f"Created unix_timestamp index on {collection_name}")
+            except Exception as e:
+                # Index may already exist - that's fine
+                if "already exists" not in str(e).lower():
+                    logger.debug(f"Timestamp index on {collection_name}: {e}")
+
     async def upsert(self, collection: str, points: List[models.PointStruct]):
         """
         Async batch upsert.
@@ -134,10 +151,19 @@ class QdrantStore:
         collection: str,
         query_vector: List[float],
         limit: int = 5,
-        score_threshold: float = 0.0
+        score_threshold: float = 0.0,
+        time_range: Optional[Tuple[datetime, datetime]] = None,
     ) -> List[models.ScoredPoint]:
         """
         Async semantic search.
+
+        Args:
+            collection: Collection name to search.
+            query_vector: Query embedding vector.
+            limit: Maximum number of results.
+            score_threshold: Minimum similarity score.
+            time_range: Optional (start, end) datetime tuple for temporal filtering.
+                       Phase 4.3: Enables "memories from last 48 hours" queries.
 
         Returns:
             List of scored points (empty list on errors).
@@ -147,12 +173,30 @@ class QdrantStore:
             as search failures should not crash the calling code.
         """
         try:
+            # Build time filter if provided (Phase 4.3)
+            query_filter = None
+            if time_range:
+                start_ts = int(time_range[0].timestamp())
+                end_ts = int(time_range[1].timestamp())
+                query_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="unix_timestamp",
+                            range=models.Range(
+                                gte=start_ts,
+                                lte=end_ts,
+                            ),
+                        ),
+                    ]
+                )
+
             return await qdrant_breaker.call(
                 self.client.search,
                 collection_name=collection,
                 query_vector=query_vector,
                 limit=limit,
-                score_threshold=score_threshold
+                score_threshold=score_threshold,
+                query_filter=query_filter,
             )
         except CircuitOpenError:
             logger.warning(f"Qdrant search blocked for {collection}: circuit breaker open")
@@ -246,3 +290,104 @@ class QdrantStore:
 
     async def close(self):
         await self.client.close()
+
+    # Phase 4.3: Temporal utilities
+
+    async def get_temporal_neighbors(
+        self,
+        collection: str,
+        unix_timestamp: int,
+        window: int = 2,
+    ) -> List[models.Record]:
+        """
+        Get memories created within a time window around a timestamp.
+
+        Args:
+            collection: Collection name.
+            unix_timestamp: Central timestamp to search around.
+            window: Number of seconds to look before and after (default 2s).
+
+        Returns:
+            List of records ordered by timestamp.
+
+        Note:
+            This enables "what happened just before/after" queries for
+            sequential context window feature.
+        """
+        try:
+            # Look for memories in a small time window
+            start_ts = unix_timestamp - window
+            end_ts = unix_timestamp + window
+
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="unix_timestamp",
+                        range=models.Range(
+                            gte=start_ts,
+                            lte=end_ts,
+                        ),
+                    ),
+                ]
+            )
+
+            results = await qdrant_breaker.call(
+                self.client.scroll,
+                collection_name=collection,
+                limit=10,
+                with_vectors=False,
+                with_payload=True,
+                query_filter=query_filter,
+            )
+
+            # Sort by timestamp
+            records = results[0] if results else []
+            records.sort(key=lambda r: r.payload.get("unix_timestamp", 0))
+
+            return records
+
+        except Exception as e:
+            logger.error(f"Failed to get temporal neighbors: {e}")
+            return []
+
+    async def get_by_previous_id(
+        self,
+        collection: str,
+        previous_id: str,
+    ) -> Optional[models.Record]:
+        """
+        Get a memory that follows another (episodic chaining).
+
+        Args:
+            collection: Collection name.
+            previous_id: The previous_id to search for.
+
+        Returns:
+            The memory that has this previous_id, or None.
+        """
+        try:
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="previous_id",
+                        match=models.MatchValue(value=previous_id),
+                    ),
+                ]
+            )
+
+            results = await qdrant_breaker.call(
+                self.client.scroll,
+                collection_name=collection,
+                limit=1,
+                with_vectors=False,
+                with_payload=True,
+                query_filter=query_filter,
+            )
+
+            if results and results[0]:
+                return results[0][0]
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to get by previous_id: {e}")
+            return None

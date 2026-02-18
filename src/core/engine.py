@@ -3,12 +3,13 @@ Holographic Active Inference Memory Engine (HAIM) - Phase 3.5+
 Uses Binary HDV for efficient storage and computation.
 """
 
-from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING
+from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING, Deque
 
 if TYPE_CHECKING:
     from .container import Container
     from .qdrant_store import QdrantStore
 import heapq
+from collections import deque
 from itertools import islice
 import numpy as np
 import hashlib
@@ -18,7 +19,7 @@ import asyncio
 import functools
 import uuid
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from loguru import logger
 
 from .config import get_config, HAIMConfig
@@ -128,8 +129,9 @@ class HAIMEngine:
         self.persist_path = persist_path or self.config.paths.memory_file
         self.synapse_path = self.config.paths.synapses_file
 
-        # Passive Subconscious Layer
-        self.subconscious_queue: List[str] = []
+        # Passive Subconscious Layer (bounded if configured)
+        queue_maxlen = self.config.dream_loop.subconscious_queue_maxlen
+        self.subconscious_queue: Deque[str] = deque(maxlen=queue_maxlen)
 
         # Epistemic Drive
         self.epistemic_drive_active = True
@@ -261,6 +263,8 @@ class HAIMEngine:
         """
         Create MemoryNode and persist to tier manager and disk.
 
+        Phase 4.3: Automatically sets previous_id for episodic chaining.
+
         Args:
             content: Original text content.
             encoded_vec: Encoded BinaryHDV for the content.
@@ -269,6 +273,12 @@ class HAIMEngine:
         Returns:
             The created and persisted MemoryNode.
         """
+        # Phase 4.3: Get the most recent memory for episodic chaining
+        previous_id = None
+        recent_nodes = await self.tier_manager.get_hot_recent(1)
+        if recent_nodes:
+            previous_id = recent_nodes[0].id
+
         # Create node with unique ID
         node_id = str(uuid.uuid4())
         node = MemoryNode(
@@ -276,6 +286,7 @@ class HAIMEngine:
             hdv=encoded_vec,
             content=content,
             metadata=metadata,
+            previous_id=previous_id,  # Phase 4.3: Episodic chaining
         )
 
         # Map EIG/Importance
@@ -425,6 +436,10 @@ class HAIMEngine:
         associative_jump: bool = True,
         track_gaps: bool = True,
         project_id: Optional[str] = None,
+        time_range: Optional[Tuple[datetime, datetime]] = None,
+        chrono_weight: bool = True,
+        chrono_lambda: float = 0.0001,
+        include_neighbors: bool = False,
     ) -> List[Tuple[str, float]]:
         """
         Query memories using Hamming distance.
@@ -437,6 +452,13 @@ class HAIMEngine:
 
         Phase 4.1 additions:
           - project_id applies isolation mask to query for project-scoped search.
+
+        Phase 4.3 additions (Temporal Recall):
+          - time_range: Filter to memories within (start, end) datetime range.
+          - chrono_weight: Apply temporal decay to boost newer memories.
+            Formula: Final_Score = Semantic_Similarity * (1 / (1 + lambda * Time_Delta))
+          - chrono_lambda: Decay rate in seconds^-1 (default: 0.0001 ~ 2.7h half-life).
+          - include_neighbors: Also fetch temporal neighbors (previous/next) for top results.
         """
         # Encode Query
         query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
@@ -446,13 +468,31 @@ class HAIMEngine:
             query_vec = self.isolation_masker.apply_mask(query_vec, project_id)
 
         # 1. Primary Search (Accelerated FAISS/HNSW + Qdrant)
-        search_results = await self.tier_manager.search(query_vec, top_k=top_k * 2)
+        # Phase 4.3: Pass time_range to tier_manager if filtering needed
+        search_results = await self.tier_manager.search(
+            query_vec,
+            top_k=top_k * 2,
+            time_range=time_range,
+        )
 
         scores: Dict[str, float] = {}
+        now_ts = datetime.now(timezone.utc).timestamp()
+
         for nid, base_sim in search_results:
             # Boost by synaptic health (Phase 4.0: use SynapseIndex.boost for O(k))
             boost = self._synapse_index.boost(nid)
-            scores[nid] = base_sim * boost
+            score = base_sim * boost
+
+            # Phase 4.3: Chrono-weighting (temporal decay)
+            if chrono_weight and score > 0:
+                mem = await self.tier_manager.get_memory(nid)
+                if mem:
+                    time_delta = now_ts - mem.created_at.timestamp()  # seconds since creation
+                    # Formula: Final = Semantic * (1 / (1 + lambda * time_delta))
+                    decay_factor = 1.0 / (1.0 + chrono_lambda * time_delta)
+                    score = score * decay_factor
+
+            scores[nid] = score
 
         # 2. Associative Spreading (via SynapseIndex for O(1) adjacency lookup)
         if associative_jump and self._synapse_index:
@@ -514,6 +554,41 @@ class HAIMEngine:
                 self.gap_detector.assess_query(query_text, top_results, attention_mask)
             )
 
+        # Phase 4.3: Sequential Context Window
+        # Fetch temporal neighbors (previous_id chain and next in chain)
+        if include_neighbors and top_results:
+            neighbor_ids: set = set()
+            for result_id, _ in top_results[:3]:  # Only for top 3 results
+                mem = await self.tier_manager.get_memory(result_id)
+                if not mem:
+                    continue
+
+                # Get the memory that came before this one (if episodic chain exists)
+                if mem.previous_id:
+                    prev_mem = await self.tier_manager.get_memory(mem.previous_id)
+                    if prev_mem and prev_mem.id not in scores:
+                        neighbor_ids.add(prev_mem.id)
+
+                # Try to find the memory that follows this one (has this as previous_id)
+                # This requires scanning or indexing - we use Qdrant if available
+                if self.tier_manager.use_qdrant and self.tier_manager.qdrant:
+                    next_mem_rec = await self.tier_manager.qdrant.get_by_previous_id(
+                        self.tier_manager.qdrant.collection_hot,
+                        result_id,
+                    )
+                    if next_mem_rec and next_mem_rec.id not in scores:
+                        neighbor_ids.add(next_mem_rec.id)
+
+            # Add neighbors with their semantic scores (no chrono boost for context)
+            for neighbor_id in neighbor_ids:
+                mem = await self.tier_manager.get_memory(neighbor_id)
+                if mem:
+                    neighbor_score = query_vec.similarity(mem.hdv)
+                    top_results.append((neighbor_id, neighbor_score * 0.8))  # Slightly discounted
+
+            # Re-sort after adding neighbors
+            top_results = sorted(top_results, key=lambda x: x[1], reverse=True)[:top_k + 3]
+
         return top_results
 
     async def _background_dream(self, depth: int = 2):
@@ -532,7 +607,7 @@ class HAIMEngine:
             return
 
         async with self._dream_sem:
-            stim_id = self.subconscious_queue.pop(0)
+            stim_id = self.subconscious_queue.popleft()
             stim_node = await self.tier_manager.get_memory(stim_id)
             if not stim_node:
                 return
@@ -547,6 +622,25 @@ class HAIMEngine:
             for neighbor_id, similarity in potential_connections:
                 if neighbor_id != stim_id and similarity > 0.15:
                     await self.bind_memories(stim_id, neighbor_id, success=True)
+
+    def orchestrate_orch_or(self, max_collapse: int = 3) -> List[MemoryNode]:
+        """
+        Collapse active HOT-tier superposition by a simple free-energy proxy.
+
+        The score combines LTP (long-term stability), epistemic value (novelty),
+        and access_count (usage evidence).
+        """
+        active_nodes = list(self.tier_manager.hot.values())
+        if not active_nodes or max_collapse <= 0:
+            return []
+
+        def score(node: MemoryNode) -> float:
+            ltp = float(getattr(node, "ltp_strength", 0.0))
+            epistemic = float(getattr(node, "epistemic_value", 0.0))
+            access = float(getattr(node, "access_count", 0))
+            return (0.6 * ltp) + (0.3 * epistemic) + (0.1 * np.log1p(access))
+
+        return sorted(active_nodes, key=score, reverse=True)[:max_collapse]
 
     async def bind_memories(self, id_a: str, id_b: str, success: bool = True):
         """
@@ -766,6 +860,10 @@ class HAIMEngine:
                 if 'created_at' in rec:
                     node.created_at = datetime.fromisoformat(rec['created_at'])
 
+                # Phase 4.3: Restore episodic chain link
+                if 'previous_id' in rec:
+                    node.previous_id = rec['previous_id']
+
                 # Add to TierManager
                 await self.tier_manager.add_memory(node)
 
@@ -813,7 +911,7 @@ class HAIMEngine:
             await self._run_in_thread(_save)
 
     async def _append_persisted(self, node: MemoryNode):
-        """Append-only log."""
+        """Append-only log with Phase 4.3 temporal metadata."""
 
         def _append():
             try:
@@ -822,7 +920,11 @@ class HAIMEngine:
                         'id': node.id,
                         'content': node.content,
                         'metadata': node.metadata,
-                        'created_at': node.created_at.isoformat()
+                        'created_at': node.created_at.isoformat(),
+                        # Phase 4.3: Temporal metadata for indexing
+                        'unix_timestamp': node.unix_timestamp,
+                        'iso_date': node.iso_date,
+                        'previous_id': node.previous_id,
                     }
                     f.write(json.dumps(rec) + "\n")
             except Exception as e:

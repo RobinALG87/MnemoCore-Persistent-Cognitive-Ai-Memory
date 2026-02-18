@@ -12,6 +12,8 @@ class MemoryNode:
     """
     Holographic memory neuron (Phase 3.0+).
     Uses BinaryHDV for efficient storage and computation.
+
+    Phase 4.3: Temporal Recall - supports episodic chaining and time-based indexing.
     """
 
     id: str
@@ -29,6 +31,9 @@ class MemoryNode:
     # Legacy Free Energy signals (mapped to importance)
     epistemic_value: float = 0.0  # Reduces uncertainty?
     pragmatic_value: float = 0.0  # Helps achieve goals?
+
+    # Phase 4.3: Episodic Chaining - links to temporally adjacent memories
+    previous_id: Optional[str] = None  # UUID of the memory created immediately before this one
 
     def access(self, update_weights: bool = True):
         """Retrieve memory (reconsolidation)"""
@@ -90,6 +95,21 @@ class MemoryNode:
         # Use timezone-aware now
         delta = datetime.now(timezone.utc) - self.created_at
         return delta.total_seconds() / 86400.0
+
+    @property
+    def unix_timestamp(self) -> int:
+        """Unix timestamp (seconds since epoch) for Qdrant indexing."""
+        return int(self.created_at.timestamp())
+
+    @property
+    def iso_date(self) -> str:
+        """ISO 8601 date string for human-readable time metadata."""
+        return self.created_at.isoformat()
+
+    def age_seconds(self) -> float:
+        """Age of memory in seconds (for fine-grained chrono-weighting)."""
+        delta = datetime.now(timezone.utc) - self.created_at
+        return delta.total_seconds()
 
     def __lt__(self, other):
         # Sort by LTP strength descending? No, __lt__ is valid for sorting.
