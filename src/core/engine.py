@@ -62,6 +62,10 @@ class HAIMEngine:
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
         self.synapse_adjacency: Dict[str, List[SynapticConnection]] = {}
         self.synapse_lock = asyncio.Lock()
+        # Serialises concurrent _save_synapses disk writes
+        self._write_lock = asyncio.Lock()
+        # Semaphore: only one dream cycle at a time (rate limiting)
+        self._dream_sem = asyncio.Semaphore(1)
 
         # ── Phase 4.0: hardened O(1) synapse adjacency index ──────────
         self._synapse_index = SynapseIndex()
@@ -191,8 +195,12 @@ class HAIMEngine:
         await self._append_persisted(node)
 
         # 7. Subconscious Trigger
+        # Gap-filled memories must NOT re-enter the dream/gap loop to prevent
+        # an indefinite store → dream → detect → fill → store cycle.
+        _is_gap_fill = metadata.get("source") == "llm_gap_fill"
         self.subconscious_queue.append(node_id)
-        await self._background_dream(depth=1)
+        if not _is_gap_fill:
+            await self._background_dream(depth=1)
 
         logger.info(f"Stored memory {node_id} (EIG: {metadata.get('eig', 0.0):.4f})")
         return node_id
@@ -251,7 +259,8 @@ class HAIMEngine:
         self,
         query_text: str,
         top_k: int = 5,
-        associative_jump: bool = True
+        associative_jump: bool = True,
+        track_gaps: bool = True,
     ) -> List[Tuple[str, float]]:
         """
         Query memories using Hamming distance.
@@ -259,7 +268,8 @@ class HAIMEngine:
 
         Phase 4.0 additions:
           - XOR attention masking re-ranks results for novelty.
-          - Gap detection runs on low-confidence results.
+          - Gap detection runs on low-confidence results (disabled when
+            track_gaps=False to prevent dream-loop feedback).
         """
         # Encode Query
         query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
@@ -327,29 +337,45 @@ class HAIMEngine:
                 top_results = self.attention_masker.extract_scores(ranked)[:top_k]
 
         # ── Phase 4.0: Knowledge gap detection ────────────────────────
-        asyncio.ensure_future(
-            self.gap_detector.assess_query(query_text, top_results, attention_mask)
-        )
+        # Disabled during dream cycles to break the store→dream→gap→fill→store loop.
+        if track_gaps:
+            asyncio.ensure_future(
+                self.gap_detector.assess_query(query_text, top_results, attention_mask)
+            )
 
         return top_results
 
     async def _background_dream(self, depth: int = 2):
-        """Passive Subconscious - Strengthening synapses in idle cycles"""
+        """
+        Passive Subconscious – strengthen synapses in idle cycles.
+
+        Uses a semaphore so at most one dream task runs concurrently,
+        and passes track_gaps=False so dream queries cannot feed the
+        gap detector (breaking the store→dream→gap→fill→store loop).
+        """
         if not self.subconscious_queue:
             return
 
-        stim_id = self.subconscious_queue.pop(0)
-        stim_node = await self.tier_manager.get_memory(stim_id)
-        if not stim_node:
+        # Non-blocking: if a dream is already in progress, skip this cycle.
+        if not self._dream_sem._value:  # noqa: SLF001
             return
 
-        potential_connections = await self.query(
-            stim_node.content, top_k=depth + 1, associative_jump=False
-        )
+        async with self._dream_sem:
+            stim_id = self.subconscious_queue.pop(0)
+            stim_node = await self.tier_manager.get_memory(stim_id)
+            if not stim_node:
+                return
 
-        for neighbor_id, similarity in potential_connections:
-            if neighbor_id != stim_id and similarity > 0.15:
-                await self.bind_memories(stim_id, neighbor_id, success=True)
+            potential_connections = await self.query(
+                stim_node.content,
+                top_k=depth + 1,
+                associative_jump=False,
+                track_gaps=False,   # ← no gap detection inside dream
+            )
+
+            for neighbor_id, similarity in potential_connections:
+                if neighbor_id != stim_id and similarity > 0.15:
+                    await self.bind_memories(stim_id, neighbor_id, success=True)
 
     async def bind_memories(self, id_a: str, id_b: str, success: bool = True):
         """
@@ -395,13 +421,11 @@ class HAIMEngine:
         Also syncs any legacy dict entries into the index before compacting.
         """
         async with self.synapse_lock:
-            # Sync legacy dict → SynapseIndex (handles tests that inject directly)
+            # Sync legacy dict → SynapseIndex via the public register() API
+            # (handles tests / external code that injects into self.synapses directly)
             for key, syn in list(self.synapses.items()):
                 if self._synapse_index.get(syn.neuron_a_id, syn.neuron_b_id) is None:
-                    from .synapse_index import _key as _sk
-                    self._synapse_index._edges[_sk(syn.neuron_a_id, syn.neuron_b_id)] = syn
-                    self._synapse_index._adj.setdefault(syn.neuron_a_id, set()).add(syn.neuron_b_id)
-                    self._synapse_index._adj.setdefault(syn.neuron_b_id, set()).add(syn.neuron_a_id)
+                    self._synapse_index.register(syn)
 
             removed = self._synapse_index.compact(threshold)
 
@@ -606,15 +630,16 @@ class HAIMEngine:
         Save synapses to disk in JSONL format.
 
         Phase 4.0: uses SynapseIndex.save_to_file() which includes Bayesian state.
-        Note: does NOT acquire synapse_lock – callers that need atomicity must hold
-        the lock themselves before calling this helper.
+        A dedicated _write_lock serialises concurrent callers so the file is never
+        written by two coroutines at the same time.  Does NOT acquire synapse_lock.
         """
         path_snapshot = self.synapse_path
 
         def _save():
             self._synapse_index.save_to_file(path_snapshot)
 
-        await self._run_in_thread(_save)
+        async with self._write_lock:
+            await self._run_in_thread(_save)
 
     async def _append_persisted(self, node: MemoryNode):
         """Append-only log."""

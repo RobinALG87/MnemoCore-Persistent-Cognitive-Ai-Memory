@@ -68,6 +68,23 @@ class SynapseIndex:
 
     # ---- Public API --------------------------------------------- #
 
+    def register(self, syn: "SynapticConnection") -> None:
+        """
+        Register an already-constructed SynapticConnection into the index.
+
+        Use this instead of poking at _edges/_adj directly when you already
+        have a SynapticConnection object (e.g. during legacy-dict sync in
+        cleanup_decay).  No Bayesian observation is made – the connection is
+        accepted as-is.
+
+        O(1).
+        """
+        key = _key(syn.neuron_a_id, syn.neuron_b_id)
+        if key not in self._edges:
+            self._edges[key] = syn
+            self._adj.setdefault(key[0], set()).add(key[1])
+            self._adj.setdefault(key[1], set()).add(key[0])
+
     def add_or_fire(self, id_a: str, id_b: str, success: bool = True) -> "SynapticConnection":
         """
         Create a synapse if it doesn't exist, then fire it.
