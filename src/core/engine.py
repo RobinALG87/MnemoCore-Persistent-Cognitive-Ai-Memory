@@ -1,5 +1,5 @@
 """
-Holographic Active Inference Memory Engine (HAIM) - Phase 3.5+
+Holographic Active Inference Memory Engine (HAIM) - Phase 4.3+
 Uses Binary HDV for efficient storage and computation.
 """
 
@@ -19,10 +19,10 @@ import asyncio
 import functools
 import uuid
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from loguru import logger
 
-from .config import get_config, HAIMConfig
+from .config import get_config, HAIMConfig, SubconsciousAIConfig
 from .binary_hdv import BinaryHDV, TextEncoder, majority_bundle
 from .node import MemoryNode
 from .synapse import SynapticConnection
@@ -37,6 +37,7 @@ from .immunology import ImmunologyLoop, ImmunologyConfig
 from .gap_detector import GapDetector, GapDetectorConfig
 from .gap_filler import GapFiller, GapFillerConfig
 from .synapse_index import SynapseIndex
+from .subconscious_ai import SubconsciousAIWorker
 
 # Observability imports (Phase 4.1)
 from .metrics import (
@@ -49,7 +50,7 @@ from .metrics import (
 
 class HAIMEngine:
     """
-    Holographic Active Inference Memory Engine (Phase 3.5+)
+    Holographic Active Inference Memory Engine (Phase 4.3+)
     Uses Binary HDV and Tiered Storage for efficient cognitive memory.
     """
 
@@ -94,6 +95,8 @@ class HAIMEngine:
         self.synapse_lock: asyncio.Lock = asyncio.Lock()
         # Serialises concurrent _save_synapses disk writes
         self._write_lock: asyncio.Lock = asyncio.Lock()
+        # Serialises store-path persistence and episodic-chain updates
+        self._store_lock: asyncio.Lock = asyncio.Lock()
         # Semaphore: only one dream cycle at a time (rate limiting)
         self._dream_sem: asyncio.Semaphore = asyncio.Semaphore(1)
 
@@ -121,6 +124,9 @@ class HAIMEngine:
         # ── Phase 4.0: immunology loop ─────────────────────────────────
         self._immunology: Optional[ImmunologyLoop] = None
 
+        # ── Phase 4.4: subconscious AI worker (BETA) ───────────────────
+        self._subconscious_ai: Optional[SubconsciousAIWorker] = None
+
         # Conceptual Layer (VSA Soul)
         data_dir = self.config.paths.data_dir
         self.soul = ConceptualMemory(dimension=self.dimension, storage_dir=data_dir)
@@ -132,6 +138,7 @@ class HAIMEngine:
         # Passive Subconscious Layer (bounded if configured)
         queue_maxlen = self.config.dream_loop.subconscious_queue_maxlen
         self.subconscious_queue: Deque[str] = deque(maxlen=queue_maxlen)
+        self._last_stored_id: Optional[str] = None
 
         # Epistemic Drive
         self.epistemic_drive_active = True
@@ -153,6 +160,12 @@ class HAIMEngine:
 
         self._immunology = ImmunologyLoop(self)
         await self._immunology.start()
+
+        # ── Phase 4.4: start subconscious AI worker (if enabled) ──────
+        if self.config.subconscious_ai.enabled:
+            self._subconscious_ai = SubconsciousAIWorker(self, self.config.subconscious_ai)
+            await self._subconscious_ai.start()
+            logger.info("Phase 4.4 SubconsciousAI worker started (BETA).")
 
         logger.info("Phase 4.0 background workers started (consolidation + immunology).")
 
@@ -273,33 +286,33 @@ class HAIMEngine:
         Returns:
             The created and persisted MemoryNode.
         """
-        # Phase 4.3: Get the most recent memory for episodic chaining
-        previous_id = None
-        recent_nodes = await self.tier_manager.get_hot_recent(1)
-        if recent_nodes:
-            previous_id = recent_nodes[0].id
+        async with self._store_lock:
+            previous_id = self._last_stored_id
 
-        # Create node with unique ID
-        node_id = str(uuid.uuid4())
-        node = MemoryNode(
-            id=node_id,
-            hdv=encoded_vec,
-            content=content,
-            metadata=metadata,
-            previous_id=previous_id,  # Phase 4.3: Episodic chaining
-        )
+            # Create node with unique ID
+            node_id = str(uuid.uuid4())
+            node = MemoryNode(
+                id=node_id,
+                hdv=encoded_vec,
+                content=content,
+                metadata=metadata,
+                previous_id=previous_id,  # Phase 4.3: Episodic chaining
+            )
 
-        # Map EIG/Importance
-        node.epistemic_value = float(metadata.get("eig", 0.0))
-        node.calculate_ltp()
+            # Map EIG/Importance
+            node.epistemic_value = float(metadata.get("eig", 0.0))
+            node.calculate_ltp()
 
-        # Store in Tier Manager (starts in HOT)
-        await self.tier_manager.add_memory(node)
+            # Store in Tier Manager (starts in HOT)
+            await self.tier_manager.add_memory(node)
 
-        # Append to persistence log (Legacy/Backup)
-        await self._append_persisted(node)
+            # Append to persistence log (Legacy/Backup)
+            await self._append_persisted(node)
 
-        return node
+            # Update linear episodic chain head only after successful persistence.
+            self._last_stored_id = node.id
+
+            return node
 
     async def _trigger_post_store(
         self,
@@ -422,6 +435,8 @@ class HAIMEngine:
             await self._immunology.stop()
         if self._gap_filler:
             await self._gap_filler.stop()
+        if self._subconscious_ai:
+            await self._subconscious_ai.stop()
 
         await self._save_synapses()
         if self.tier_manager.use_qdrant and self.tier_manager.qdrant:
@@ -477,6 +492,13 @@ class HAIMEngine:
 
         scores: Dict[str, float] = {}
         now_ts = datetime.now(timezone.utc).timestamp()
+        mem_map: Dict[str, MemoryNode] = {}
+
+        if chrono_weight and search_results:
+            mems = await self.tier_manager.get_memories_batch(
+                [nid for nid, _ in search_results]
+            )
+            mem_map = {m.id: m for m in mems if m}
 
         for nid, base_sim in search_results:
             # Boost by synaptic health (Phase 4.0: use SynapseIndex.boost for O(k))
@@ -485,7 +507,7 @@ class HAIMEngine:
 
             # Phase 4.3: Chrono-weighting (temporal decay)
             if chrono_weight and score > 0:
-                mem = await self.tier_manager.get_memory(nid)
+                mem = mem_map.get(nid)
                 if mem:
                     time_delta = now_ts - mem.created_at.timestamp()  # seconds since creation
                     # Formula: Final = Semantic * (1 / (1 + lambda * time_delta))
@@ -586,8 +608,8 @@ class HAIMEngine:
                     neighbor_score = query_vec.similarity(mem.hdv)
                     top_results.append((neighbor_id, neighbor_score * 0.8))  # Slightly discounted
 
-            # Re-sort after adding neighbors
-            top_results = sorted(top_results, key=lambda x: x[1], reverse=True)[:top_k + 3]
+            # Re-sort after adding neighbors, but preserve query() top_k contract.
+            top_results = sorted(top_results, key=lambda x: x[1], reverse=True)[:top_k]
 
         return top_results
 
@@ -603,7 +625,7 @@ class HAIMEngine:
             return
 
         # Non-blocking: if a dream is already in progress, skip this cycle.
-        if not self._dream_sem._value:  # noqa: SLF001
+        if self._dream_sem.locked():
             return
 
         async with self._dream_sem:
@@ -623,14 +645,15 @@ class HAIMEngine:
                 if neighbor_id != stim_id and similarity > 0.15:
                     await self.bind_memories(stim_id, neighbor_id, success=True)
 
-    def orchestrate_orch_or(self, max_collapse: int = 3) -> List[MemoryNode]:
+    async def orchestrate_orch_or(self, max_collapse: int = 3) -> List[MemoryNode]:
         """
         Collapse active HOT-tier superposition by a simple free-energy proxy.
 
         The score combines LTP (long-term stability), epistemic value (novelty),
         and access_count (usage evidence).
         """
-        active_nodes = list(self.tier_manager.hot.values())
+        async with self.tier_manager.lock:
+            active_nodes = list(self.tier_manager.hot.values())
         if not active_nodes or max_collapse <= 0:
             return []
 
@@ -715,7 +738,7 @@ class HAIMEngine:
             syn_count = len(self._synapse_index)
 
         stats = {
-            "engine_version": "4.0.0",
+            "engine_version": "4.3.0",
             "dimension": self.dimension,
             "encoding": "binary_hdv",
             "tiers": tier_stats,
@@ -729,6 +752,10 @@ class HAIMEngine:
             "immunology": self._immunology.stats if self._immunology else {},
             "semantic_consolidation": (
                 self._semantic_worker.stats if self._semantic_worker else {}
+            ),
+            # Phase 4.4: Subconscious AI worker stats (BETA)
+            "subconscious_ai": (
+                self._subconscious_ai.stats if self._subconscious_ai else {}
             ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

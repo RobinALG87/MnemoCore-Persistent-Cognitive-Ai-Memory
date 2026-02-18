@@ -152,6 +152,49 @@ class DreamLoopConfig:
 
 
 @dataclass(frozen=True)
+class SubconsciousAIConfig:
+    """
+    Configuration for the Subconscious AI worker (Phase 4.4).
+
+    A small LLM (Phi 3.5, Llama 7B) that pulses in the background,
+    performing memory sorting, enhanced dreaming, and micro self-improvement.
+
+    This is a BETA feature that must be explicitly enabled.
+    """
+    # Opt-in BETA feature flag (MUST be explicitly enabled)
+    enabled: bool = False
+    beta_mode: bool = True  # Extra safety checks when True
+
+    # Model configuration
+    model_provider: str = "ollama"  # "ollama" | "lm_studio" | "openai_api" | "anthropic_api"
+    model_name: str = "phi3.5:3.8b"  # Default: Phi 3.5 (small, fast)
+    model_url: str = "http://localhost:11434"
+    api_key: Optional[str] = None  # For API providers
+    api_base_url: Optional[str] = None  # Override base URL for API providers
+
+    # Pulse configuration
+    pulse_interval_seconds: int = 120  # Default: 2 minutes between pulses
+    pulse_backoff_enabled: bool = True  # Increase interval on errors
+    pulse_backoff_max_seconds: int = 600  # Max backoff: 10 minutes
+
+    # Resource management
+    max_cpu_percent: float = 30.0  # Skip pulse if CPU > this
+    cycle_timeout_seconds: int = 30  # Max time per LLM call
+    rate_limit_per_hour: int = 50  # Max LLM calls per hour
+
+    # Operations (all can be toggled independently)
+    memory_sorting_enabled: bool = True  # Categorize and tag memories
+    enhanced_dreaming_enabled: bool = True  # LLM-assisted consolidation
+    micro_self_improvement_enabled: bool = False  # Pattern analysis (disabled by default)
+
+    # Safety settings
+    dry_run: bool = True  # When True, only log suggestions without applying
+    log_all_decisions: bool = True  # Full audit trail
+    audit_trail_path: Optional[str] = "./data/subconscious_audit.jsonl"
+    max_memories_per_cycle: int = 10  # Process at most N memories per pulse
+
+
+@dataclass(frozen=True)
 class HAIMConfig:
     """Root configuration for the HAIM system."""
 
@@ -188,6 +231,7 @@ class HAIMConfig:
     consolidation: ConsolidationConfig = field(default_factory=ConsolidationConfig)
     attention_masking: AttentionMaskingConfig = field(default_factory=AttentionMaskingConfig)
     dream_loop: DreamLoopConfig = field(default_factory=DreamLoopConfig)
+    subconscious_ai: SubconsciousAIConfig = field(default_factory=SubconsciousAIConfig)
 
 
 def _env_override(key: str, default):
@@ -455,6 +499,31 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         model=_env_override("DREAM_LOOP_MODEL", dream_raw.get("model", "gemma3:1b")),
     )
 
+    # Build subconscious AI config (Phase 4.4 BETA)
+    sub_raw = raw.get("subconscious_ai") or {}
+    subconscious_ai = SubconsciousAIConfig(
+        enabled=_env_override("SUBCONSCIOUS_AI_ENABLED", sub_raw.get("enabled", False)),
+        beta_mode=_env_override("SUBCONSCIOUS_AI_BETA_MODE", sub_raw.get("beta_mode", True)),
+        model_provider=_env_override("SUBCONSCIOUS_AI_MODEL_PROVIDER", sub_raw.get("model_provider", "ollama")),
+        model_name=_env_override("SUBCONSCIOUS_AI_MODEL_NAME", sub_raw.get("model_name", "phi3.5:3.8b")),
+        model_url=_env_override("SUBCONSCIOUS_AI_MODEL_URL", sub_raw.get("model_url", "http://localhost:11434")),
+        api_key=_env_override("SUBCONSCIOUS_AI_API_KEY", sub_raw.get("api_key")),
+        api_base_url=_env_override("SUBCONSCIOUS_AI_API_BASE_URL", sub_raw.get("api_base_url")),
+        pulse_interval_seconds=_env_override("SUBCONSCIOUS_AI_PULSE_INTERVAL_SECONDS", sub_raw.get("pulse_interval_seconds", 120)),
+        pulse_backoff_enabled=_env_override("SUBCONSCIOUS_AI_PULSE_BACKOFF_ENABLED", sub_raw.get("pulse_backoff_enabled", True)),
+        pulse_backoff_max_seconds=_env_override("SUBCONSCIOUS_AI_PULSE_BACKOFF_MAX_SECONDS", sub_raw.get("pulse_backoff_max_seconds", 600)),
+        max_cpu_percent=_env_override("SUBCONSCIOUS_AI_MAX_CPU_PERCENT", sub_raw.get("max_cpu_percent", 30.0)),
+        cycle_timeout_seconds=_env_override("SUBCONSCIOUS_AI_CYCLE_TIMEOUT_SECONDS", sub_raw.get("cycle_timeout_seconds", 30)),
+        rate_limit_per_hour=_env_override("SUBCONSCIOUS_AI_RATE_LIMIT_PER_HOUR", sub_raw.get("rate_limit_per_hour", 50)),
+        memory_sorting_enabled=_env_override("SUBCONSCIOUS_AI_MEMORY_SORTING_ENABLED", sub_raw.get("memory_sorting_enabled", True)),
+        enhanced_dreaming_enabled=_env_override("SUBCONSCIOUS_AI_ENHANCED_DREAMING_ENABLED", sub_raw.get("enhanced_dreaming_enabled", True)),
+        micro_self_improvement_enabled=_env_override("SUBCONSCIOUS_AI_MICRO_SELF_IMPROVEMENT_ENABLED", sub_raw.get("micro_self_improvement_enabled", False)),
+        dry_run=_env_override("SUBCONSCIOUS_AI_DRY_RUN", sub_raw.get("dry_run", True)),
+        log_all_decisions=_env_override("SUBCONSCIOUS_AI_LOG_ALL_DECISIONS", sub_raw.get("log_all_decisions", True)),
+        audit_trail_path=_env_override("SUBCONSCIOUS_AI_AUDIT_TRAIL_PATH", sub_raw.get("audit_trail_path", "./data/subconscious_audit.jsonl")),
+        max_memories_per_cycle=_env_override("SUBCONSCIOUS_AI_MAX_MEMORIES_PER_CYCLE", sub_raw.get("max_memories_per_cycle", 10)),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "3.0"),
         dimensionality=dimensionality,
@@ -474,6 +543,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         consolidation=consolidation,
         attention_masking=attention_masking,
         dream_loop=dream_loop,
+        subconscious_ai=subconscious_ai,
     )
 
 

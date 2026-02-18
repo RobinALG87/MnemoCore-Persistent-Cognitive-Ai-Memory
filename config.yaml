@@ -122,3 +122,46 @@ haim:
   # Phase 4.1: XOR-based Project Isolation
   attention_masking:
     enabled: true  # Enable/disable project-based memory isolation
+
+  # =========================================================================
+  # Subconscious AI - BETA FEATURE
+  # =========================================================================
+  # This is a BETA feature that enables autonomous background AI processing
+  # for memory management, dream synthesis, and micro-self-improvement.
+  #
+  # WARNING: This feature is experimental and may change without notice.
+  # Must be explicitly enabled by setting 'enabled: true'.
+  # All safety defaults are conservative - review before enabling in production.
+  # =========================================================================
+  subconscious_ai:
+    # BETA FEATURE - Must be explicitly enabled
+    enabled: false
+    beta_mode: true
+
+    # Model configuration
+    model_provider: "ollama"  # ollama | lm_studio | openai_api | anthropic_api
+    model_name: "phi3.5:3.8b"
+    model_url: "http://localhost:11434"
+    # api_key: null  # For API providers
+    # api_base_url: null
+
+    # Pulse configuration
+    pulse_interval_seconds: 120
+    pulse_backoff_enabled: true
+    pulse_backoff_max_seconds: 600
+
+    # Resource management
+    max_cpu_percent: 30.0
+    cycle_timeout_seconds: 30
+    rate_limit_per_hour: 50
+
+    # Operations
+    memory_sorting_enabled: true
+    enhanced_dreaming_enabled: true
+    micro_self_improvement_enabled: false  # Initially disabled
+
+    # Safety
+    dry_run: true
+    log_all_decisions: true
+    audit_trail_path: "./data/subconscious_audit.jsonl"
+    max_memories_per_cycle: 10
