@@ -1,5 +1,13 @@
 from .binary_hdv import BinaryHDV
-from .hdv import HDV  # Deprecated - kept for backward compatibility
+# Backward-compatibility re-export – import HDV lazily to avoid triggering
+# the module-level DeprecationWarning at package import time.
+from .binary_hdv import BinaryHDV
+
+def __getattr__(name):
+    if name == 'HDV':
+        from .hdv import HDV  # Deprecated - kept for backward compatibility
+        return HDV
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 from .node import MemoryNode
 from .synapse import SynapticConnection
 from .engine import HAIMEngine

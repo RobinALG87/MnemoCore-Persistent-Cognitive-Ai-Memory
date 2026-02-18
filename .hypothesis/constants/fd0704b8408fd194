@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\consolidation.py
+# hypothesis_version: 6.151.9
+
+[0.05, 0.2, 0.85, 1.0, 100, '%Y', '%Y-%m', 'TierManager', '_', 'clusters_found', 'hot', 'member', 'merged_count', 'merged_ids', 'nodes_merged', 'nodes_processed', 'nodes_pruned', 'tags', 'timestamp', 'warm']

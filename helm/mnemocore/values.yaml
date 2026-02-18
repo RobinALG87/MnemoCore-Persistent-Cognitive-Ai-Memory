@@ -1,0 +1,430 @@
+# MnemoCore Helm Chart - Default Values
+# ======================================
+# Override these values in your own values file or via --set flags
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+  namespace: mnemocore
+
+# MnemoCore API Configuration
+mnemocore:
+  # Number of replicas (ignored if autoscaling.enabled is true)
+  replicaCount: 2
+
+  # Container image
+  image:
+    repository: mnemocore
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # Container ports
+  ports:
+    api: 8100
+    metrics: 9090
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+
+  # Probes configuration
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 40
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      enabled: true
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    startup:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30
+      successThreshold: 1
+
+  # HAIM Configuration (mounted as config.yaml)
+  config:
+    version: "3.0"
+    dimensionality: 16384
+    encoding:
+      mode: "binary"
+      token_method: "bundle"
+    tiers:
+      hot:
+        max_memories: 2000
+        ltp_threshold_min: 0.7
+        eviction_policy: "lru"
+      warm:
+        max_memories: 100000
+        ltp_threshold_min: 0.3
+        consolidation_interval_hours: 1
+        storage_backend: "mmap"
+      cold:
+        storage_backend: "filesystem"
+        compression: "gzip"
+        archive_threshold_days: 30
+    ltp:
+      initial_importance: 0.5
+      decay_lambda: 0.01
+      permanence_threshold: 0.95
+      half_life_days: 30.0
+    hysteresis:
+      promote_delta: 0.15
+      demote_delta: 0.10
+    gpu:
+      enabled: false
+      device: "cuda:0"
+      batch_size: 1000
+      fallback_to_cpu: true
+    observability:
+      metrics_port: 9090
+      log_level: "INFO"
+      structured_logging: true
+    paths:
+      data_dir: "/app/data"
+      memory_file: "/app/data/memory.jsonl"
+      codebook_file: "/app/data/codebook.json"
+      concepts_file: "/app/data/concepts.json"
+      synapses_file: "/app/data/synapses.json"
+      warm_mmap_dir: "/app/data/warm_tier"
+      cold_archive_dir: "/app/data/cold_archive"
+    mcp:
+      enabled: false
+      transport: "stdio"
+      host: "127.0.0.1"
+      port: 8110
+      api_base_url: "http://localhost:8100"
+      timeout_seconds: 15
+      allow_tools:
+        - "memory_store"
+        - "memory_query"
+        - "memory_get"
+        - "memory_delete"
+        - "memory_stats"
+        - "memory_health"
+
+  # Environment variables
+  env:
+    logLevel: "INFO"
+    host: "0.0.0.0"
+    port: 8100
+
+  # API Key (set via secret)
+  apiKey:
+    # Use existing secret
+    existingSecret: ""
+    # Key in the secret containing the API key
+    key: "HAIM_API_KEY"
+    # If not using existing secret, set value here (NOT RECOMMENDED for production)
+    value: ""
+
+  # Persistence
+  persistence:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    # storageClass: ""
+    annotations: {}
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8100
+    targetPort: 8100
+    metricsPort: 9090
+    annotations: {}
+    labels: {}
+
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    hosts:
+      - host: mnemocore.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    #  - secretName: mnemocore-tls
+    #    hosts:
+    #      - mnemocore.local
+
+  # Autoscaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    # Custom metrics
+    metrics: []
+    behavior: {}
+
+  # Pod Disruption Budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    # maxUnavailable: 1
+
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity
+  affinity: {}
+
+  # Pod annotations
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+
+  # Pod labels
+  podLabels: {}
+
+  # Priority class name
+  priorityClassName: ""
+
+  # Termination grace period
+  terminationGracePeriodSeconds: 30
+
+  # Service account
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  # Init containers
+  initContainers: []
+
+  # Extra volumes
+  extraVolumes: []
+
+  # Extra volume mounts
+  extraVolumeMounts: []
+
+# Redis Configuration
+redis:
+  # Enable Redis as part of this chart
+  enabled: true
+
+  # Use Bitnami Redis chart or embedded config
+  embedded:
+    enabled: false
+
+  # When not using Bitnami chart
+  image:
+    repository: redis
+    tag: "7.2-alpine"
+    pullPolicy: IfNotPresent
+
+  # Redis configuration
+  config:
+    maxmemory: "512mb"
+    maxmemoryPolicy: "allkeys-lru"
+    save: "60 1"
+    logLevel: "warning"
+
+  # Resource limits
+  resources:
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+  # Probes
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 5
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 5
+
+  # Service
+  service:
+    type: ClusterIP
+    port: 6379
+
+  # Persistence
+  persistence:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    # storageClass: ""
+
+  # URL override (if using external Redis)
+  url: ""
+  existingSecret: ""
+
+# Qdrant Configuration
+qdrant:
+  # Enable Qdrant as part of this chart
+  enabled: true
+
+  # Use official Qdrant chart or embedded config
+  embedded:
+    enabled: false
+
+  # When not using official chart
+  image:
+    repository: qdrant/qdrant
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # Qdrant configuration
+  config:
+    grpcPort: 6334
+    logLevel: "INFO"
+
+  # HAIM-specific collection settings
+  collections:
+    hot:
+      name: "haim_hot"
+      binaryQuantization: true
+      alwaysRam: true
+      hnswM: 16
+      hnswEfConstruct: 100
+    warm:
+      name: "haim_warm"
+      binaryQuantization: true
+      alwaysRam: true
+      hnswM: 16
+      hnswEfConstruct: 100
+
+  # Resource limits
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+
+  # Probes
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 5
+    readiness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 5
+
+  # Services
+  service:
+    type: ClusterIP
+    httpPort: 6333
+    grpcPort: 6334
+
+  # Persistence
+  persistence:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    size: 20Gi
+    # storageClass: ""
+
+  # URL override (if using external Qdrant)
+  url: ""
+  existingSecret: ""
+
+# Network Policies
+networkPolicy:
+  enabled: false
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: mnemocore
+      ports:
+        - protocol: TCP
+          port: 8100
+        - protocol: TCP
+          port: 9090
+
+# Service Monitor (Prometheus Operator)
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  annotations: {}
+  relabelings: []
+  metricRelabelings: []
+
+# Grafana Dashboard
+grafana:
+  dashboard:
+    enabled: false
+    namespace: ""
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}
+
+# Prometheus Rules
+prometheusRule:
+  enabled: false
+  namespace: ""
+  additionalLabels: {}
+  rules: []
+
+# Test configuration
+test:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "latest"

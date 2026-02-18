@@ -26,19 +26,17 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+from loguru import logger
 
 from .binary_hdv import BinaryHDV, majority_bundle
 from .config import get_config
 from .node import MemoryNode
-
-logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------ #

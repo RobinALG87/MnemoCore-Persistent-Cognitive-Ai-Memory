@@ -9,16 +9,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 @pytest.fixture
 def mock_deps():
-    with patch("src.api.main.HAIMEngine") as mock_engine_cls, \
-         patch("src.api.main.AsyncRedisStorage") as mock_redis_cls:
-        
-        mock_engine = MagicMock()
-        mock_engine_cls.return_value = mock_engine
-        
-        mock_redis = AsyncMock()
-        mock_redis_cls.get_instance.return_value = mock_redis
-        mock_redis.check_health.return_value = True
-        
+    mock_engine = MagicMock()
+    mock_engine.initialize = AsyncMock()
+    mock_engine.close = AsyncMock()
+
+    mock_redis = AsyncMock()
+    mock_redis.check_health = AsyncMock(return_value=True)
+    mock_redis.close = AsyncMock()
+
+    mock_container = MagicMock()
+    mock_container.redis_storage = mock_redis
+    mock_container.qdrant_store = MagicMock()
+
+    with patch("src.api.main.HAIMEngine", return_value=mock_engine), \
+         patch("src.api.main.build_container", return_value=mock_container), \
+         patch("src.api.main.TierManager", return_value=MagicMock()):
         yield mock_engine, mock_redis
 
 def test_engine_lifecycle(mock_deps):

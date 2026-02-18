@@ -1,0 +1,100 @@
+{{/*
+MnemoCore Helm Chart Notes
+*/}}
+{{- define "mnemocore.notes" -}}
+MnemoCore has been deployed!
+
+================================================================================
+                           MNEMOCORE DEPLOYMENT NOTES
+================================================================================
+
+Your MnemoCore cognitive memory infrastructure is now running.
+
+NAMESPACE: {{ .Release.Namespace }}
+
+SERVICE:
+  - API:      {{ include "mnemocore.fullname" . }}:{{ .Values.mnemocore.service.port }}
+  - Metrics:  {{ include "mnemocore.fullname" . }}:{{ .Values.mnemocore.service.metricsPort }}
+
+{{- if .Values.mnemocore.ingress.enabled }}
+INGRESS:
+  - Host:     {{ (index .Values.mnemocore.ingress.hosts 0).host }}
+{{- end }}
+
+COMPONENTS:
+  - MnemoCore API:  {{ .Values.mnemocore.replicaCount }} replica(s)
+  {{- if .Values.redis.enabled }}
+  - Redis:          {{ include "mnemocore.redis.fullname" . }}:{{ .Values.redis.service.port }}
+  {{- end }}
+  {{- if .Values.qdrant.enabled }}
+  - Qdrant:         {{ include "mnemocore.qdrant.fullname" . }}:{{ .Values.qdrant.service.httpPort }}
+  {{- end }}
+
+RESOURCES:
+  MnemoCore:
+    Limits:
+      CPU:     {{ .Values.mnemocore.resources.limits.cpu }}
+      Memory:  {{ .Values.mnemocore.resources.limits.memory }}
+    Requests:
+      CPU:     {{ .Values.mnemocore.resources.requests.cpu }}
+      Memory:  {{ .Values.mnemocore.resources.requests.memory }}
+
+{{- if .Values.mnemocore.autoscaling.enabled }}
+AUTOSCALING:
+  - Min Replicas:     {{ .Values.mnemocore.autoscaling.minReplicas }}
+  - Max Replicas:     {{ .Values.mnemocore.autoscaling.maxReplicas }}
+  - CPU Target:       {{ .Values.mnemocore.autoscaling.targetCPUUtilizationPercentage }}%
+  {{- if .Values.mnemocore.autoscaling.targetMemoryUtilizationPercentage }}
+  - Memory Target:    {{ .Values.mnemocore.autoscaling.targetMemoryUtilizationPercentage }}%
+  {{- end }}
+{{- end }}
+
+PROBES:
+  - Liveness:   Initial Delay: {{ .Values.mnemocore.probes.liveness.initialDelaySeconds }}s
+  - Readiness:  Initial Delay: {{ .Values.mnemocore.probes.readiness.initialDelaySeconds }}s
+  - Startup:    Initial Delay: {{ .Values.mnemocore.probes.startup.initialDelaySeconds }}s
+
+================================================================================
+                              GETTING STARTED
+================================================================================
+
+1. Forward the API port (for local testing):
+   kubectl port-forward svc/{{ include "mnemocore.fullname" . }} 8100:8100 -n {{ .Release.Namespace }}
+
+2. Check the health of the service:
+   curl http://localhost:8100/health
+
+3. Access Prometheus metrics:
+   kubectl port-forward svc/{{ include "mnemocore.fullname" . }} 9090:9090 -n {{ .Release.Namespace }}
+   curl http://localhost:9090/metrics
+
+4. View logs:
+   kubectl logs -l app.kubernetes.io/name={{ include "mnemocore.name" . }} -n {{ .Release.Namespace }} -f
+
+5. Check pod status:
+   kubectl get pods -l app.kubernetes.io/name={{ include "mnemocore.name" . }} -n {{ .Release.Namespace }}
+
+================================================================================
+                            CONFIGURATION NOTES
+================================================================================
+
+{{- if not .Values.mnemocore.apiKey.existingSecret }}
+WARNING: API key is set via values. For production, use an existing secret:
+  --set mnemocore.apiKey.existingSecret=my-secret-name
+{{- end }}
+
+{{- if not .Values.mnemocore.persistence.enabled }}
+WARNING: Persistence is disabled. Data will be lost on pod restart.
+{{- end }}
+
+HAIM Configuration:
+  - Dimensionality:    {{ .Values.mnemocore.config.dimensionality }}
+  - Encoding Mode:     {{ .Values.mnemocore.config.encoding.mode }}
+  - Hot Tier Max:      {{ .Values.mnemocore.config.tiers.hot.max_memories }} memories
+  - Warm Tier Max:     {{ .Values.mnemocore.config.tiers.warm.max_memories }} memories
+
+For more information, visit:
+  https://github.com/your-org/mnemocore
+
+================================================================================
+{{- end }}

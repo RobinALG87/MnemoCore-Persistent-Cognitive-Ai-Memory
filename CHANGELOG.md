@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated
+
+#### Float HDV deprecation (src/core/hdv.py)
+- **HDV class**: All public methods now emit `DeprecationWarning` when called
+- **Migration path**: Use `BinaryHDV` from `src.core.binary_hdv` instead
+- **API mappings**:
+  - `HDV(dimension=N)` -> `BinaryHDV.random(dimension=N)`
+  - `hdv.bind(other)` -> `hdv.xor_bind(other)`
+  - `hdv.unbind(other)` -> `hdv.xor_bind(other)` (XOR is self-inverse)
+  - `hdv.cosine_similarity(other)` -> `hdv.similarity(other)`
+  - `hdv.permute(shift)` -> `hdv.permute(shift)`
+  - `hdv.normalize()` -> No-op (binary vectors are already normalized)
+- **Removal timeline**: Float HDV will be removed in a future version
+
+#### BinaryHDV compatibility shims added
+- **bind()**: Alias for `xor_bind()` - for legacy API compatibility
+- **unbind()**: Alias for `xor_bind()` - XOR is self-inverse
+- **cosine_similarity()**: Alias for `similarity()` - returns Hamming-based similarity
+- **normalize()**: No-op for binary vectors
+- **__xor__()**: Enables `v1 ^ v2` syntax for binding
+
 ### Fixed
 
 #### llm_integration.py (6 fixes)

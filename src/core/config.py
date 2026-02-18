@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from src.core.exceptions import ConfigurationError
+
 
 @dataclass(frozen=True)
 class TierConfig:
@@ -115,9 +117,37 @@ class PathsConfig:
 
 
 @dataclass(frozen=True)
+class AttentionMaskingConfig:
+    """Configuration for XOR-based project isolation (Phase 4.1)."""
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
+class ConsolidationConfig:
+    """Configuration for semantic consolidation (Phase 4.0+)."""
+    enabled: bool = True
+    interval_seconds: int = 3600  # 1 hour
+    similarity_threshold: float = 0.85
+    min_cluster_size: int = 2
+    hot_tier_enabled: bool = True
+    warm_tier_enabled: bool = True
+
+
+@dataclass(frozen=True)
 class EncodingConfig:
     mode: str = "binary"  # "binary" or "float"
     token_method: str = "bundle"
+
+
+@dataclass(frozen=True)
+class DreamLoopConfig:
+    """Configuration for the dream loop (subconscious background processing)."""
+    enabled: bool = True
+    frequency_seconds: int = 60
+    batch_size: int = 10
+    max_iterations: int = 0  # 0 = unlimited
+    ollama_url: str = "http://localhost:11434/api/generate"
+    model: str = "gemma3:1b"
 
 
 @dataclass(frozen=True)
@@ -154,6 +184,9 @@ class HAIMConfig:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
+    consolidation: ConsolidationConfig = field(default_factory=ConsolidationConfig)
+    attention_masking: AttentionMaskingConfig = field(default_factory=AttentionMaskingConfig)
+    dream_loop: DreamLoopConfig = field(default_factory=DreamLoopConfig)
 
 
 def _env_override(key: str, default):
@@ -198,7 +231,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         Validated HAIMConfig instance.
 
     Raises:
-        ValueError: If dimensionality is not a multiple of 64.
+        ConfigurationError: If dimensionality is not a multiple of 64.
         FileNotFoundError: If no config file is found and path is explicitly set.
     """
     if path is None:
@@ -225,8 +258,9 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
 
     # Validate
     if dimensionality % 64 != 0:
-        raise ValueError(
-            f"Dimensionality must be a multiple of 64 for efficient bit packing, got {dimensionality}"
+        raise ConfigurationError(
+            config_key="dimensionality",
+            reason=f"Dimensionality must be a multiple of 64 for efficient bit packing, got {dimensionality}"
         )
 
     # Build tier configs
@@ -375,6 +409,34 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         half_life_days=_env_override("LTP_HALF_LIFE_DAYS", ltp_raw.get("half_life_days", 30.0)),
     )
 
+    # Build attention masking config (Phase 4.1)
+    attn_raw = raw.get("attention_masking") or {}
+    attention_masking = AttentionMaskingConfig(
+        enabled=_env_override("ATTENTION_MASKING_ENABLED", attn_raw.get("enabled", True)),
+    )
+
+    # Build consolidation config (Phase 4.0+)
+    cons_raw = raw.get("consolidation") or {}
+    consolidation = ConsolidationConfig(
+        enabled=_env_override("CONSOLIDATION_ENABLED", cons_raw.get("enabled", True)),
+        interval_seconds=_env_override("CONSOLIDATION_INTERVAL_SECONDS", cons_raw.get("interval_seconds", 3600)),
+        similarity_threshold=_env_override("CONSOLIDATION_SIMILARITY_THRESHOLD", cons_raw.get("similarity_threshold", 0.85)),
+        min_cluster_size=_env_override("CONSOLIDATION_MIN_CLUSTER_SIZE", cons_raw.get("min_cluster_size", 2)),
+        hot_tier_enabled=_env_override("CONSOLIDATION_HOT_TIER_ENABLED", cons_raw.get("hot_tier_enabled", True)),
+        warm_tier_enabled=_env_override("CONSOLIDATION_WARM_TIER_ENABLED", cons_raw.get("warm_tier_enabled", True)),
+    )
+
+    # Build dream loop config
+    dream_raw = raw.get("dream_loop") or {}
+    dream_loop = DreamLoopConfig(
+        enabled=_env_override("DREAM_LOOP_ENABLED", dream_raw.get("enabled", True)),
+        frequency_seconds=_env_override("DREAM_LOOP_FREQUENCY_SECONDS", dream_raw.get("frequency_seconds", 60)),
+        batch_size=_env_override("DREAM_LOOP_BATCH_SIZE", dream_raw.get("batch_size", 10)),
+        max_iterations=_env_override("DREAM_LOOP_MAX_ITERATIONS", dream_raw.get("max_iterations", 0)),
+        ollama_url=_env_override("DREAM_LOOP_OLLAMA_URL", dream_raw.get("ollama_url", "http://localhost:11434/api/generate")),
+        model=_env_override("DREAM_LOOP_MODEL", dream_raw.get("model", "gemma3:1b")),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "3.0"),
         dimensionality=dimensionality,
@@ -391,6 +453,9 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         observability=observability,
         mcp=mcp,
         paths=paths,
+        consolidation=consolidation,
+        attention_masking=attention_masking,
+        dream_loop=dream_loop,
     )
 
 

@@ -25,9 +25,9 @@ class TestConsolidationWorker(unittest.IsolatedAsyncioTestCase):
         # Setup mock storage instance
         self.mock_storage_instance = MagicMock()
         self.mock_storage_instance.redis_client = AsyncMock()
-        self.MockStorage.get_instance.return_value = self.mock_storage_instance
-        
-        self.worker = ConsolidationWorker()
+        self.MockStorage.return_value = self.mock_storage_instance
+
+        self.worker = ConsolidationWorker(storage=self.mock_storage_instance)
 
     async def asyncTearDown(self):
         self.storage_patcher.stop()

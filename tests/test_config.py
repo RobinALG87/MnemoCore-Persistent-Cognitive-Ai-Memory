@@ -17,6 +17,7 @@ from src.core.config import (
     TierConfig,
     LTPConfig,
 )
+from src.core.exceptions import ConfigurationError
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +88,7 @@ class TestLoadConfig:
         with open(path, "w") as f:
             yaml.dump(bad_config, f)
 
-        with pytest.raises(ValueError, match="multiple of 64"):
+        with pytest.raises(ConfigurationError, match="multiple of 64"):
             load_config(path)
 
     def test_encoding_mode(self, sample_config_path):
@@ -198,7 +199,7 @@ class TestConfigValidation:
             path = tmp_path / f"config_{dim}.yaml"
             with open(path, "w") as f:
                 yaml.dump(data, f)
-            with pytest.raises(ValueError):
+            with pytest.raises(ConfigurationError):
                 load_config(path)
 
 class TestSecurityOverrides:

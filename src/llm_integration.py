@@ -4,17 +4,20 @@ Multi-provider LLM support: OpenAI, OpenRouter, Anthropic, Google Gemini, and Lo
 """
 
 import json
-import logging
 import os
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
+from loguru import logger
+
 from src.core.engine import HAIMEngine
 from src.core.node import MemoryNode
-
-logger = logging.getLogger(__name__)
+from src.core.exceptions import (
+    UnsupportedProviderError,
+    AgentNotFoundError,
+)
 
 
 class LLMProvider(Enum):
@@ -114,7 +117,8 @@ class LLMClientFactory:
         if provider == LLMProvider.CUSTOM:
             return LLMClientFactory._create_custom_client(config)
 
-        raise ValueError(f"Unsupported provider: {provider}")
+        supported = [p.value for p in LLMProvider]
+        raise UnsupportedProviderError(str(provider.value), supported_providers=supported)
 
     @staticmethod
     def _create_openai_client(config: LLMConfig) -> Any:
@@ -626,7 +630,7 @@ class MultiAgentHAIM:
         All agents can access this memory
         """
         if agent_id not in self.agents:
-            raise ValueError(f"Agent {agent_id} not found")
+            raise AgentNotFoundError(agent_id)
 
         # Store in shared memory
         node_id = self.shared_memory.store(content, metadata)
@@ -652,7 +656,7 @@ class MultiAgentHAIM:
         Can access memories learned by ANY agent
         """
         if agent_id not in self.agents:
-            raise ValueError(f"Agent {agent_id} not found")
+            raise AgentNotFoundError(agent_id)
 
         # Query shared memory
         results = self.shared_memory.query(query, top_k=top_k)
@@ -685,7 +689,7 @@ class MultiAgentHAIM:
         When ANY agent fires this connection, ALL agents benefit
         """
         if agent_id not in self.agents:
-            raise ValueError(f"Agent {agent_id} not found")
+            raise AgentNotFoundError(agent_id)
 
         # Map concepts to memory IDs using holographic similarity
         mem_id_a = self._concept_to_memory_id(concept_a)
@@ -747,7 +751,7 @@ class MultiAgentHAIM:
         Collapses superposition based on collective free energy
         """
         if agent_id not in self.agents:
-            raise ValueError(f"Agent {agent_id} not found")
+            raise AgentNotFoundError(agent_id)
 
         # Get all active nodes (in production, filter by relevance)
         active_nodes = list(self.shared_memory.tier_manager.hot.values())

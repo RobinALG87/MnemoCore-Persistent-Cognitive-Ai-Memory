@@ -190,6 +190,48 @@ class BinaryHDV:
         """
         return 1.0 - self.normalized_distance(other)
 
+    # ------------------------------------------------------------------
+    # Compatibility shims for legacy HDV API
+    # ------------------------------------------------------------------
+
+    def bind(self, other: "BinaryHDV") -> "BinaryHDV":
+        """
+        Alias for xor_bind(). Compatibility shim for legacy HDV API.
+
+        Deprecated: Use xor_bind() directly for new code.
+        """
+        return self.xor_bind(other)
+
+    def unbind(self, other: "BinaryHDV") -> "BinaryHDV":
+        """
+        Alias for xor_bind(). Since XOR is self-inverse, unbind = bind.
+
+        Compatibility shim for legacy HDV API.
+        """
+        return self.xor_bind(other)
+
+    def cosine_similarity(self, other: "BinaryHDV") -> float:
+        """
+        Alias for similarity(). Compatibility shim for legacy HDV API.
+
+        Note: For binary vectors, this returns Hamming-based similarity,
+        not true cosine similarity. The values are comparable for most use cases.
+        """
+        return self.similarity(other)
+
+    def normalize(self) -> "BinaryHDV":
+        """
+        No-op for binary vectors. Compatibility shim for legacy HDV API.
+
+        Binary vectors are already "normalized" in the sense that they
+        consist only of 0s and 1s. Returns a copy of the vector.
+        """
+        return BinaryHDV(data=self.data.copy(), dimension=self.dimension)
+
+    def __xor__(self, other: "BinaryHDV") -> "BinaryHDV":
+        """Alias for xor_bind(). Enables v1 ^ v2 syntax."""
+        return self.xor_bind(other)
+
     def to_bytes(self) -> bytes:
         """Serialize to raw bytes (for storage)."""
         return self.data.tobytes()

@@ -8,11 +8,11 @@ Designed to scale comfortably from Raspberry Pi (CPU) to dedicated AI rigs (CUDA
 """
 
 import multiprocessing
-import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List, Tuple, Optional
 
 import numpy as np
+from loguru import logger
 
 # Try importing torch, handle failure gracefully (CPU only environment)
 try:
@@ -23,7 +23,13 @@ except ImportError:
 
 from .binary_hdv import BinaryHDV, TextEncoder, batch_hamming_distance
 
-logger = logging.getLogger(__name__)
+
+def _encode_single_worker(args: tuple) -> bytes:
+    """Module-level worker function for ProcessPoolExecutor (must be picklable)."""
+    text, dim = args
+    encoder = TextEncoder(dimension=dim)
+    hdv = encoder.encode(text)
+    return hdv.to_bytes()
 
 
 class BatchProcessor:
@@ -83,21 +89,15 @@ class BatchProcessor:
         if not texts:
             return []
 
-        # Helper for pickling
-        def _encode_single(text: str, dim: int) -> bytes:
-            encoder = TextEncoder(dimension=dim)
-            hdv = encoder.encode(text)
-            return hdv.to_bytes()  # Return bytes to minimize IPC overhead
-
         results = [None] * len(texts)
-        
-        # Parallel execution
+
+        # Parallel execution using module-level worker (picklable)
         with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
             future_to_idx = {
-                executor.submit(_encode_single, text, dimension): i 
+                executor.submit(_encode_single_worker, (text, dimension)): i
                 for i, text in enumerate(texts)
             }
-            
+
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:

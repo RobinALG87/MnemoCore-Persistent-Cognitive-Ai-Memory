@@ -1,0 +1,45 @@
+{{/*
+Ingress for MnemoCore API
+*/}}
+{{- if .Values.mnemocore.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mnemocore.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.mnemocore.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.mnemocore.ingress.className }}
+  ingressClassName: {{ .Values.mnemocore.ingress.className }}
+  {{- end }}
+  {{- if .Values.mnemocore.ingress.tls }}
+  tls:
+    {{- range .Values.mnemocore.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.mnemocore.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "mnemocore.fullname" $ }}
+                port:
+                  number: {{ $.Values.mnemocore.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\mcp\server.py
+# hypothesis_version: 6.151.9
+
+['MnemoCore MCP', '__main__', 'data', 'error', 'mcp', 'memory_delete', 'memory_get', 'memory_health', 'memory_query', 'memory_stats', 'memory_store', 'ok', 'sse', 'stdio']

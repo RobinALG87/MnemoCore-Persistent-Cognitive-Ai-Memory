@@ -18,13 +18,11 @@ Usage:
     result = await breaker.call(my_async_func)
 """
 
-import logging
 import time
 from typing import Optional, Callable, Any
+from loguru import logger
 
 from .exceptions import CircuitOpenError
-
-logger = logging.getLogger(__name__)
 
 # Constants for circuit breaker thresholds
 REDIS_FAIL_THRESHOLD = 5

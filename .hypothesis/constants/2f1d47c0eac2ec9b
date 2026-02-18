@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\synapse_index.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.05, 1.0, 'SynapticConnection', 'avg_degree', 'bayes', 'edge_count', 'fire_count', 'last_fired', 'neuron_a_id', 'neuron_b_id', 'node_count', 'r', 'strength', 'success_count', 'utf-8', 'w']

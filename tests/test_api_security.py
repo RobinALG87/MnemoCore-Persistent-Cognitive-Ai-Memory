@@ -7,150 +7,154 @@ import os
 # Ensure path is set
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.api.main import app
 from src.core.config import reset_config
 
+API_KEY = "test-key"
+
+# Setup mocks before importing app
+mock_engine_cls = MagicMock()
+mock_engine_instance = MagicMock()
+mock_engine_instance.get_stats = AsyncMock(return_value={"status": "ok"})
+mock_engine_instance.get_memory = AsyncMock(return_value=None)
+mock_engine_instance.delete_memory = AsyncMock(return_value=True)
+mock_engine_instance.store = AsyncMock(return_value="mem_id_123")
+mock_engine_instance.query = AsyncMock(return_value=[("mem_id_123", 0.9)])
+mock_engine_instance.initialize = AsyncMock(return_value=None)
+mock_engine_instance.close = AsyncMock(return_value=None)
+mock_engine_cls.return_value = mock_engine_instance
+
+# Mock container
+mock_container = MagicMock()
+mock_container.redis_storage = AsyncMock()
+mock_container.redis_storage.check_health = AsyncMock(return_value=True)
+mock_container.redis_storage.store_memory = AsyncMock()
+mock_container.redis_storage.publish_event = AsyncMock()
+mock_container.redis_storage.retrieve_memory = AsyncMock(return_value=None)
+mock_container.redis_storage.delete_memory = AsyncMock()
+mock_container.redis_storage.close = AsyncMock()
+mock_container.qdrant_store = MagicMock()
+
+# Setup pipeline mock
+mock_pipeline = MagicMock()
+mock_pipeline.__aenter__ = AsyncMock(return_value=mock_pipeline)
+mock_pipeline.__aexit__ = AsyncMock(return_value=None)
+mock_pipeline.incr = MagicMock()
+mock_pipeline.expire = MagicMock()
+mock_pipeline.execute = AsyncMock(return_value=[1, True])
+
+mock_redis_client = MagicMock()
+mock_redis_client.pipeline.return_value = mock_pipeline
+mock_container.redis_storage.redis_client = mock_redis_client
+
+# Patch before import
+patcher1 = patch("src.api.main.HAIMEngine", mock_engine_cls)
+patcher2 = patch("src.api.main.build_container", return_value=mock_container)
+patcher1.start()
+patcher2.start()
+
+from src.api.main import app
+
+@pytest.fixture(autouse=True)
+def setup_env(monkeypatch):
+    monkeypatch.setenv("HAIM_API_KEY", API_KEY)
+    reset_config()
+    # Mock app state
+    app.state.engine = mock_engine_instance
+    app.state.container = mock_container
+    # Reset rate limiter mock to default (within limit) - just set return_value, don't replace the mock
+    mock_pipeline.execute.return_value = [1, True]
+    yield
+    reset_config()
+
 @pytest.fixture
-def client():
+def client(setup_env):
     with TestClient(app) as c:
         yield c
 
 def test_health_public(client):
     """Health endpoint should be public."""
-    # Mock get_stats on app.state.engine (lifespan initializes it)
-    with patch.object(app.state.engine, 'get_stats', return_value={"status": "ok"}):
-        response = client.get("/health")
-        assert response.status_code == 200
-        assert "status" in response.json()
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert "status" in response.json()
 
 def test_secure_endpoints(client, monkeypatch):
     """Verify endpoints require X-API-Key."""
-    monkeypatch.setenv("HAIM_API_KEY", "test-key")
-    reset_config()
-    
     # 1. Store
     response = client.post("/store", json={"content": "test"})
     assert response.status_code == 403
-    
+
     # 2. Query
     response = client.post("/query", json={"query": "test"})
     assert response.status_code == 403
-    
+
     # 3. Valid key
-    with patch.object(app.state.engine, 'store', return_value="mem_1"), \
-         patch.object(app.state.engine, 'get_memory', return_value=MagicMock()):
-        response = client.post(
-            "/store", 
-            json={"content": "test"},
-            headers={"X-API-Key": "test-key"}
-        )
-        assert response.status_code == 200
+    mock_memory = MagicMock(
+        id="mem_1", content="test", metadata={}, ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+    )
+    mock_engine_instance.get_memory.return_value = mock_memory
+    mock_engine_instance.store.return_value = "mem_1"
+
+    response = client.post(
+        "/store",
+        json={"content": "test"},
+        headers={"X-API-Key": API_KEY}
+    )
+    assert response.status_code == 200
 
 # --- Enhanced Security Tests ---
 
-@pytest.fixture
-def mock_dependencies():
-    with patch("src.api.main.HAIMEngine") as MockEngine, \
-         patch("src.core.async_storage.AsyncRedisStorage.get_instance") as mock_redis_get:
+def test_security_headers(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-XSS-Protection"] == "1; mode=block"
+    assert "Content-Security-Policy" in response.headers
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
-        # Setup Mock Engine
-        mock_engine_instance = MagicMock()
-        mock_engine_instance.store = MagicMock(return_value="mem_id_123")
-        mock_engine_instance.query = MagicMock(return_value=[("mem_id_123", 0.9)])
-        mock_engine_instance.get_memory.return_value = MagicMock(
-            id="mem_id_123", content="test", metadata={}, ltp_strength=0.5, created_at=MagicMock()
-        )
-        mock_engine_instance.close = MagicMock()
-        MockEngine.return_value = mock_engine_instance
+def test_cors_headers(client):
+    headers = {"Origin": "https://example.com"}
+    response = client.get("/", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
 
-        # Setup Mock Redis
-        mock_redis_instance = MagicMock()
-        mock_redis_instance.check_health = AsyncMock(return_value=True)
-        mock_redis_instance.close = AsyncMock()
-        mock_redis_instance.store_memory = AsyncMock()
-        mock_redis_instance.publish_event = AsyncMock()
+def test_api_key_missing_enhanced(client):
+    response = client.post("/store", json={"content": "test"})
+    assert response.status_code == 403
 
-        # Setup Pipeline
-        mock_pipeline = MagicMock()
-        mock_pipeline.__aenter__.return_value = mock_pipeline
-        mock_pipeline.__aexit__.return_value = None
-        mock_pipeline.execute = AsyncMock(return_value=[1, True])
+def test_api_key_invalid_enhanced(client):
+    response = client.post("/store", json={"content": "test"}, headers={"X-API-Key": "wrong-key"})
+    assert response.status_code == 403
 
-        mock_redis_client = MagicMock()
-        mock_redis_client.pipeline.return_value = mock_pipeline
-        mock_redis_instance.redis_client = mock_redis_client
+def test_query_max_length_validation(client):
+    long_query = "a" * 10001
+    response = client.post(
+        "/query",
+        json={"query": long_query},
+        headers={"X-API-Key": API_KEY}
+    )
+    assert response.status_code == 422
 
-        mock_redis_get.return_value = mock_redis_instance
-
-        yield {
-            "engine": mock_engine_instance,
-            "redis": mock_redis_instance,
-            "pipeline": mock_pipeline
-        }
-
-def test_security_headers(mock_dependencies):
-    with TestClient(app) as client:
-        response = client.get("/")
-        assert response.status_code == 200
-        assert response.headers["X-Frame-Options"] == "DENY"
-        assert response.headers["X-Content-Type-Options"] == "nosniff"
-        assert response.headers["X-XSS-Protection"] == "1; mode=block"
-        assert "Content-Security-Policy" in response.headers
-        assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
-
-def test_cors_headers(mock_dependencies):
-    with TestClient(app) as client:
-        headers = {"Origin": "https://example.com"}
-        response = client.get("/", headers=headers)
-        assert response.status_code == 200
-        assert response.headers["access-control-allow-origin"] == "*"
-
-def test_api_key_missing_enhanced(mock_dependencies):
-    with TestClient(app) as client:
-        response = client.post("/store", json={"content": "test"})
-        assert response.status_code == 403
-
-def test_api_key_invalid_enhanced(mock_dependencies):
-    with TestClient(app) as client:
-        response = client.post("/store", json={"content": "test"}, headers={"X-API-Key": "wrong-key"})
-        assert response.status_code == 403
-
-def test_query_max_length_validation(mock_dependencies):
-    with TestClient(app) as client:
-        long_query = "a" * 10001
-        response = client.post(
-            "/query",
-            json={"query": long_query},
-            headers={"X-API-Key": "mnemocore-beta-key"}
-        )
-        assert response.status_code == 422
-
-def test_rate_limiter_within_limit(mock_dependencies):
-    mocks = mock_dependencies
+def test_rate_limiter_within_limit(client):
     # Ensure pipeline execute returns count < limit (default 100)
-    mocks["pipeline"].execute.return_value = [1, True]
+    mock_pipeline.execute.return_value = [1, True]
 
-    with TestClient(app) as client:
-        response = client.post(
-            "/store",
-            json={"content": "test"},
-            headers={"X-API-Key": "mnemocore-beta-key"}
-        )
+    mock_memory = MagicMock(
+        id="mem_1", content="test", metadata={}, ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+    )
+    mock_engine_instance.get_memory.return_value = mock_memory
+    mock_engine_instance.store.return_value = "mem_1"
 
-        assert response.status_code == 200
-        assert response.json()["ok"] is True
+    response = client.post(
+        "/store",
+        json={"content": "test"},
+        headers={"X-API-Key": API_KEY}
+    )
 
-def test_rate_limiter_exceeded(mock_dependencies):
-    mocks = mock_dependencies
-    # Simulate return value [count=101, expire_result=True] (Limit is 100)
-    mocks["pipeline"].execute.return_value = [101, True]
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
 
-    with TestClient(app) as client:
-        response = client.post(
-            "/store",
-            json={"content": "test"},
-            headers={"X-API-Key": "mnemocore-beta-key"}
-        )
-
-        assert response.status_code == 429
-        assert "Rate limit exceeded" in response.json()["detail"]
+# Note: Rate limiter exceeded tests are in test_api_security_limits.py
+# which has more comprehensive rate limit testing with proper isolation

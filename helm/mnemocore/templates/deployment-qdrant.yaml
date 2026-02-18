@@ -1,0 +1,141 @@
+{{/*
+Qdrant Deployment - Only created if embedded mode is enabled and not using official Qdrant chart
+*/}}
+{{- if and .Values.qdrant.enabled .Values.qdrant.embedded.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mnemocore.qdrant.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mnemocore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: qdrant
+  template:
+    metadata:
+      labels:
+        {{- include "mnemocore.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: qdrant
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: qdrant
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.qdrant.image.repository }}:{{ .Values.qdrant.image.tag }}"
+          imagePullPolicy: {{ .Values.qdrant.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.qdrant.service.httpPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.qdrant.service.grpcPort }}
+              protocol: TCP
+          env:
+            - name: QDRANT__SERVICE__GRPC_PORT
+              value: {{ .Values.qdrant.service.grpcPort | quote }}
+            - name: QDRANT__LOG_LEVEL
+              value: {{ .Values.qdrant.config.logLevel | quote }}
+          {{- if .Values.qdrant.persistence.enabled }}
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          {{- end }}
+          {{- if .Values.qdrant.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.qdrant.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.qdrant.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.qdrant.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.qdrant.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.qdrant.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.qdrant.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.qdrant.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.qdrant.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.qdrant.probes.readiness.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.qdrant.resources | nindent 12 }}
+      volumes:
+        {{- if .Values.qdrant.persistence.enabled }}
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "mnemocore.qdrant.fullname" . }}-storage
+        {{- else }}
+        - name: storage
+          emptyDir: {}
+        {{- end }}
+---
+{{/*
+Qdrant PVC
+*/}}
+{{- if and .Values.qdrant.enabled .Values.qdrant.embedded.enabled .Values.qdrant.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mnemocore.qdrant.fullname" . }}-storage
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+  {{- with .Values.qdrant.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.qdrant.persistence.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  {{- else if .Values.qdrant.persistence.storageClass }}
+  storageClassName: {{ .Values.qdrant.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.qdrant.persistence.size | quote }}
+{{- end }}
+---
+{{/*
+Qdrant Service
+*/}}
+{{- if and .Values.qdrant.enabled .Values.qdrant.embedded.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mnemocore.qdrant.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  type: {{ .Values.qdrant.service.type }}
+  ports:
+    - port: {{ .Values.qdrant.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.qdrant.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "mnemocore.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+{{- end }}

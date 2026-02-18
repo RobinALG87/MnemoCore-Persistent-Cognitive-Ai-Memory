@@ -1,0 +1,95 @@
+# MnemoCore Docker Ignore
+# =======================
+# Exclude files not needed in Docker build context
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Dependencies (will be installed in container)
+deps/
+node_modules/
+
+# Test files and coverage
+tests/
+test_*.py
+*_test.py
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Data directories (mounted as volumes)
+data/
+*.jsonl
+*.json
+!config.json
+
+# Logs
+logs/
+*.log
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker (prevent recursive builds)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Environment files (use .env.example as template)
+.env
+.env.*
+!.env.example
+
+# Local development
+*.local
+*.bak
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.tar.gz
+*.zip
+
+# Miscellaneous
+scripts/debug_*.py
+scripts/bisect_*.py
+scripts/verify_*.py

@@ -10,6 +10,7 @@ import asyncio
 import aiohttp
 import json
 import random
+import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import sys
@@ -19,14 +20,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from src.core.engine import HAIMEngine
 from src.core.async_storage import AsyncRedisStorage
+from src.core.config import get_config
 from src.meta.learning_journal import LearningJournal
 from src.core.node import MemoryNode
+from src.core.metrics import (
+    DREAM_LOOP_TOTAL,
+    DREAM_LOOP_ITERATION_SECONDS,
+    DREAM_LOOP_INSIGHTS_GENERATED,
+    DREAM_LOOP_ACTIVE
+)
 
-# Config
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "gemma3:1b"
+# Default Config (overridden by config.yaml)
+DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
+DEFAULT_MODEL = "gemma3:1b"
 HAIM_DATA_PATH = "./data/memory.jsonl"
-CYCLE_INTERVAL = 60  # seconds between thought cycles
+DEFAULT_CYCLE_INTERVAL = 60  # seconds between thought cycles
 LOG_PATH = "/tmp/subconscious.log"
 EVOLUTION_STATE_PATH = "./data/subconscious_evolution.json"
 
@@ -40,14 +48,45 @@ def _write_state_to_disk(state: Dict[str, Any], filepath: str):
 
 class SubconsciousDaemon:
     """The always-running background mind."""
-    
-    def __init__(self):
+
+    def __init__(self, storage: Optional[AsyncRedisStorage] = None, config: Optional[Any] = None):
+        """
+        Initialize SubconsciousDaemon with optional dependency injection.
+
+        Args:
+            storage: AsyncRedisStorage instance. If None, creates one in run().
+            config: Configuration object. If None, loads from get_config().
+        """
+        # Load configuration
+        self._config = config or get_config()
+
+        # Dream loop configuration from config.yaml
+        dream_loop_config = getattr(self._config, 'dream_loop', None)
+        if dream_loop_config:
+            self.ollama_url = getattr(dream_loop_config, 'ollama_url', DEFAULT_OLLAMA_URL)
+            self.model = getattr(dream_loop_config, 'model', DEFAULT_MODEL)
+            self.frequency_seconds = getattr(dream_loop_config, 'frequency_seconds', DEFAULT_CYCLE_INTERVAL)
+            self.batch_size = getattr(dream_loop_config, 'batch_size', 10)
+            self.max_iterations = getattr(dream_loop_config, 'max_iterations', 0)
+            self.dream_loop_enabled = getattr(dream_loop_config, 'enabled', True)
+        else:
+            self.ollama_url = DEFAULT_OLLAMA_URL
+            self.model = DEFAULT_MODEL
+            self.frequency_seconds = DEFAULT_CYCLE_INTERVAL
+            self.batch_size = 10
+            self.max_iterations = 0
+            self.dream_loop_enabled = True
+
         self.engine = HAIMEngine(persist_path=HAIM_DATA_PATH)
         self.journal = LearningJournal()
+
+        # Graceful shutdown support using asyncio.Event
+        self._stop_event = asyncio.Event()
         self.running = False
+
         self.cycle_count = 0
         self.insights_generated = 0
-        self.current_cycle_interval = CYCLE_INTERVAL
+        self.current_cycle_interval = self.frequency_seconds
         self.schedule = {
             "concept_every": 5,
             "parallel_every": 3,
@@ -59,9 +98,18 @@ class SubconsciousDaemon:
         self.low_activity_streak = 0
         self.last_cycle_metrics: Dict[str, Any] = {}
         self._load_evolution_state()
-        
-        # Async Redis Storage (initialized in run)
-        self.storage: Optional[AsyncRedisStorage] = None
+
+        # Async Redis Storage (injected or initialized in run)
+        self.storage: Optional[AsyncRedisStorage] = storage
+
+    def _should_stop(self) -> bool:
+        """Check if the daemon should stop (non-blocking check)."""
+        return self._stop_event.is_set()
+
+    async def request_stop(self):
+        """Request graceful stop of the daemon (async-safe)."""
+        self._stop_event.set()
+        self.running = False
         
     def log(self, msg: str):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -188,7 +236,7 @@ class SubconsciousDaemon:
     async def query_ollama(self, prompt: str, max_tokens: int = 200) -> str:
         """Query local Gemma model."""
         payload = {
-            "model": MODEL,
+            "model": self.model,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -196,10 +244,10 @@ class SubconsciousDaemon:
                 "temperature": 0.7
             }
         }
-        
+
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(OLLAMA_URL, json=payload, timeout=30) as resp:
+                async with session.post(self.ollama_url, json=payload, timeout=30) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return data.get("response", "").strip()
@@ -343,6 +391,7 @@ Output just the insight, max 60 words."""
 
     async def run_cycle(self):
         """Execute one thought cycle."""
+        iteration_start_time = time.time()
         self.cycle_count += 1
         self.log(f"=== Cycle {self.cycle_count} ===")
         metrics: Dict[str, Any] = {
@@ -354,19 +403,21 @@ Output just the insight, max 60 words."""
             "synapses": len(self.engine.synapses),
         }
 
-        
+
         # Get all hot memories as list (references only, no copy)
         memories = list(self.engine.tier_manager.hot.values())
-        
+
         if not memories:
             self.log("No memories to process")
             metrics["adaptation"] = "none"
             self.last_cycle_metrics = metrics
             await self._save_evolution_state()
+            # Record metrics
+            DREAM_LOOP_TOTAL.labels(status="success").inc()
             return
-        
+
         self.log(f"Processing {len(memories)} memories")
-        
+
         # 1. Extract concepts (every 5 cycles)
         if self.cycle_count % self.schedule["concept_every"] == 0:
             concepts = await self.extract_concepts(memories)
@@ -376,10 +427,12 @@ Output just the insight, max 60 words."""
                     self.engine.define_concept(concept["name"], attrs)
                     metrics["concepts"] += 1
                     self.log(f"Concept extracted: {concept['name']}")
+                    # Record insight metric
+                    DREAM_LOOP_INSIGHTS_GENERATED.labels(type="concept").inc()
                     # Publish concept event?
                     if self.storage:
                         await self.storage.publish_event("concept.extracted", {"name": concept["name"]})
-        
+
         # 2. Draw parallels (every 3 cycles)
         if self.cycle_count % self.schedule["parallel_every"] == 0:
             parallels = await self.draw_parallels(memories)
@@ -392,7 +445,9 @@ Output just the insight, max 60 words."""
                 self.insights_generated += 1
                 metrics["parallels"] += 1
                 self.log(f"Parallel found: {p[:80]}...")
-        
+                # Record insight metric
+                DREAM_LOOP_INSIGHTS_GENERATED.labels(type="parallel").inc()
+
         # 3. Value memories (every 10 cycles)
         if self.cycle_count % self.schedule["value_every"] == 0:
             values = await self.value_memories(memories)
@@ -401,7 +456,7 @@ Output just the insight, max 60 words."""
                     self.engine.tier_manager.hot[mem_id].pragmatic_value = value
                     metrics["valuations"] += 1
             self.log(f"Valued {len(values)} memories")
-        
+
         # 4. Generate meta-insight (every 7 cycles)
         if self.cycle_count % self.schedule["meta_every"] == 0:
             insight = await self.generate_insight(memories)
@@ -413,7 +468,9 @@ Output just the insight, max 60 words."""
                 self.insights_generated += 1
                 metrics["meta_insights"] += 1
                 self.log(f"Meta-insight: {insight[:80]}...")
-        
+                # Record insight metric
+                DREAM_LOOP_INSIGHTS_GENERATED.labels(type="meta").inc()
+
         # 5. Cleanup decayed synapses (every 20 cycles)
         if self.cycle_count % self.schedule["cleanup_every"] == 0:
             before = len(self.engine.synapses)
@@ -427,39 +484,46 @@ Output just the insight, max 60 words."""
         self._record_cycle_learning(metrics)
         self.last_cycle_metrics = metrics
         await self._save_evolution_state()
-        
+
+        # Record iteration duration metric
+        iteration_duration = time.time() - iteration_start_time
+        DREAM_LOOP_ITERATION_SECONDS.observe(iteration_duration)
+        DREAM_LOOP_TOTAL.labels(status="success").inc()
+
         self.log(
             "Cycle complete. "
             f"Insights={self.insights_generated} "
             f"(concepts={metrics['concepts']}, parallels={metrics['parallels']}, meta={metrics['meta_insights']}) "
-            f"adaptation={metrics.get('adaptation', 'none')} interval={self.current_cycle_interval}s"
+            f"adaptation={metrics.get('adaptation', 'none')} interval={self.current_cycle_interval}s "
+            f"duration={iteration_duration:.2f}s"
         )
     
     async def _consume_events(self):
         """Consume events from the Subconscious Bus (Redis Stream)."""
         if not self.storage: return
-        
+
         last_id = "$" # New events only
-        stream_key = self.storage.config.redis.stream_key
-        
+        config = get_config()
+        stream_key = config.redis.stream_key
+
         self.log(f"Starting event consumer on {stream_key}")
-        
+
         while self.running:
             try:
                 # XREAD is blocking
                 streams = await self.storage.redis_client.xread(
                     {stream_key: last_id}, count=1, block=1000
                 )
-                
+
                 if not streams:
                     await asyncio.sleep(0.1)
                     continue
-                    
+
                 for _, events in streams:
                     for event_id, event_data in events:
                         last_id = event_id
                         await self._process_event(event_data)
-                        
+
             except Exception as e:
                 self.log(f"Event consumer error: {e}")
                 await asyncio.sleep(1)
@@ -546,41 +610,77 @@ Output just the insight, max 60 words."""
 
     async def run(self):
         """Main daemon loop."""
+        if not self.dream_loop_enabled:
+            self.log("Dream loop is disabled in configuration. Exiting.")
+            return
+
+        # Clear stop event for restart support
+        self._stop_event.clear()
         self.running = True
-        self.storage = AsyncRedisStorage.get_instance() # Initialize singleton
+        DREAM_LOOP_ACTIVE.set(1)
+
+        if not self.storage:
+            # Create storage from config if not injected
+            config = get_config()
+            self.storage = AsyncRedisStorage(
+                url=config.redis.url,
+                stream_key=config.redis.stream_key,
+                max_connections=config.redis.max_connections,
+                socket_timeout=config.redis.socket_timeout,
+                password=config.redis.password,
+            )
         self.log("Subconscious daemon starting...")
-        self.log(f"Model: {MODEL} | Cycle interval: {CYCLE_INTERVAL}s")
-        
+        self.log(f"Model: {self.model} | Cycle interval: {self.frequency_seconds}s | Max iterations: {self.max_iterations or 'unlimited'}")
+
         # Start event consumer task
         asyncio.create_task(self._consume_events())
-        
-        while self.running:
+
+        iterations = 0
+        while self.running and not self._should_stop():
+            # Check max_iterations limit (0 = unlimited)
+            if self.max_iterations > 0 and iterations >= self.max_iterations:
+                self.log(f"Reached max iterations ({self.max_iterations}). Stopping.")
+                break
+
             try:
                 await self.run_cycle()
+                iterations += 1
             except Exception as e:
                 self.log(f"Cycle error: {e}")
-            
-            await asyncio.sleep(self.current_cycle_interval)
-    
-    def stop(self):
+                DREAM_LOOP_TOTAL.labels(status="error").inc()
+
+            # Non-blocking sleep with periodic stop check
+            sleep_interval = self.current_cycle_interval
+            sleep_remaining = sleep_interval
+            check_interval = 0.5  # Check for stop every 0.5 seconds
+
+            while sleep_remaining > 0 and not self._should_stop():
+                sleep_time = min(check_interval, sleep_remaining)
+                await asyncio.sleep(sleep_time)
+                sleep_remaining -= sleep_time
+
         self.running = False
-        self.log("Daemon stopping...")
-        if self.storage:
-            pass
-            # await self.storage.close() # Can't await in sync stop, let event loop handle or cleanup elsewhere
+        DREAM_LOOP_ACTIVE.set(0)
+        self.log("Daemon stopped.")
+
+    def stop(self):
+        """Request daemon stop (can be called from signal handler)."""
+        self._stop_event.set()
+        self.running = False
+        self.log("Daemon stop requested...")
 
 
 async def main():
     daemon = SubconsciousDaemon()
-    
+
     # Handle graceful shutdown
     import signal
     def shutdown(sig, frame):
         daemon.stop()
-    
+
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
-    
+
     await daemon.run()
 
 

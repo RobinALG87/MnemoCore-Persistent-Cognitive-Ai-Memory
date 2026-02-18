@@ -8,13 +8,12 @@ Uses `redis.asyncio` for native asyncio support.
 """
 
 import json
-import logging
 from typing import Dict, List, Optional, Any, Union
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
+from loguru import logger
 
-from .config import get_config
 from .reliability import StorageCircuitBreaker
 from .exceptions import (
     StorageError,
@@ -24,53 +23,49 @@ from .exceptions import (
     wrap_storage_exception,
 )
 
-logger = logging.getLogger(__name__)
-
 
 class AsyncRedisStorage:
     """
     Wrapper for Async Redis client with connection pooling.
-    Can be used as a Singleton via `get_instance()`.
+    No longer a singleton - instances should be created via dependency injection.
     """
-    _instance = None
     _pool: Optional[ConnectionPool] = None
 
-    def __init__(self, client: Optional[redis.Redis] = None):
+    def __init__(
+        self,
+        url: str = "redis://localhost:6379/0",
+        stream_key: str = "haim:subconscious",
+        max_connections: int = 10,
+        socket_timeout: int = 5,
+        password: Optional[str] = None,
+        client: Optional[redis.Redis] = None,
+    ):
         """
-        Initialize with optional explicit client (for testing/DI).
-        If client is None, uses the shared connection pool.
+        Initialize with explicit parameters or optional explicit client (for testing/DI).
+        If client is provided, other connection parameters are ignored.
         """
-        self.config = get_config()
+        self.stream_key = stream_key
         if client:
             self.redis_client = client
         else:
-            self._initialize_from_pool()
+            self._initialize_from_pool(url, max_connections, socket_timeout, password)
 
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def _initialize_from_pool(self):
+    def _initialize_from_pool(self, url: str, max_connections: int, socket_timeout: int, password: Optional[str]):
         """Initialize Redis client from connection pool."""
-        # Use class-level pool to share connections if multiple instances are created accidentally
+        # Use class-level pool to share connections if multiple instances are created
         if AsyncRedisStorage._pool is None:
-            logger.info(f"Initializing Async Redis Pool: {self.config.redis.url}")
+            logger.info(f"Initializing Async Redis Pool: {url}")
 
             kwargs = {
-                "max_connections": self.config.redis.max_connections,
-                "socket_timeout": self.config.redis.socket_timeout,
+                "max_connections": max_connections,
+                "socket_timeout": socket_timeout,
                 "decode_responses": True,
             }
-            if self.config.redis.password:
-                kwargs["password"] = self.config.redis.password
+            if password:
+                kwargs["password"] = password
 
-            AsyncRedisStorage._pool = ConnectionPool.from_url(
-                self.config.redis.url,
-                **kwargs
-            )
-        
+            AsyncRedisStorage._pool = ConnectionPool.from_url(url, **kwargs)
+
         self.redis_client = redis.Redis(connection_pool=AsyncRedisStorage._pool)
 
     async def close(self):
@@ -258,7 +253,6 @@ class AsyncRedisStorage:
             is a fire-and-forget operation that should not block the caller.
         """
         breaker = StorageCircuitBreaker.get_redis_breaker()
-        stream_key = self.config.redis.stream_key
         try:
             # XADD expects flat dict of strings
             msg = {"type": event_type}
@@ -268,7 +262,7 @@ class AsyncRedisStorage:
                 else:
                     msg[k] = str(v)
 
-            await breaker.call(self.redis_client.xadd, stream_key, msg)
+            await breaker.call(self.redis_client.xadd, self.stream_key, msg)
         except CircuitOpenError:
             logger.warning(f"AsyncRedis publish blocked for {event_type}: circuit breaker open")
         except Exception as e:

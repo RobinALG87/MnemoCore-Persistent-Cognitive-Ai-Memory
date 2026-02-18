@@ -4,13 +4,12 @@ Qdrant Vector Store Layer
 Provides async access to Qdrant for vector storage and similarity search.
 """
 
-import logging
 from typing import List, Any, Optional
 import asyncio
 
 from qdrant_client import AsyncQdrantClient, models
+from loguru import logger
 
-from .config import get_config
 from .reliability import qdrant_breaker
 from .exceptions import (
     CircuitOpenError,
@@ -18,25 +17,35 @@ from .exceptions import (
     wrap_storage_exception,
 )
 
-logger = logging.getLogger(__name__)
-
 
 class QdrantStore:
-    _instance = None
+    """
+    Qdrant Vector Store Layer.
+    No longer a singleton - instances should be created via dependency injection.
+    """
 
-    def __init__(self):
-        self.config = get_config()
-        self.client = AsyncQdrantClient(
-            url=self.config.qdrant.url,
-            api_key=self.config.qdrant.api_key
-        )
-        self.dim = self.config.dimensionality
-
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+    def __init__(
+        self,
+        url: str,
+        api_key: Optional[str],
+        dimensionality: int,
+        collection_hot: str = "haim_hot",
+        collection_warm: str = "haim_warm",
+        binary_quantization: bool = True,
+        always_ram: bool = True,
+        hnsw_m: int = 16,
+        hnsw_ef_construct: int = 100,
+    ):
+        self.url = url
+        self.api_key = api_key
+        self.dim = dimensionality
+        self.collection_hot = collection_hot
+        self.collection_warm = collection_warm
+        self.binary_quantization = binary_quantization
+        self.always_ram = always_ram
+        self.hnsw_m = hnsw_m
+        self.hnsw_ef_construct = hnsw_ef_construct
+        self.client = AsyncQdrantClient(url=url, api_key=api_key)
 
     async def ensure_collections(self):
         """
@@ -56,22 +65,20 @@ class QdrantStore:
             raise wrap_storage_exception("qdrant", "ensure_collections", e)
 
     async def _ensure_collections(self):
-        cfg = self.config.qdrant
-
         # Define BQ config if enabled
         quantization_config = None
-        if cfg.binary_quantization:
+        if self.binary_quantization:
             quantization_config = models.BinaryQuantization(
                 binary=models.BinaryQuantizationConfig(
-                    always_ram=cfg.always_ram
+                    always_ram=self.always_ram
                 )
             )
 
         # Create HOT collection (optimized for latency)
-        if not await self.client.collection_exists(cfg.collection_hot):
-            logger.info(f"Creating HOT collection: {cfg.collection_hot}")
+        if not await self.client.collection_exists(self.collection_hot):
+            logger.info(f"Creating HOT collection: {self.collection_hot}")
             await self.client.create_collection(
-                collection_name=cfg.collection_hot,
+                collection_name=self.collection_hot,
                 vectors_config=models.VectorParams(
                     size=self.dim,
                     distance=models.Distance.COSINE,
@@ -79,17 +86,17 @@ class QdrantStore:
                 ),
                 quantization_config=quantization_config,
                 hnsw_config=models.HnswConfigDiff(
-                    m=cfg.hnsw_m,
-                    ef_construct=cfg.hnsw_ef_construct,
+                    m=self.hnsw_m,
+                    ef_construct=self.hnsw_ef_construct,
                     on_disk=False
                 )
             )
 
         # Create WARM collection (optimized for scale/disk)
-        if not await self.client.collection_exists(cfg.collection_warm):
-            logger.info(f"Creating WARM collection: {cfg.collection_warm}")
+        if not await self.client.collection_exists(self.collection_warm):
+            logger.info(f"Creating WARM collection: {self.collection_warm}")
             await self.client.create_collection(
-                collection_name=cfg.collection_warm,
+                collection_name=self.collection_warm,
                 vectors_config=models.VectorParams(
                     size=self.dim,
                     distance=models.Distance.MANHATTAN,
@@ -97,8 +104,8 @@ class QdrantStore:
                 ),
                 quantization_config=quantization_config,
                 hnsw_config=models.HnswConfigDiff(
-                    m=cfg.hnsw_m,
-                    ef_construct=cfg.hnsw_ef_construct,
+                    m=self.hnsw_m,
+                    ef_construct=self.hnsw_ef_construct,
                     on_disk=True
                 )
             )

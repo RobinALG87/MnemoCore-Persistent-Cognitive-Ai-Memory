@@ -1,0 +1,42 @@
+[run]
+source = src
+branch = true
+parallel = true
+data_file = .coverage
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+omit =
+    tests/*
+    */__pycache__/*
+    */site-packages/*
+    */dist-packages/*
+    */.venv/*
+    */venv/*
+    setup.py
+    conftest.py
+
+fail_under = 80
+precision = 2
+show_missing = true
+skip_covered = false
+sort = Cover
+
+[html]
+directory = htmlcov
+title = MnemoCore Coverage Report
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+show_contexts = true

@@ -1,0 +1,23 @@
+{{/*
+Pod Disruption Budget for MnemoCore
+*/}}
+{{- if .Values.mnemocore.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mnemocore.fullname" . }}-pdb
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- if .Values.mnemocore.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.mnemocore.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.mnemocore.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.mnemocore.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mnemocore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+{{- end }}

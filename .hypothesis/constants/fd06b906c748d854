@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\mcp\adapters\api_adapter.py
+# hypothesis_version: 6.151.9
+
+[400, '/', '/health', '/query', '/stats', '/store', 'Content-Type', 'DELETE', 'GET', 'POST', 'X-API-Key', 'application/json', 'detail', 'status_code']

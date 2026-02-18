@@ -7,13 +7,13 @@ from src.core.config import get_config
 async def verify():
     print("Initializing Engine...")
     engine = HAIMEngine()
-    
+
     content = "This is a test memory to verify UUID format."
     print(f"Storing memory: '{content}'")
-    
+
     node_id = await engine.store(content)
     print(f"Generated Node ID: {node_id}")
-    
+
     # Check if it's a valid UUID
     try:
         val = uuid.UUID(node_id, version=4)

@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\async_storage.py
+# hypothesis_version: 6.151.9
+
+[0.0, 'batch_retrieve', 'decode_responses', 'delete', 'haim:ltp_index', 'haim:subconscious', 'key', 'ltp_strength', 'max_connections', 'password', 'redis', 'retrieve', 'socket_timeout', 'type', 'update_ltp']

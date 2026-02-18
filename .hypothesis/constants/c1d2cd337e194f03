@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\consolidation_worker.py
+# hypothesis_version: 6.151.9
+
+[300, 1000, '0', '>', 'BUSYGROUP', 'INFO', 'Stopping worker...', '__main__', 'haim_workers', 'id', 'memory.accessed', 'memory.created', 'type']

@@ -37,18 +37,16 @@ Public API:
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
 import numpy as np
+from loguru import logger
 
 from .binary_hdv import BinaryHDV, majority_bundle
 from .node import MemoryNode
-
-logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------ #

@@ -1,0 +1,50 @@
+{{/*
+MnemoCore API Service
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mnemocore.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.mnemocore.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.mnemocore.service.type }}
+  ports:
+    - port: {{ .Values.mnemocore.service.port }}
+      targetPort: {{ .Values.mnemocore.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: {{ .Values.mnemocore.service.metricsPort }}
+      targetPort: {{ .Values.mnemocore.ports.metrics }}
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "mnemocore.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+---
+{{/*
+MnemoCore Headless Service (for StatefulSet compatibility)
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mnemocore.fullname" . }}-headless
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.mnemocore.service.port }}
+      targetPort: {{ .Values.mnemocore.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "mnemocore.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api

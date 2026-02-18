@@ -20,15 +20,17 @@ class TestBatchOps(unittest.TestCase):
         
     def test_cpu_device_selection(self):
         """Verify fallback to CPU when GPU unavailable."""
-        with patch("torch.cuda.is_available", return_value=False):
-            with patch("torch.backends.mps.is_available", return_value=False):
-                # Also mock torch import just in case
-                bp = BatchProcessor(use_gpu=True)
-                self.assertEqual(bp.device, "cpu")
+        with patch("src.core.batch_ops.torch") as mock_torch:
+            mock_torch.cuda.is_available.return_value = False
+            mock_torch.backends.mps.is_available.return_value = False
+            bp = BatchProcessor(use_gpu=True)
+            self.assertEqual(bp.device, "cpu")
 
     def test_gpu_device_selection(self):
         """Verify selection of CUDA when available."""
-        with patch("torch.cuda.is_available", return_value=True):
+        with patch("src.core.batch_ops.torch") as mock_torch:
+            mock_torch.cuda.is_available.return_value = True
+            mock_torch.backends.mps.is_available.return_value = False
             bp = BatchProcessor(use_gpu=True)
             self.assertEqual(bp.device, "cuda")
 

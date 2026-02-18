@@ -1,0 +1,43 @@
+{{/*
+Horizontal Pod Autoscaler for MnemoCore API
+*/}}
+{{- if .Values.mnemocore.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "mnemocore.hpa.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "mnemocore.fullname" . }}
+  minReplicas: {{ .Values.mnemocore.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.mnemocore.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.mnemocore.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.mnemocore.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.mnemocore.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.mnemocore.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    {{- with .Values.mnemocore.autoscaling.metrics }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.mnemocore.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

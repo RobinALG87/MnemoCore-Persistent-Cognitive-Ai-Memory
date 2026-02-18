@@ -28,15 +28,13 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from loguru import logger
 
 from .gap_detector import GapDetector, GapRecord
-
-logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------ #

@@ -23,12 +23,10 @@ Usage (standalone):
 
 from __future__ import annotations
 
-import logging
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 try:
     import faiss

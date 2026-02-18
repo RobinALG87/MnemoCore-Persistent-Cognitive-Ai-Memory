@@ -99,3 +99,25 @@ haim:
       - "memory_delete"
       - "memory_stats"
       - "memory_health"
+
+  # Dream Loop (Subconscious background processing)
+  dream_loop:
+    enabled: true
+    frequency_seconds: 60  # Seconds between dream cycles
+    batch_size: 10  # Number of memories to process per cycle
+    max_iterations: 0  # Maximum iterations (0 = unlimited)
+    ollama_url: "http://localhost:11434/api/generate"
+    model: "gemma3:1b"
+
+  # Phase 4.0+: Semantic Consolidation
+  consolidation:
+    enabled: true
+    interval_seconds: 3600  # 1 hour between consolidation cycles
+    similarity_threshold: 0.85  # Hamming similarity threshold (0.85 = 15% distance)
+    min_cluster_size: 2  # Minimum cluster size for merging
+    hot_tier_enabled: true  # Consolidate HOT tier
+    warm_tier_enabled: true  # Consolidate WARM tier
+
+  # Phase 4.1: XOR-based Project Isolation
+  attention_masking:
+    enabled: true  # Enable/disable project-based memory isolation

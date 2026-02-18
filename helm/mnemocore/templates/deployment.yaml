@@ -1,0 +1,176 @@
+{{/*
+MnemoCore API Deployment
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mnemocore.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- if not .Values.mnemocore.autoscaling.enabled }}
+  replicas: {{ .Values.mnemocore.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mnemocore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.mnemocore.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "mnemocore.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+        {{- with .Values.mnemocore.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mnemocore.serviceAccountName" . }}
+      {{- if .Values.mnemocore.priorityClassName }}
+      priorityClassName: {{ .Values.mnemocore.priorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.mnemocore.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.mnemocore.terminationGracePeriodSeconds }}
+      {{- with .Values.mnemocore.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mnemocore
+          securityContext:
+            {{- toYaml .Values.mnemocore.securityContext | nindent 12 }}
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.mnemocore.image.repository }}:{{ .Values.mnemocore.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mnemocore.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mnemocore.ports.api }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.mnemocore.ports.metrics }}
+              protocol: TCP
+          env:
+            - name: HOST
+              value: {{ .Values.mnemocore.env.host | quote }}
+            - name: PORT
+              value: {{ .Values.mnemocore.ports.api | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.mnemocore.env.logLevel | quote }}
+            - name: REDIS_URL
+              {{- if .Values.redis.url }}
+              value: {{ .Values.redis.url | quote }}
+              {{- else }}
+              value: "redis://{{ include "mnemocore.redis.fullname" . }}:{{ .Values.redis.service.port }}/0"
+              {{- end }}
+            - name: QDRANT_URL
+              {{- if .Values.qdrant.url }}
+              value: {{ .Values.qdrant.url | quote }}
+              {{- else }}
+              value: "http://{{ include "mnemocore.qdrant.fullname" . }}:{{ .Values.qdrant.service.httpPort }}"
+              {{- end }}
+            {{- if .Values.mnemocore.apiKey.existingSecret }}
+            - name: HAIM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mnemocore.apiKey.existingSecret }}
+                  key: {{ .Values.mnemocore.apiKey.key }}
+            {{- else if .Values.mnemocore.apiKey.value }}
+            - name: HAIM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mnemocore.fullname" . }}-api-key
+                  key: api-key
+            {{- end }}
+          {{- with .Values.mnemocore.extraVolumeMounts }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+            {{- toYaml . | nindent 12 }}
+          {{- else }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+          {{- end }}
+          {{- if .Values.mnemocore.probes.liveness.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - /app/scripts/ops/healthcheck.py
+            initialDelaySeconds: {{ .Values.mnemocore.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mnemocore.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.mnemocore.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.mnemocore.probes.liveness.failureThreshold }}
+            successThreshold: {{ .Values.mnemocore.probes.liveness.successThreshold }}
+          {{- end }}
+          {{- if .Values.mnemocore.probes.readiness.enabled }}
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - /app/scripts/ops/healthcheck.py
+            initialDelaySeconds: {{ .Values.mnemocore.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mnemocore.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.mnemocore.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.mnemocore.probes.readiness.failureThreshold }}
+            successThreshold: {{ .Values.mnemocore.probes.readiness.successThreshold }}
+          {{- end }}
+          {{- if .Values.mnemocore.probes.startup.enabled }}
+          startupProbe:
+            exec:
+              command:
+                - python
+                - /app/scripts/ops/healthcheck.py
+            initialDelaySeconds: {{ .Values.mnemocore.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mnemocore.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.mnemocore.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.mnemocore.probes.startup.failureThreshold }}
+            successThreshold: {{ .Values.mnemocore.probes.startup.successThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.mnemocore.resources | nindent 12 }}
+      {{- with .Values.mnemocore.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mnemocore.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mnemocore.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "mnemocore.fullname" . }}-config
+        {{- if .Values.mnemocore.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "mnemocore.fullname" . }}-data
+        {{- else }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- with .Values.mnemocore.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

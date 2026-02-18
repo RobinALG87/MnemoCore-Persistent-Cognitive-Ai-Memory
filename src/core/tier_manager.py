@@ -20,18 +20,21 @@ All vectors use BinaryHDV (packed uint8 arrays).
 
 import gzip
 import json
-import logging
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .qdrant_store import QdrantStore
 import asyncio
 import functools
 
 import numpy as np
+from loguru import logger
 
 from .binary_hdv import BinaryHDV
-from .config import get_config
+from .config import HAIMConfig, get_config
 from .node import MemoryNode
 from .exceptions import (
     MnemoCoreError,
@@ -45,8 +48,6 @@ try:
     FAISS_AVAILABLE = True
 except ImportError:
     FAISS_AVAILABLE = False
-
-logger = logging.getLogger(__name__)
 
 # Phase 4.0: HNSW index manager (replaces raw FAISS management)
 try:
@@ -62,25 +63,34 @@ class TierManager:
     Uses BinaryHDV exclusively for efficient storage and computation.
     """
 
-    def __init__(self):
-        self.config = get_config()
-        self.lock = asyncio.Lock()
+    def __init__(
+        self,
+        config: Optional[HAIMConfig] = None,
+        qdrant_store: Optional["QdrantStore"] = None,
+    ):
+        """
+        Initialize TierManager with optional dependency injection.
+
+        Args:
+            config: Configuration object. If None, uses global get_config().
+            qdrant_store: QdrantStore instance. If None, will not use Qdrant.
+        """
+        self.config = config or get_config()
+
+        # Initialization guard
+        self._initialized: bool = False
+
+        # Async lock - created eagerly; asyncio.Lock() is safe to construct
+        # outside a running loop in Python 3.10+ (loop binding is deferred).
+        self.lock: asyncio.Lock = asyncio.Lock()
 
         # HOT Tier: In-memory dictionary
         self.hot: Dict[str, MemoryNode] = {}
 
-        # WARM Tier: Qdrant
-        self.qdrant = None
-        self.use_qdrant = False
+        # WARM Tier: Qdrant (injected) or fallback to filesystem
+        self.qdrant = qdrant_store
+        self.use_qdrant = qdrant_store is not None
         self.warm_path = None
-
-        try:
-            from .qdrant_store import QdrantStore
-            self.qdrant = QdrantStore.get_instance()
-            self.use_qdrant = True
-        except Exception as e:
-            logger.warning(f"Qdrant client init failed, falling back to file system: {e}")
-            self.use_qdrant = False
 
         if not self.use_qdrant:
             self.warm_path = Path(self.config.paths.warm_mmap_dir)
@@ -141,6 +151,9 @@ class TierManager:
 
     async def initialize(self):
         """Async initialization for Qdrant collections."""
+        if self._initialized:
+            return
+
         if self.use_qdrant and self.qdrant:
             try:
                 await self.qdrant.ensure_collections()
@@ -149,6 +162,8 @@ class TierManager:
                 self.use_qdrant = False
                 self.warm_path = Path(self.config.paths.warm_mmap_dir)
                 self.warm_path.mkdir(parents=True, exist_ok=True)
+
+        self._initialized = True
 
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run blocking function in thread pool."""

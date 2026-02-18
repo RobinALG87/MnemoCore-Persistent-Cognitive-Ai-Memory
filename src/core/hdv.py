@@ -22,13 +22,6 @@ from typing import Optional
 
 from .exceptions import DimensionMismatchError
 
-# Emit deprecation warning on import
-warnings.warn(
-    "src.core.hdv.HDV is deprecated. Use src.core.binary_hdv.BinaryHDV instead. "
-    "This module will be removed in a future version.",
-    DeprecationWarning,
-    stacklevel=2
-)
 
 @dataclass
 class HDV:
@@ -39,6 +32,13 @@ class HDV:
     id: str = None
 
     def __post_init__(self):
+        # Emit deprecation warning on instantiation so tests can catch it
+        warnings.warn(
+            "src.core.hdv.HDV is deprecated. Use src.core.binary_hdv.BinaryHDV instead. "
+            "This module will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         if self.vector is None:
             # Initialize with random bipolar vector
             self.vector = np.random.choice(
@@ -55,6 +55,11 @@ class HDV:
 
     def __add__(self, other: 'HDV') -> 'HDV':
         """Superposition: v_A + v_B contains both"""
+        warnings.warn(
+            "HDV.__add__() is deprecated. Use binary_hdv.majority_bundle() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         if self.dimension != other.dimension:
             raise DimensionMismatchError(
                 expected=self.dimension,
@@ -68,10 +73,20 @@ class HDV:
 
     def __xor__(self, other: 'HDV') -> 'HDV':
         """Binding: v_A ⊗ v_B (HRR circular convolution) (Deprecated: Use .bind() instead)"""
+        warnings.warn(
+            "HDV.__xor__() is deprecated. Use BinaryHDV.xor_bind() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return self.bind(other)
 
     def bind(self, other: 'HDV') -> 'HDV':
         """Binding: v_A ⊗ v_B (HRR circular convolution)"""
+        warnings.warn(
+            "HDV.bind() is deprecated. Use BinaryHDV.xor_bind() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         if self.dimension != other.dimension:
             raise DimensionMismatchError(
                 expected=self.dimension,
@@ -85,6 +100,11 @@ class HDV:
 
     def unbind(self, other: 'HDV') -> 'HDV':
         """Unbinding: v_AB ⊗ v_A* (Approximate inverse)"""
+        warnings.warn(
+            "HDV.unbind() is deprecated. Use BinaryHDV.xor_bind() instead (XOR is self-inverse).",
+            DeprecationWarning,
+            stacklevel=2
+        )
         if self.dimension != other.dimension:
             raise DimensionMismatchError(
                 expected=self.dimension,
@@ -107,6 +127,11 @@ class HDV:
 
     def permute(self, shift: int = 1) -> 'HDV':
         """Permutation for sequence/role representation"""
+        warnings.warn(
+            "HDV.permute() is deprecated. Use BinaryHDV.permute() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return HDV(
             vector=np.roll(self.vector, shift),
             dimension=self.dimension
@@ -114,6 +139,11 @@ class HDV:
 
     def cosine_similarity(self, other: 'HDV') -> float:
         """Measure semantic similarity"""
+        warnings.warn(
+            "HDV.cosine_similarity() is deprecated. Use BinaryHDV.similarity() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         norm_a = np.linalg.norm(self.vector)
         norm_b = np.linalg.norm(other.vector)
         
@@ -124,6 +154,11 @@ class HDV:
 
     def normalize(self) -> 'HDV':
         """Binarize for cleaner superposition"""
+        warnings.warn(
+            "HDV.normalize() is deprecated. BinaryHDV vectors are already binary.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         # np.sign returns 0 for 0, we want to avoid 0s in bipolar vectors generally, 
         # but for superposition result it's standard to threshold.
         # If 0, we can map to 1 or -1, or keep 0 (tertiary). 
@@ -140,6 +175,11 @@ class HDV:
     @staticmethod
     def fft_convolution(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Circular convolution via FFT (HRR binding)"""
+        warnings.warn(
+            "HDV.fft_convolution() is deprecated. BinaryHDV uses XOR binding instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         fft_a = np.fft.fft(a)
         fft_b = np.fft.fft(b)
         fft_result = fft_a * fft_b

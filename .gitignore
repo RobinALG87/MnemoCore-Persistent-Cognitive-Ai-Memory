@@ -69,3 +69,13 @@ Thumbs.db
 .env
 *.pem
 *.key
+
+# Internal planning documents – NOT for public repo
+AGENT_MASTER_PLAN.md
+*.pdf
+
+# Local IDE / agent settings
+.claude/
+
+# Runtime artifacts
+error_log.txt

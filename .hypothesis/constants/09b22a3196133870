@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\api\middleware.py
+# hypothesis_version: 6.151.9
+
+[100, 500, ',', '/analogy', '/concept', '/query', '/store', '1; mode=block', '60', 'Analogy operations', 'Concept operations', 'DENY', 'Default rate limit', 'Query operations', 'Referrer-Policy', 'Retry-After', 'X-Forwarded-For', 'X-Frame-Options', 'X-XSS-Protection', 'analogy', 'concept', 'container', 'default', "default-src 'self'", 'description', 'detail', 'error_type', 'nosniff', 'query', 'rate_limit_exceeded', 'requests', 'retry_after', 'store', 'unknown', 'window']

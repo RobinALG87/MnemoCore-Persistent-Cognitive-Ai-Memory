@@ -16,7 +16,7 @@ class TestMinimal(unittest.IsolatedAsyncioTestCase):
             print("Patched AsyncQdrantClient", flush=True)
             try:
                 # Bypass singleton and global patch
-                store = QdrantStore()
+                store = QdrantStore(url="http://localhost:6333", api_key=None, dimensionality=1024)
                 print("Instantiated QdrantStore", flush=True)
             except Exception as e:
                 with open("error_log.txt", "w") as f:

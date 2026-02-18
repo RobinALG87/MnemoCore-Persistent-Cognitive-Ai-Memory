@@ -2,15 +2,13 @@
 Cognitive Router - Orchestrates System 1 (Fast) and System 2 (Slow) thinking.
 """
 
-import logging
 import time
 from typing import Dict, Any, Tuple, Optional
+from loguru import logger
 
 from .engine import HAIMEngine
 from .binary_hdv import majority_bundle, BinaryHDV
 from .exceptions import MnemoCoreError
-
-logger = logging.getLogger(__name__)
 
 
 class CognitiveRouter:

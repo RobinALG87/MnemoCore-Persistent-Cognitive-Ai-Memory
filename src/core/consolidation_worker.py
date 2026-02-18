@@ -8,27 +8,42 @@ Subconscious bus consumer that:
 """
 
 import asyncio
-import logging
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from loguru import logger
 
 from .async_storage import AsyncRedisStorage
-from .config import get_config
+from .config import get_config, HAIMConfig
 from .tier_manager import TierManager
 
-logger = logging.getLogger(__name__)
-
 class ConsolidationWorker:
-    def __init__(self):
-        self.config = get_config()
-        self.storage = AsyncRedisStorage.get_instance()
-        self.tier_manager = TierManager()
+    def __init__(
+        self,
+        config: Optional[HAIMConfig] = None,
+        storage: Optional[AsyncRedisStorage] = None,
+        tier_manager: Optional[TierManager] = None,
+    ):
+        """
+        Initialize ConsolidationWorker with optional dependency injection.
+
+        Args:
+            config: Configuration object. If None, uses global get_config().
+            storage: AsyncRedisStorage instance. If None, creates one from config.
+            tier_manager: TierManager instance. If None, creates one.
+        """
+        self.config = config or get_config()
+        self.storage = storage
+        self.tier_manager = tier_manager or TierManager(config=self.config)
         self.running = False
         self.consumer_group = "haim_workers"
         self.consumer_name = f"worker_{int(time.time())}"
 
     async def setup_stream(self):
         """Ensure consumer group exists."""
+        if not self.storage:
+            logger.warning("Redis storage not configured, skipping stream setup.")
+            return
+
         stream_key = self.config.redis.stream_key
         try:
             await self.storage.redis_client.xgroup_create(
@@ -67,6 +82,10 @@ class ConsolidationWorker:
 
     async def consume_loop(self):
         """Main event loop."""
+        if not self.storage:
+            logger.warning("Redis storage not configured, cannot consume events.")
+            return
+
         stream_key = self.config.redis.stream_key
         last_consolidation = time.time()
         consolidation_interval = 300  # 5 minutes
@@ -78,7 +97,7 @@ class ConsolidationWorker:
                 messages = await self.storage.redis_client.xreadgroup(
                     self.consumer_group, self.consumer_name, streams, count=10, block=1000
                 )
-                
+
                 if messages:
                     for stream, event_list in messages:
                         for event_id, event_data in event_list:
@@ -110,7 +129,8 @@ class ConsolidationWorker:
 
 if __name__ == "__main__":
     # Standalone entry point
-    logging.basicConfig(level=logging.INFO)
+    from .logging_config import configure_logging
+    configure_logging(level="INFO")
     worker = ConsolidationWorker()
     try:
         asyncio.run(worker.start())

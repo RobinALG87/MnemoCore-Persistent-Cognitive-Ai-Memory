@@ -2,6 +2,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.exceptions import ValidationError
+
 
 class StoreToolInput(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
@@ -29,5 +31,9 @@ class ToolResult(BaseModel):
     @classmethod
     def validate_error(cls, value: Optional[str], info):
         if info.data.get("ok") and value:
-            raise ValueError("error must be empty when ok is true")
+            raise ValidationError(
+                field="error",
+                reason="error must be empty when ok is true",
+                value=value
+            )
         return value

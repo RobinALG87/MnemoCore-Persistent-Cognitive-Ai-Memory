@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\gap_filler.py
+# hypothesis_version: 6.151.9
+
+[0.3, 600.0, 512, 3600, 'GapFiller stopped.', '^[\\s\\-\\*\\d\\.\\)]+', 'dry_run', 'empty_response', 'error', 'errors', 'filled', 'gap_fill', 'gap_filler', 'gap_id', 'gap_query', 'gap_signal', 'gaps_filled', 'generated_at', 'llm_calls', 'llm_gap_fill', 'llm_generated', 'query', 'source', 'statements', 'statements_stored', 'status', 'stored_node_ids', 'tags']

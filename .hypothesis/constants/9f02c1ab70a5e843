@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\api\models.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100, 256, 365, 1000, 10000, 86400, 100000, 'Name of the concept', '^[a-zA-Z0-9_\\-\\.]+$', '^[a-zA-Z0-9_\\-\\:]+$', '^[a-zA-Z0-9_\\-\\s]+$', 'agent_id', 'animal', 'attributes', 'content', 'metadata', 'name', 'query', 'sample search query', 'source_concept', 'source_value', 'target_concept', 'unknown']

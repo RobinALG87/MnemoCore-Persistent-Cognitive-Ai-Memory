@@ -1,30 +1,128 @@
 version: '3.8'
 
+# MnemoCore Docker Compose
+# ========================
+# Full stack deployment with Redis, Qdrant, and MnemoCore API
+
 services:
-  qdrant:
-    image: qdrant/qdrant:latest
+  # ===========================================
+  # MnemoCore API Service
+  # ===========================================
+  mnemocore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mnemocore:latest
+    container_name: mnemocore-api
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "8100:8100"
+      - "9090:9090"  # Prometheus metrics
     volumes:
-      - ./data/qdrant_storage:/qdrant/storage
+      - mnemocore_data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
     environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
+      - HAIM_API_KEY=${HAIM_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - HOST=0.0.0.0
+      - PORT=8100
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/ops/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - mnemocore-network
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 4G  # Adjust based on available RAM (User mentioned "Consumer Hardware")
-    restart: unless-stopped
+          memory: 2G
+        reservations:
+          memory: 512M
 
+  # ===========================================
+  # Redis - In-Memory Data Store
+  # ===========================================
   redis:
     image: redis:7.2-alpine
+    container_name: mnemocore-redis
     ports:
       - "6379:6379"
     volumes:
-      - ./data/redis_data:/data
-    command: redis-server --save 60 1 --loglevel warning
+      - redis_data:/data
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - mnemocore-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
+  # ===========================================
+  # Qdrant - Vector Database
+  # ===========================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mnemocore-qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - mnemocore-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  mnemocore-network:
+    driver: bridge
+    name: mnemocore-net
+
+# ===========================================
+# Volumes
+# ===========================================
 volumes:
-  qdrant_storage:
+  mnemocore_data:
+    name: mnemocore-data
   redis_data:
+    name: mnemocore-redis-data
+  qdrant_storage:
+    name: mnemocore-qdrant-storage

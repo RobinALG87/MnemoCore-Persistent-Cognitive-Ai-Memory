@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 import sys
 import os
 import asyncio
-import logging
 import secrets
 from datetime import datetime, timezone
 
@@ -21,45 +20,107 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field, field_validator
+from loguru import logger
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.engine import HAIMEngine
 from src.core.config import get_config
-from src.api.middleware import SecurityHeadersMiddleware, RateLimiter
+from src.core.container import build_container, Container
+from src.api.middleware import (
+    SecurityHeadersMiddleware,
+    RateLimiter,
+    StoreRateLimiter,
+    QueryRateLimiter,
+    ConceptRateLimiter,
+    AnalogyRateLimiter,
+    rate_limit_exception_handler,
+    RATE_LIMIT_CONFIGS
+)
+from src.api.models import (
+    StoreRequest,
+    QueryRequest,
+    ConceptRequest,
+    AnalogyRequest,
+    StoreResponse,
+    QueryResponse,
+    QueryResult,
+    DeleteResponse,
+    ConceptResponse,
+    AnalogyResponse,
+    AnalogyResult,
+    HealthResponse,
+    RootResponse,
+    ErrorResponse
+)
+from src.core.logging_config import configure_logging
+from src.core.exceptions import (
+    MnemoCoreError,
+    RecoverableError,
+    IrrecoverableError,
+    ValidationError,
+    NotFoundError,
+    MemoryNotFoundError,
+    is_debug_mode,
+)
 
 # Configure logging
-from loguru import logger
-
-class InterceptHandler(logging.Handler):
-    def emit(self, record):
-        try:
-            level = logger.level(record.levelname).name
-        except ValueError:
-            level = record.levelno
-
-        frame, depth = logging.currentframe(), 2
-        while frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
-
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
-
-logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+configure_logging()
 
 # --- Observability ---
 from prometheus_client import make_asgi_app
 from src.core.metrics import (
-    API_REQUEST_COUNT, 
-    API_REQUEST_LATENCY, 
+    API_REQUEST_COUNT,
+    API_REQUEST_LATENCY,
     track_async_latency,
-    STORAGE_OPERATION_COUNT
+    STORAGE_OPERATION_COUNT,
+    extract_trace_context,
+    get_trace_id,
+    init_opentelemetry,
+    update_memory_count,
+    update_queue_length,
+    OTEL_AVAILABLE
 )
 
+# Initialize OpenTelemetry (optional, gracefully degrades if not installed)
+if OTEL_AVAILABLE:
+    init_opentelemetry(service_name="mnemocore", exporter="console")
+    logger.info("OpenTelemetry tracing initialized")
+
 metrics_app = make_asgi_app()
+
+
+# --- Trace Context Middleware ---
+class TraceContextMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to extract and propagate trace context via X-Trace-ID header.
+    Integrates with OpenTelemetry for distributed tracing.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        # Extract trace context from incoming headers
+        headers = dict(request.headers)
+        trace_id = headers.get("x-trace-id")
+
+        if trace_id:
+            # Set trace ID in context for downstream operations
+            from src.core.metrics import set_trace_id
+            set_trace_id(trace_id)
+        else:
+            # Try to extract from W3C Trace Context format
+            extracted_id = extract_trace_context(headers)
+            if extracted_id:
+                trace_id = extracted_id
+
+        # Process request
+        response = await call_next(request)
+
+        # Add trace ID to response headers for debugging
+        if trace_id:
+            response.headers["X-Trace-ID"] = trace_id
+
+        return response
 
 
 # --- Lifecycle Management ---
@@ -72,26 +133,40 @@ async def lifespan(app: FastAPI):
         logger.critical("No API Key configured! Set HAIM_API_KEY env var or security.api_key in config.")
         sys.exit(1)
 
-    # Startup: Initialize Async Resources
-    logger.info("Initializing Async Redis...")
-    async_redis = AsyncRedisStorage.get_instance()
-    if not await async_redis.check_health():
-        logger.warning("Redis connection failed. Running in degraded mode (local only).")
-    
-    # Initialize implementation of engine
+    # Startup: Build dependency container
+    logger.info("Building dependency container...")
+    container = build_container(config)
+    app.state.container = container
+
+    # Check Redis health
+    logger.info("Checking Redis connection...")
+    if container.redis_storage:
+        if not await container.redis_storage.check_health():
+            logger.warning("Redis connection failed. Running in degraded mode (local only).")
+    else:
+        logger.warning("Redis storage not available.")
+
+    # Initialize implementation of engine with injected dependencies
     logger.info("Initializing HAIMEngine...")
-    engine = HAIMEngine(persist_path="./data/memory.jsonl")
+    from src.core.tier_manager import TierManager
+    tier_manager = TierManager(config=config, qdrant_store=container.qdrant_store)
+    engine = HAIMEngine(
+        persist_path="./data/memory.jsonl",
+        config=config,
+        tier_manager=tier_manager,
+    )
     await engine.initialize()
     app.state.engine = engine
-    
+
     yield
-    
+
     # Shutdown: Clean up
     logger.info("Closing HAIMEngine...")
     await app.state.engine.close()
-    
-    logger.info("Closing Async Redis...")
-    await async_redis.close()
+
+    logger.info("Closing Redis...")
+    if container.redis_storage:
+        await container.redis_storage.close()
 
 app = FastAPI(
     title="MnemoCore API",
@@ -115,8 +190,43 @@ async def circuit_breaker_exception_handler(request: Request, exc: CircuitBreake
         content={"detail": "Service Unavailable: Storage backend is down or overloaded.", "error": str(exc)},
     )
 
+
+@app.exception_handler(MnemoCoreError)
+async def mnemocore_exception_handler(request: Request, exc: MnemoCoreError):
+    """
+    Centralized exception handler for all MnemoCore errors.
+    Returns JSON with error details and stacktrace only in DEBUG mode.
+    """
+    # Log the error with appropriate level
+    if exc.recoverable:
+        logger.warning(f"Recoverable error: {exc}")
+    else:
+        logger.error(f"Irrecoverable error: {exc}")
+
+    # Determine HTTP status code based on error type
+    if isinstance(exc, NotFoundError):
+        status_code = 404
+    elif isinstance(exc, ValidationError):
+        status_code = 400
+    elif isinstance(exc, RecoverableError):
+        status_code = 503  # Service Unavailable
+    else:
+        status_code = 500
+
+    # Build response
+    response_data = exc.to_dict(include_traceback=is_debug_mode())
+
+    return JSONResponse(
+        status_code=status_code,
+        content=response_data,
+    )
+
+
 # Security Headers
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Trace Context Middleware (for OpenTelemetry distributed tracing)
+app.add_middleware(TraceContextMiddleware)
 
 # CORS
 config = get_config()
@@ -141,7 +251,7 @@ async def get_api_key(api_key: str = Security(api_key_header)):
     config = get_config()
     # Phase 3.5.1 Security - Prioritize config.security.api_key
     expected_key = config.security.api_key
-    
+
     if not expected_key:
         # Should be caught by startup check, but double check
         logger.error("API Key not configured during request processing.")
@@ -149,7 +259,7 @@ async def get_api_key(api_key: str = Security(api_key_header)):
             status_code=500,
             detail="Server Misconfiguration: API Key not set"
         )
-    
+
     if not api_key or not secrets.compare_digest(api_key, expected_key):
         raise HTTPException(
             status_code=403,
@@ -162,73 +272,29 @@ def get_engine(request: Request) -> HAIMEngine:
     return request.app.state.engine
 
 
-# --- Request Models ---
+def get_container(request: Request) -> Container:
+    return request.app.state.container
 
-class StoreRequest(BaseModel):
-    content: str = Field(..., max_length=100_000)
-    metadata: Optional[Dict[str, Any]] = None
-    agent_id: Optional[str] = None
-    # Phase 3.5: TTL
-    ttl: Optional[int] = None
-
-    @field_validator('metadata')
-    @classmethod
-    def check_metadata_size(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        if v is None:
-            return v
-        if len(v) > 50:
-            raise ValueError('Too many metadata keys')
-        for key, value in v.items():
-            if len(key) > 64:
-                raise ValueError(f'Metadata key {key} too long')
-            # Metadata values can be Any, but let's limit strings
-            if isinstance(value, str) and len(value) > 1000:
-                raise ValueError(f'Metadata value for {key} too long')
-        return v
-
-class QueryRequest(BaseModel):
-    query: str = Field(..., max_length=10000)
-    top_k: int = 5
-    agent_id: Optional[str] = None
-
-class ConceptRequest(BaseModel):
-    name: str = Field(..., max_length=256)
-    attributes: Dict[str, str]
-
-    @field_validator('attributes')
-    @classmethod
-    def check_attributes_size(cls, v: Dict[str, str]) -> Dict[str, str]:
-        if len(v) > 50:
-            raise ValueError('Too many attributes')
-        for key, value in v.items():
-            if len(key) > 64:
-                raise ValueError(f'Attribute key {key} too long')
-            if len(value) > 1000:
-                raise ValueError(f'Attribute value for {key} too long')
-        return v
-
-class AnalogyRequest(BaseModel):
-    source_concept: str = Field(..., max_length=256)
-    source_value: str = Field(..., max_length=1000)
-    target_concept: str = Field(..., max_length=256)
 
 # --- Endpoints ---
 
-@app.get("/")
+@app.get("/", response_model=RootResponse)
 async def root():
     return {
-        "status": "ok", 
-        "service": "MnemoCore", 
-        "version": "3.5.1", 
+        "status": "ok",
+        "service": "MnemoCore",
+        "version": "3.5.1",
         "phase": "Async I/O",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
-@app.get("/health")
-async def health(engine: HAIMEngine = Depends(get_engine)):
+@app.get("/health", response_model=HealthResponse)
+async def health(container: Container = Depends(get_container), engine: HAIMEngine = Depends(get_engine)):
     # Check Redis connectivity
-    redis_connected = await AsyncRedisStorage.get_instance().check_health()
+    redis_connected = False
+    if container.redis_storage:
+        redis_connected = await container.redis_storage.check_health()
 
     # Check Circuit Breaker States (native implementation uses string state)
     storage_cb_state = storage_circuit_breaker.state
@@ -246,23 +312,31 @@ async def health(engine: HAIMEngine = Depends(get_engine)):
     }
 
 
-@app.post("/store", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
+@app.post(
+    "/store",
+    response_model=StoreResponse,
+    dependencies=[Depends(get_api_key), Depends(StoreRateLimiter())]
+)
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/store"})
-async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engine)):
+async def store_memory(
+    req: StoreRequest,
+    engine: HAIMEngine = Depends(get_engine),
+    container: Container = Depends(get_container)
+):
+    """Store a new memory (Async + Dual Write). Rate limit: 100/minute."""
     API_REQUEST_COUNT.labels(method="POST", endpoint="/store", status="200").inc()
 
-    """Store a new memory (Async + Dual Write)."""
     metadata = req.metadata or {}
     if req.agent_id:
         metadata["agent_id"] = req.agent_id
-    
+
     # 1. Run Core Engine (now Async)
     mem_id = await engine.store(req.content, metadata=metadata)
-    
+
     # 2. Async Write to Redis (Metadata & LTP Index)
     # Get the node details we just created
     node = await engine.get_memory(mem_id)
-    if node:
+    if node and container.redis_storage:
         redis_data = {
             "id": node.id,
             "content": node.content,
@@ -271,15 +345,14 @@ async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engin
             "created_at": node.created_at.isoformat()
         }
         try:
-            storage = AsyncRedisStorage.get_instance()
-            await storage.store_memory(mem_id, redis_data, ttl=req.ttl)
-            
+            await container.redis_storage.store_memory(mem_id, redis_data, ttl=req.ttl)
+
             # PubSub Event
-            await storage.publish_event("memory.created", {"id": mem_id})
+            await container.redis_storage.publish_event("memory.created", {"id": mem_id})
         except Exception as e:
             logger.exception(f"Failed async write for {mem_id}")
             # Non-blocking failure for Redis write
-    
+
     return {
         "ok": True,
         "memory_id": mem_id,
@@ -287,15 +360,22 @@ async def store_memory(req: StoreRequest, engine: HAIMEngine = Depends(get_engin
     }
 
 
-@app.post("/query", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
+@app.post(
+    "/query",
+    response_model=QueryResponse,
+    dependencies=[Depends(get_api_key), Depends(QueryRateLimiter())]
+)
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/query"})
-async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engine)):
+async def query_memory(
+    req: QueryRequest,
+    engine: HAIMEngine = Depends(get_engine)
+):
+    """Query memories by semantic similarity (Async Wrapper). Rate limit: 500/minute."""
     API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
 
-    """Query memories by semantic similarity (Async Wrapper)."""
     # CPU heavy vector search (offloaded inside engine)
     results = await engine.query(req.query, top_k=req.top_k)
-    
+
     formatted = []
     for mem_id, score in results:
         # Check Redis first? For now rely on Engine's TierManager (which uses RAM/File)
@@ -309,7 +389,7 @@ async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engin
                 "metadata": node.metadata,
                 "tier": getattr(node, "tier", "unknown")
             })
-    
+
     return {
         "ok": True,
         "query": req.query,
@@ -318,23 +398,36 @@ async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engin
 
 
 @app.get("/memory/{memory_id}", dependencies=[Depends(get_api_key)])
-async def get_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
+async def get_memory(
+    memory_id: str,
+    engine: HAIMEngine = Depends(get_engine),
+    container: Container = Depends(get_container)
+):
     """Get a specific memory by ID."""
+    # Validate memory_id format
+    if not memory_id or len(memory_id) > 256:
+        raise ValidationError(
+            field="memory_id",
+            reason="Memory ID must be between 1 and 256 characters",
+            value=memory_id
+        )
+
     # Try Redis first (L2 cache)
-    storage = AsyncRedisStorage.get_instance()
-    cached = await storage.retrieve_memory(memory_id)
-    
+    cached = None
+    if container.redis_storage:
+        cached = await container.redis_storage.retrieve_memory(memory_id)
+
     if cached:
         return {
             "source": "redis",
             **cached
         }
-    
+
     # Fallback to Engine (TierManager)
     node = await engine.get_memory(memory_id)
     if not node:
-        raise HTTPException(status_code=404, detail="Memory not found")
-    
+        raise MemoryNotFoundError(memory_id)
+
     return {
         "source": "engine",
         "id": node.id,
@@ -347,33 +440,59 @@ async def get_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
     }
 
 
-@app.delete("/memory/{memory_id}", dependencies=[Depends(get_api_key)])
-async def delete_memory(memory_id: str, engine: HAIMEngine = Depends(get_engine)):
+@app.delete(
+    "/memory/{memory_id}",
+    response_model=DeleteResponse,
+    dependencies=[Depends(get_api_key)]
+)
+async def delete_memory(
+    memory_id: str,
+    engine: HAIMEngine = Depends(get_engine),
+    container: Container = Depends(get_container)
+):
     """Delete a memory via Engine."""
+    # Validate memory_id format
+    if not memory_id or len(memory_id) > 256:
+        raise ValidationError(
+            field="memory_id",
+            reason="Memory ID must be between 1 and 256 characters",
+            value=memory_id
+        )
+
     # Check if exists first for 404
     node = await engine.get_memory(memory_id)
     if not node:
-         raise HTTPException(status_code=404, detail="Memory not found")
-    
+        raise MemoryNotFoundError(memory_id)
+
     # Engine delete (handles HOT/WARM)
     await engine.delete_memory(memory_id)
-        
+
     # Also Redis
-    storage = AsyncRedisStorage.get_instance()
-    await storage.delete_memory(memory_id)
-    
+    if container.redis_storage:
+        await container.redis_storage.delete_memory(memory_id)
+
     return {"ok": True, "deleted": memory_id}
 
 # --- Conceptual Endpoints ---
 
-@app.post("/concept", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
+@app.post(
+    "/concept",
+    response_model=ConceptResponse,
+    dependencies=[Depends(get_api_key), Depends(ConceptRateLimiter())]
+)
 async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_engine)):
+    """Define a concept with attributes. Rate limit: 100/minute."""
     await engine.define_concept(req.name, req.attributes)
     return {"ok": True, "concept": req.name}
 
 
-@app.post("/analogy", dependencies=[Depends(get_api_key), Depends(RateLimiter())])
+@app.post(
+    "/analogy",
+    response_model=AnalogyResponse,
+    dependencies=[Depends(get_api_key), Depends(AnalogyRateLimiter())]
+)
 async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_engine)):
+    """Solve an analogy. Rate limit: 100/minute."""
     results = await engine.reason_by_analogy(
         req.source_concept,
         req.source_value,
@@ -390,6 +509,24 @@ async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_en
 async def get_stats(engine: HAIMEngine = Depends(get_engine)):
     """Get aggregate engine stats."""
     return await engine.get_stats()
+
+
+# Rate limit info endpoint
+@app.get("/rate-limits")
+async def get_rate_limits():
+    """Get current rate limit configuration."""
+    return {
+        "limits": {
+            category: {
+                "requests": cfg["requests"],
+                "window_seconds": cfg["window"],
+                "requests_per_minute": cfg["requests"],
+                "description": cfg["description"]
+            }
+            for category, cfg in RATE_LIMIT_CONFIGS.items()
+        }
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

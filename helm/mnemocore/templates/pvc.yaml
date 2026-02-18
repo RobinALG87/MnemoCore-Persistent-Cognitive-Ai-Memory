@@ -1,0 +1,29 @@
+{{/*
+Persistent Volume Claim for MnemoCore data
+*/}}
+{{- if .Values.mnemocore.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mnemocore.pvc.fullname" . }}
+  labels:
+    {{- include "mnemocore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.mnemocore.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.mnemocore.persistence.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  {{- else if .Values.mnemocore.persistence.storageClass }}
+  storageClassName: {{ .Values.mnemocore.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mnemocore.persistence.size | quote }}
+{{- end }}

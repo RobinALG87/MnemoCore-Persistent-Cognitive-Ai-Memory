@@ -1,0 +1,55 @@
+apiVersion: v2
+name: mnemocore
+description: MnemoCore - Infrastructure for Persistent Cognitive Memory with HAIM (Hyperdimensional Artificial Intelligence Memory)
+
+type: application
+
+# Chart version - follows SemVer 2
+version: 1.0.0
+
+# Application version
+appVersion: "3.5.0"
+
+# Metadata
+home: https://github.com/your-org/mnemocore
+sources:
+  - https://github.com/your-org/mnemocore
+keywords:
+  - ai
+  - memory
+  - vector-database
+  - cognitive
+  - hyperdimensional-computing
+  - hdc
+  - llm
+
+maintainers:
+  - name: MnemoCore Team
+    email: team@mnemocore.ai
+
+# Dependencies
+dependencies:
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+    alias: redis
+
+  - name: qdrant
+    version: "0.x.x"
+    repository: "https://qdrant.github.io/qdrant-helm"
+    condition: qdrant.enabled
+    alias: qdrant
+
+# Kubernetes version compatibility
+kubeVersion: ">=1.25.0-0"
+
+# Chart annotations
+annotations:
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/your-org/mnemocore/docs
+    - name: API Reference
+      url: https://github.com/your-org/mnemocore/docs/API.md

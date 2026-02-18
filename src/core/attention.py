@@ -16,19 +16,27 @@ Motivation (VSA theory):
   - XOR in binary HDV space is the self-inverse binding operator.
   - query.xor(context) ≈ "what about this query is NOT already represented in context?"
   - Hamming similarity(mask, candidate) ≈ novelty of candidate relative to context.
+
+Phase 4.1: XOR-based Project Isolation
+======================================
+XORIsolationMask provides deterministic project-based memory isolation:
+
+  - Each project_id derives a unique binary mask via SHA256(project_id) -> seed -> RNG
+  - store(): masked_hdv = original_hdv XOR project_mask
+  - query(): unmasked_query = query_hdv XOR project_mask (then search in masked space)
+  - Memories from different projects are effectively orthogonal (~50% similarity)
 """
 
 from __future__ import annotations
 
-import logging
+import hashlib
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+from loguru import logger
 
 from .binary_hdv import BinaryHDV, majority_bundle
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -157,3 +165,178 @@ class XORAttentionMasker:
     ) -> List[Tuple[str, float]]:
         """Convert AttentionResult list to the standard (node_id, score) tuple format."""
         return [(r.node_id, r.composite_score) for r in results]
+
+
+# ==============================================================================
+# Phase 4.1: XOR-based Project Isolation
+# ==============================================================================
+
+
+@dataclass
+class IsolationConfig:
+    """Configuration for XOR-based project isolation."""
+    enabled: bool = True
+    dimension: int = 16384
+
+    def validate(self) -> None:
+        assert self.dimension > 0, "dimension must be positive"
+        assert self.dimension % 8 == 0, "dimension must be multiple of 8"
+
+
+class XORIsolationMask:
+    """
+    Deterministic XOR-based isolation mask for multi-tenant memory isolation.
+
+    Design:
+    -------
+    Each project_id derives a unique binary mask through:
+        SHA256(project_id) -> 256-bit digest -> seed -> np.random.Generator -> binary mask
+
+    The mask is applied via XOR binding:
+        - store(content, project_id="A"): masked_hdv = original_hdv XOR mask_A
+        - query(query_text, project_id="A"): unmasked = query_hdv XOR mask_A
+
+    Properties:
+    -----------
+    - Self-inverse: XOR twice with the same mask recovers the original vector
+    - Deterministic: Same project_id always produces the same mask
+    - Orthogonal isolation: Different projects' masks are ~50% different (random)
+    - No key management: project_id IS the key (no external secrets needed)
+
+    Security Model:
+    ---------------
+    This provides cryptographic isolation via the one-time pad principle:
+    - A masked vector reveals NO information about the original without the mask
+    - Cross-project queries will match random noise (~50% similarity baseline)
+    - The isolation strength depends on the secrecy of project_ids
+
+    Usage:
+    ------
+        masker = XORIsolationMask(config)
+        mask = masker.get_mask("project-alpha")  # Deterministic mask
+
+        # Store
+        masked_hdv = masker.apply_mask(original_hdv, "project-alpha")
+
+        # Query (apply same mask to query to search in masked space)
+        masked_query = masker.apply_mask(query_hdv, "project-alpha")
+
+        # Remove mask (if needed for inspection)
+        original = masker.remove_mask(masked_hdv, "project-alpha")
+    """
+
+    def __init__(self, config: Optional[IsolationConfig] = None):
+        self.config = config or IsolationConfig()
+        self._mask_cache: Dict[str, BinaryHDV] = {}
+
+    def _derive_seed(self, project_id: str) -> int:
+        """
+        Derive a deterministic 64-bit seed from project_id using SHA256.
+
+        Args:
+            project_id: Unique project identifier string.
+
+        Returns:
+            64-bit integer seed for numpy's Generator.
+        """
+        digest = hashlib.sha256(f"mnemo_isolation_v1:{project_id}".encode()).digest()
+        return int.from_bytes(digest[:8], byteorder="big", signed=False)
+
+    def get_mask(self, project_id: str) -> BinaryHDV:
+        """
+        Get or create the deterministic isolation mask for a project.
+
+        The mask is cached for efficiency. Same project_id always returns
+        the same BinaryHDV mask.
+
+        Args:
+            project_id: Unique project identifier.
+
+        Returns:
+            BinaryHDV mask of dimension self.config.dimension.
+        """
+        if project_id in self._mask_cache:
+            return self._mask_cache[project_id]
+
+        seed = self._derive_seed(project_id)
+        rng = np.random.default_rng(seed)
+
+        # Generate random binary mask
+        n_bytes = self.config.dimension // 8
+        mask_bytes = rng.integers(0, 256, size=n_bytes, dtype=np.uint8)
+
+        mask = BinaryHDV(data=mask_bytes, dimension=self.config.dimension)
+        self._mask_cache[project_id] = mask
+
+        logger.debug(f"Generated isolation mask for project '{project_id}' (seed={seed})")
+        return mask
+
+    def apply_mask(self, hdv: BinaryHDV, project_id: str) -> BinaryHDV:
+        """
+        Apply project isolation mask to a vector (XOR binding).
+
+        Args:
+            hdv: The BinaryHDV to mask.
+            project_id: Project identifier for mask derivation.
+
+        Returns:
+            Masked BinaryHDV (original XOR project_mask).
+        """
+        if not self.config.enabled:
+            return hdv
+
+        mask = self.get_mask(project_id)
+        return hdv.xor_bind(mask)
+
+    def remove_mask(self, masked_hdv: BinaryHDV, project_id: str) -> BinaryHDV:
+        """
+        Remove project isolation mask from a vector (XOR is self-inverse).
+
+        Note: This is identical to apply_mask() due to XOR's self-inverse property.
+        Kept as a separate method for semantic clarity.
+
+        Args:
+            masked_hdv: The masked BinaryHDV.
+            project_id: Project identifier used for masking.
+
+        Returns:
+            Original unmasked BinaryHDV.
+        """
+        return self.apply_mask(masked_hdv, project_id)
+
+    def clear_cache(self) -> None:
+        """Clear the mask cache (useful for testing)."""
+        self._mask_cache.clear()
+
+    def is_isolated(
+        self,
+        hdv_a: BinaryHDV,
+        project_id_a: str,
+        hdv_b: BinaryHDV,
+        project_id_b: str,
+        threshold: float = 0.55,
+    ) -> bool:
+        """
+        Check if two vectors are properly isolated (different projects).
+
+        After masking, vectors from different projects should have ~50% similarity.
+        This method checks if the cross-project similarity is within expected bounds.
+
+        Args:
+            hdv_a: First (unmasked) vector.
+            project_id_a: First vector's project.
+            hdv_b: Second (unmasked) vector.
+            project_id_b: Second vector's project.
+            threshold: Maximum similarity for "isolated" (default 0.55).
+
+        Returns:
+            True if vectors are isolated (different projects), False otherwise.
+        """
+        if project_id_a == project_id_b:
+            return False  # Same project = not isolated
+
+        masked_a = self.apply_mask(hdv_a, project_id_a)
+        masked_b = self.apply_mask(hdv_b, project_id_b)
+
+        similarity = masked_a.similarity(masked_b)
+        return similarity < threshold

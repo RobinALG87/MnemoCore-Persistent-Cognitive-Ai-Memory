@@ -1,0 +1,4 @@
+# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\metrics.py
+# hypothesis_version: 6.151.9
+
+[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, '032x', 'API request latency', 'Storage operations', 'Total API requests', 'TracerProvider', 'backend', 'console', 'consumer', 'duration_seconds', 'endpoint', 'error_type', 'method', 'mnemocore', 'operation', 'otlp', 'service.name', 'status', 'tier', 'trace_id', 'type']

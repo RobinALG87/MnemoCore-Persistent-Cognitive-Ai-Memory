@@ -26,13 +26,11 @@ SynapticConnection + BayesianLTPUpdater from this package.
 from __future__ import annotations
 
 import json
-import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Iterator, List, Optional, Set, Tuple
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 # ------------------------------------------------------------------ #

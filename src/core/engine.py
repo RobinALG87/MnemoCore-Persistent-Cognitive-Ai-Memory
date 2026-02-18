@@ -3,29 +3,33 @@ Holographic Active Inference Memory Engine (HAIM) - Phase 3.5+
 Uses Binary HDV for efficient storage and computation.
 """
 
-from typing import List, Tuple, Dict, Optional, Any
+from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .container import Container
+    from .qdrant_store import QdrantStore
 import heapq
 from itertools import islice
 import numpy as np
 import hashlib
 import os
 import json
-import logging
 import asyncio
 import functools
 import uuid
 import re
 from datetime import datetime, timezone
+from loguru import logger
 
-from .config import get_config
+from .config import get_config, HAIMConfig
 from .binary_hdv import BinaryHDV, TextEncoder, majority_bundle
 from .node import MemoryNode
 from .synapse import SynapticConnection
 from .holographic import ConceptualMemory
 from .tier_manager import TierManager
 
-# ── Phase 4.0 imports ──────────────────────────────────────────────
-from .attention import XORAttentionMasker, AttentionConfig
+# Phase 4.0 imports
+from .attention import XORAttentionMasker, AttentionConfig, XORIsolationMask, IsolationConfig
 from .bayesian_ltp import get_bayesian_updater
 from .semantic_consolidation import SemanticConsolidationWorker, SemanticConsolidationConfig
 from .immunology import ImmunologyLoop, ImmunologyConfig
@@ -33,7 +37,13 @@ from .gap_detector import GapDetector, GapDetectorConfig
 from .gap_filler import GapFiller, GapFillerConfig
 from .synapse_index import SynapseIndex
 
-logger = logging.getLogger(__name__)
+# Observability imports (Phase 4.1)
+from .metrics import (
+    timer, traced, get_trace_id, set_trace_id,
+    STORE_DURATION_SECONDS, QUERY_DURATION_SECONDS,
+    MEMORY_COUNT_TOTAL, QUEUE_LENGTH, ERROR_TOTAL,
+    update_memory_count, update_queue_length, record_error
+)
 
 
 class HAIMEngine:
@@ -50,28 +60,55 @@ class HAIMEngine:
         seed = int.from_bytes(seed_bytes, 'little')
         return np.random.RandomState(seed).choice([-1, 1], size=dimension)
 
-    def __init__(self, dimension: int = 16384, persist_path: Optional[str] = None):
-        self.config = get_config()
+    def __init__(
+        self,
+        dimension: int = 16384,
+        persist_path: Optional[str] = None,
+        config: Optional[HAIMConfig] = None,
+        tier_manager: Optional[TierManager] = None,
+    ):
+        """
+        Initialize HAIMEngine with optional dependency injection.
+
+        Args:
+            dimension: Vector dimensionality (default 16384).
+            persist_path: Path to memory persistence file.
+            config: Configuration object. If None, uses global get_config().
+            tier_manager: TierManager instance. If None, creates a new one.
+        """
+        self.config = config or get_config()
         self.dimension = self.config.dimensionality
 
+        # Initialization guard
+        self._initialized: bool = False
+
         # Core Components
-        self.tier_manager = TierManager()
+        self.tier_manager = tier_manager or TierManager(config=self.config)
         self.binary_encoder = TextEncoder(self.dimension)
 
         # ── Phase 3.x: synapse raw dicts (kept for backward compat) ──
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
         self.synapse_adjacency: Dict[str, List[SynapticConnection]] = {}
-        self.synapse_lock = asyncio.Lock()
+        # Async locks - initialized in initialize() to avoid RuntimeError
+        self.synapse_lock: Optional[asyncio.Lock] = None
         # Serialises concurrent _save_synapses disk writes
-        self._write_lock = asyncio.Lock()
+        self._write_lock: Optional[asyncio.Lock] = None
         # Semaphore: only one dream cycle at a time (rate limiting)
-        self._dream_sem = asyncio.Semaphore(1)
+        self._dream_sem: Optional[asyncio.Semaphore] = None
 
         # ── Phase 4.0: hardened O(1) synapse adjacency index ──────────
         self._synapse_index = SynapseIndex()
 
         # ── Phase 4.0: XOR attention masker ───────────────────────────
         self.attention_masker = XORAttentionMasker(AttentionConfig())
+
+        # ── Phase 4.1: XOR project isolation masker ───────────────────
+        isolation_enabled = getattr(self.config, 'attention_masking', None)
+        isolation_enabled = isolation_enabled.enabled if isolation_enabled else True
+        self.isolation_masker = XORIsolationMask(IsolationConfig(
+            enabled=isolation_enabled,
+            dimension=self.dimension,
+        ))
 
         # ── Phase 4.0: gap detector & filler (wired in initialize()) ──
         self.gap_detector = GapDetector(GapDetectorConfig())
@@ -100,9 +137,18 @@ class HAIMEngine:
 
     async def initialize(self):
         """Async initialization."""
+        if self._initialized:
+            return
+
+        # Initialize asyncio primitives (requires running event loop)
+        self.synapse_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
+        self._dream_sem = asyncio.Semaphore(1)
+
         await self.tier_manager.initialize()
         await self._load_legacy_if_needed()
         await self._load_synapses()
+        self._initialized = True
 
         # ── Phase 4.0: start background workers ───────────────────────
         self._semantic_worker = SemanticConsolidationWorker(self)
@@ -142,32 +188,66 @@ class HAIMEngine:
 
         return majority_bundle(vectors)
 
-    async def store(self, content: str, metadata: dict = None, goal_id: str = None) -> str:
-        """Store new memory with holographic encoding."""
+    # ==========================================================================
+    # Private Helper Methods for store() - Extracted for maintainability
+    # ==========================================================================
 
-        # 1. Encode Content (CPU Bound)
+    async def _encode_input(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        goal_id: Optional[str] = None,
+    ) -> Tuple[BinaryHDV, Dict[str, Any]]:
+        """
+        Encode input content to BinaryHDV and bind goal context if present.
+
+        Args:
+            content: The text content to encode.
+            metadata: Optional metadata dictionary (will be mutated if goal_id present).
+            goal_id: Optional goal identifier to bind as context.
+
+        Returns:
+            Tuple of (encoded BinaryHDV, updated metadata dict).
+        """
+        # Encode content (CPU bound operation)
         content_vec = await self._run_in_thread(self.binary_encoder.encode, content)
 
-        # 2. Bind Goal Context (if any)
+        # Initialize metadata if needed
+        if metadata is None:
+            metadata = {}
+
         final_vec = content_vec
+
+        # Bind goal context if provided
         if goal_id:
             goal_vec = await self._run_in_thread(
                 self.binary_encoder.encode, f"GOAL_CONTEXT_{goal_id}"
             )
             final_vec = content_vec.xor_bind(goal_vec)
-
-            if metadata is None:
-                metadata = {}
             metadata['goal_context'] = goal_id
 
-        # 3. Epistemic Valuation (EIG)
-        if metadata is None:
-            metadata = {}
+        return final_vec, metadata
 
+    async def _evaluate_tier(
+        self,
+        encoded_vec: BinaryHDV,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Calculate epistemic valuation (EIG) and update metadata accordingly.
+
+        Args:
+            encoded_vec: The encoded BinaryHDV to evaluate.
+            metadata: Metadata dictionary to update with EIG values.
+
+        Returns:
+            Updated metadata dictionary with EIG information.
+        """
         if self.epistemic_drive_active:
             ctx_vec = await self._current_context_vector(sample_n=50)
-            eig = self.calculate_eig(final_vec, ctx_vec)
+            eig = self.calculate_eig(encoded_vec, ctx_vec)
             metadata["eig"] = float(eig)
+
             if eig >= self.surprise_threshold:
                 metadata.setdefault("tags", [])
                 if isinstance(metadata["tags"], list):
@@ -175,35 +255,121 @@ class HAIMEngine:
         else:
             metadata.setdefault("eig", 0.0)
 
-        # 4. Create Node
+        return metadata
+
+    async def _persist_memory(
+        self,
+        content: str,
+        encoded_vec: BinaryHDV,
+        metadata: Dict[str, Any],
+    ) -> MemoryNode:
+        """
+        Create MemoryNode and persist to tier manager and disk.
+
+        Args:
+            content: Original text content.
+            encoded_vec: Encoded BinaryHDV for the content.
+            metadata: Metadata dictionary for the node.
+
+        Returns:
+            The created and persisted MemoryNode.
+        """
+        # Create node with unique ID
         node_id = str(uuid.uuid4())
         node = MemoryNode(
             id=node_id,
-            hdv=final_vec,
+            hdv=encoded_vec,
             content=content,
-            metadata=metadata
+            metadata=metadata,
         )
 
         # Map EIG/Importance
         node.epistemic_value = float(metadata.get("eig", 0.0))
         node.calculate_ltp()
 
-        # 5. Store in Tier Manager (starts in HOT)
+        # Store in Tier Manager (starts in HOT)
         await self.tier_manager.add_memory(node)
 
-        # 6. Append to persistence log (Legacy/Backup)
+        # Append to persistence log (Legacy/Backup)
         await self._append_persisted(node)
 
-        # 7. Subconscious Trigger
-        # Gap-filled memories must NOT re-enter the dream/gap loop to prevent
-        # an indefinite store → dream → detect → fill → store cycle.
+        return node
+
+    async def _trigger_post_store(
+        self,
+        node: MemoryNode,
+        metadata: Dict[str, Any],
+    ) -> None:
+        """
+        Execute post-store triggers: subconscious queue and background dream.
+
+        Gap-filled memories must NOT re-enter the dream/gap loop to prevent
+        an indefinite store -> dream -> detect -> fill -> store cycle.
+
+        Args:
+            node: The MemoryNode that was stored.
+            metadata: Metadata dictionary (checked for gap fill source).
+        """
         _is_gap_fill = metadata.get("source") == "llm_gap_fill"
-        self.subconscious_queue.append(node_id)
+
+        self.subconscious_queue.append(node.id)
+
         if not _is_gap_fill:
             await self._background_dream(depth=1)
 
-        logger.info(f"Stored memory {node_id} (EIG: {metadata.get('eig', 0.0):.4f})")
-        return node_id
+    # ==========================================================================
+    # Main store() method - Orchestration only
+    # ==========================================================================
+
+    @timer(STORE_DURATION_SECONDS, labels={"tier": "hot"})
+    @traced("store_memory")
+    async def store(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        goal_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> str:
+        """
+        Store new memory with holographic encoding.
+
+        This method orchestrates the memory storage pipeline:
+        1. Encode input content
+        2. Evaluate tier placement via EIG
+        3. Persist to storage
+        4. Trigger post-store processing
+
+        Args:
+            content: The text content to store.
+            metadata: Optional metadata dictionary.
+            goal_id: Optional goal identifier for context binding.
+            project_id: Optional project identifier for isolation masking (Phase 4.1).
+
+        Returns:
+            The unique identifier of the stored memory node.
+        """
+        # 1. Encode input and bind goal context
+        encoded_vec, updated_metadata = await self._encode_input(content, metadata, goal_id)
+
+        # 1b. Apply project isolation mask (Phase 4.1)
+        if project_id:
+            encoded_vec = self.isolation_masker.apply_mask(encoded_vec, project_id)
+            updated_metadata['project_id'] = project_id
+
+        # 2. Calculate EIG and evaluate tier placement
+        updated_metadata = await self._evaluate_tier(encoded_vec, updated_metadata)
+
+        # 3. Create and persist memory node
+        node = await self._persist_memory(content, encoded_vec, updated_metadata)
+
+        # 4. Trigger post-store processing
+        await self._trigger_post_store(node, updated_metadata)
+
+        # 5. Update queue length metric
+        update_queue_length(len(self.subconscious_queue))
+
+        logger.info(f"Stored memory {node.id} (EIG: {updated_metadata.get('eig', 0.0):.4f})")
+        return node.id
 
     async def delete_memory(self, node_id: str) -> bool:
         """
@@ -255,12 +421,15 @@ class HAIMEngine:
         if self.tier_manager.use_qdrant and self.tier_manager.qdrant:
             await self.tier_manager.qdrant.close()
 
+    @timer(QUERY_DURATION_SECONDS)
+    @traced("query_memory")
     async def query(
         self,
         query_text: str,
         top_k: int = 5,
         associative_jump: bool = True,
         track_gaps: bool = True,
+        project_id: Optional[str] = None,
     ) -> List[Tuple[str, float]]:
         """
         Query memories using Hamming distance.
@@ -270,9 +439,16 @@ class HAIMEngine:
           - XOR attention masking re-ranks results for novelty.
           - Gap detection runs on low-confidence results (disabled when
             track_gaps=False to prevent dream-loop feedback).
+
+        Phase 4.1 additions:
+          - project_id applies isolation mask to query for project-scoped search.
         """
         # Encode Query
         query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
+
+        # Phase 4.1: Apply project isolation mask to query
+        if project_id:
+            query_vec = self.isolation_masker.apply_mask(query_vec, project_id)
 
         # 1. Primary Search (Accelerated FAISS/HNSW + Qdrant)
         search_results = await self.tier_manager.search(query_vec, top_k=top_k * 2)
@@ -309,7 +485,7 @@ class HAIMEngine:
 
             scores = augmented_scores
 
-        # ── Phase 4.0: XOR attention re-ranking ───────────────────────
+        # Phase 4.0: XOR attention re-ranking
         attention_mask = None
         top_results: List[Tuple[str, float]] = sorted(
             scores.items(), key=lambda x: x[1], reverse=True
@@ -336,8 +512,8 @@ class HAIMEngine:
                 ranked = self.attention_masker.rerank(scores, mem_vecs, attention_mask)
                 top_results = self.attention_masker.extract_scores(ranked)[:top_k]
 
-        # ── Phase 4.0: Knowledge gap detection ────────────────────────
-        # Disabled during dream cycles to break the store→dream→gap→fill→store loop.
+        # Phase 4.0: Knowledge gap detection
+        # Disabled during dream cycles to break the store->dream->gap->fill->store loop.
         if track_gaps:
             asyncio.ensure_future(
                 self.gap_detector.assess_query(query_text, top_results, attention_mask)

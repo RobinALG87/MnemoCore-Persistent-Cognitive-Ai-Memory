@@ -5,13 +5,15 @@ MCP bridge exposing MnemoCore API tools for agent clients.
 """
 
 from typing import Any, Callable, Dict
-import logging
+from loguru import logger
 
 from src.core.config import get_config, HAIMConfig
 from src.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
 from src.mcp.schemas import StoreToolInput, QueryToolInput, MemoryIdInput
-
-logger = logging.getLogger("haim.mcp")
+from src.core.exceptions import (
+    DependencyMissingError,
+    UnsupportedTransportError,
+)
 
 
 def _result_ok(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -28,8 +30,9 @@ def build_server(config: HAIMConfig | None = None):
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:
-        raise RuntimeError(
-            "MCP dependency is missing. Install package 'mcp' to run the MCP server."
+        raise DependencyMissingError(
+            dependency="mcp",
+            message="Install package 'mcp' to run the MCP server."
         ) from exc
 
     adapter = MnemoCoreAPIAdapter(
@@ -132,7 +135,10 @@ def main() -> None:
         server.run(transport="sse", host=cfg.mcp.host, port=cfg.mcp.port)
         return
 
-    raise ValueError(f"Unsupported MCP transport: {cfg.mcp.transport}")
+    raise UnsupportedTransportError(
+        transport=cfg.mcp.transport,
+        supported_transports=["stdio", "sse"]
+    )
 
 
 if __name__ == "__main__":
