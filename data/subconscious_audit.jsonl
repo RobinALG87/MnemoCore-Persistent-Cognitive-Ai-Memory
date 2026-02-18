@@ -1,0 +1,2 @@
+{"timestamp": "2026-02-18T20:22:40.980901+00:00", "operation": "dreaming", "input_count": 0, "output": {"message": "No weak memories to analyze"}, "elapsed_ms": 0.05879999662283808, "model_used": "mock-model", "dry_run": false, "error": null}
+{"timestamp": "2026-02-18T20:23:27.667298+00:00", "operation": "dreaming", "input_count": 0, "output": {"message": "No weak memories to analyze"}, "elapsed_ms": 0.05950000195298344, "model_used": "mock-model", "dry_run": false, "error": null}

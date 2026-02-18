@@ -673,14 +673,24 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
                                     # Encode the bridging concept and search for related memories
                                     concept_vec = self.engine.binary_encoder.encode(concept)
                                     hits = await self.engine.tier_manager.search(concept_vec, top_k=3)
-                                    for hit_id, score in hits:
+                            for hit_id, score in hits:
                                         if hit_id != weak_mem.id and score > 0.2:
                                             await self.engine.bind_memories(
                                                 weak_mem.id, hit_id, success=True
                                             )
                                             bindings_created += 1
+                                            logger.info(
+                                                f"[Subconscious Dreaming] Bridge created: "
+                                                f"'{weak_mem.content[:30]}...' <-> '{concept}' <-> {hit_id[:8]}"
+                                            )
                         except (ValueError, IndexError) as e:
                             logger.debug(f"Skipping invalid bridge index {idx_str}: {e}")
+                            
+                    if bindings_created == 0:
+                        logger.warning(
+                            f"[Subconscious Dreaming] Generated {len(parsed.get('bridges', {}))} bridges "
+                            "but no valid connections were found in memory."
+                        )
                     output["bindings_created"] = bindings_created
 
                 # Mark as analyzed to avoid re-processing

@@ -182,14 +182,8 @@ class TierManager:
 
             # Check if we need to evict - decide under lock, execute outside
             if len(self.hot) > self.config.tiers_hot.max_memories:
-                victim = min(self.hot.values(), key=lambda n: n.ltp_strength)
-                if victim.id != node.id:  # Don't evict the node we just added
-                    # Remove from HOT under lock
-                    logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
-                    del self.hot[victim.id]
-                    self._remove_from_faiss(victim.id)
-                    victim.tier = "warm"
-                    victim_to_evict = victim
+                # Use unified eviction logic, protecting the new node
+                victim_to_evict = self._prepare_eviction_from_hot(exclude_node_id=node.id)
 
         # Phase 2: Perform I/O outside lock
         if victim_to_evict:
@@ -223,30 +217,41 @@ class TierManager:
         """Retrieve memory by ID from any tier."""
         # Check HOT
         demote_candidate = None
+        result_node = None
+
         async with self.lock:
             if node_id in self.hot:
                 node = self.hot[node_id]
                 node.access()
-                # Check if node should be demoted - but do I/O AFTER releasing lock
+                
+                # check if node should be demoted
                 if self._should_demote(node):
-                    # Node will be demoted, but we need to save it first
-                    # Keep a reference and do I/O outside lock
+                    # Node will be demoted, mark it as warm immediately to prevent TOCTOU
+                    # This ensures concurrent readers see the correct upcoming state
+                    node.tier = "warm"
                     demote_candidate = node
-                return node
+                
+                result_node = node
 
         # If demotion is needed, save to WARM first, then remove from HOT
-        # This ensures the node is always findable during the transition
+        # This occurs outside the lock to allow concurrency, but the node 
+        # is already marked as "warm" (graceful degradation if save fails)
         if demote_candidate:
             logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
+            
             # Step 1: Save to WARM (I/O outside lock)
             await self._save_to_warm(demote_candidate)
+            
             # Step 2: Remove from HOT (under lock)
             async with self.lock:
-                # Double-check it's still in HOT (might have been accessed again)
+                # Double-check: it might have been accessed again or removed
                 if demote_candidate.id in self.hot:
                     del self.hot[demote_candidate.id]
                     self._remove_from_faiss(demote_candidate.id)
-                    demote_candidate.tier = "warm"
+                    # node.tier is already "warm"
+
+        if result_node:
+            return result_node
 
         # Check WARM (Qdrant or Disk)
         warm_node = await self._load_from_warm(node_id)
@@ -359,20 +364,35 @@ class TierManager:
 
         return deleted
 
-    def _prepare_eviction_from_hot(self) -> Optional[MemoryNode]:
+    def _prepare_eviction_from_hot(self, exclude_node_id: Optional[str] = None) -> Optional[MemoryNode]:
         """
         Prepare eviction by finding and removing the victim from HOT.
         Returns the victim node to be saved to WARM (caller must do I/O outside lock).
-        Returns None if HOT tier is empty.
+        Returns None if HOT tier is empty or no valid victim found.
+
+        Args:
+            exclude_node_id: Optional ID to protect from eviction (e.g., the node just added).
         """
         if not self.hot:
             return None
 
-        victim = min(self.hot.values(), key=lambda n: n.ltp_strength)
+        candidates = self.hot.values()
+        if exclude_node_id:
+            candidates = [n for n in candidates if n.id != exclude_node_id]
+
+        if not candidates:
+            return None
+
+        victim = min(candidates, key=lambda n: n.ltp_strength)
         logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
+        
+        # Remove from HOT structure
         del self.hot[victim.id]
         self._remove_from_faiss(victim.id)
+        
+        # Mark as warm for state consistency
         victim.tier = "warm"
+        
         return victim
 
     async def _save_to_warm(self, node: MemoryNode):
@@ -622,12 +642,10 @@ class TierManager:
         }
 
         if self.use_qdrant:
-            try:
-                info = await self.qdrant.client.get_collection(
-                    self.config.qdrant.collection_warm
-                )
+            info = await self.qdrant.get_collection_info(self.config.qdrant.collection_warm)
+            if info:
                 stats["warm_count"] = info.points_count
-            except Exception:
+            else:
                 stats["warm_count"] = -1
         else:
             if hasattr(self, 'warm_path') and self.warm_path:
@@ -725,6 +743,14 @@ class TierManager:
             The next MemoryNode in the chain, or None if not found / Qdrant
             unavailable.
         """
+        # 1. Check HOT tier first (fast Linear Scan)
+        # This ensures we find recently created links that haven't been demoted yet.
+        async with self.lock:
+            for node in self.hot.values():
+                if node.previous_id == node_id:
+                    return node
+
+        # 2. Check WARM tier (Qdrant)
         if not self.use_qdrant or not self.qdrant:
             return None
 

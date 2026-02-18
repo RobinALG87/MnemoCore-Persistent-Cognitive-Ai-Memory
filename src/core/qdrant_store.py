@@ -250,6 +250,23 @@ class QdrantStore:
             logger.error(f"Qdrant get_point failed for {point_id}: {e}")
             raise wrap_storage_exception("qdrant", "get_point", e)
 
+    async def get_collection_info(self, collection: str) -> Optional[Any]:
+        """
+        Get collection info (e.g. points count).
+        Wraps client.get_collection() with reliability and error handling.
+        """
+        try:
+            return await qdrant_breaker.call(
+                self.client.get_collection,
+                collection_name=collection
+            )
+        except CircuitOpenError:
+            logger.warning(f"Qdrant get_collection_info blocked for {collection}: circuit breaker open")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get collection info for {collection}: {e}")
+            return None
+
     async def scroll(
         self,
         collection: str,
