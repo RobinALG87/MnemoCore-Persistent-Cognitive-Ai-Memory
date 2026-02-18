@@ -15,6 +15,29 @@
 
 ---
 
+## Quick Install
+
+```bash
+git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git
+cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
+python -m venv .venv && .\.venv\Scripts\activate   # Windows
+# source .venv/bin/activate                        # Linux / macOS
+pip install -e .
+```
+
+> **Set your API key before starting:**
+> ```bash
+> # Windows PowerShell
+> $env:HAIM_API_KEY = "your-secure-key"
+> # Linux / macOS
+> # export HAIM_API_KEY="your-secure-key"
+> ```
+> Then start the API: `uvicorn mnemocore.api.main:app --host 0.0.0.0 --port 8100`
+
+Full setup including Redis, Qdrant, Docker and configuration details are in [Installation](#installation) below.
+
+---
+
 ## What is MnemoCore?
 
 **MnemoCore** is a research-grade cognitive memory infrastructure that gives AI agents a brain — not just a database.
