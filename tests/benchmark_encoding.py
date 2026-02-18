@@ -7,8 +7,8 @@ import os
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.core.engine import HAIMEngine
-from src.core.binary_hdv import TextEncoder
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.binary_hdv import TextEncoder
 
 def benchmark():
     print("Initializing Engine...")

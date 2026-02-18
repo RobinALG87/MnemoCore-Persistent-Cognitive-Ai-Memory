@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 try:
-    from src.core.binary_hdv import BinaryHDV
+    from mnemocore.core.binary_hdv import BinaryHDV
 except (ModuleNotFoundError, ImportError) as exc:
     pytestmark = pytest.mark.skip(
         reason=f"BinaryHDV import unavailable in current branch state: {exc}"

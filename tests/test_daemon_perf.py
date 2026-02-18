@@ -15,11 +15,11 @@ def mock_module(name):
 
 # Try to import real modules first
 try:
-    import src.core.engine
-    import src.core.node
-    import src.core.qdrant_store
-    import src.core.async_storage
-    import src.meta.learning_journal
+    import mnemocore.core.engine
+    import mnemocore.core.node
+    import mnemocore.core.qdrant_store
+    import mnemocore.core.async_storage
+    import mnemocore.meta.learning_journal
 except ImportError:
     pass
 
@@ -48,7 +48,7 @@ if "aiohttp" not in sys.modules:
 
 # Now we can safely import daemon
 sys.path.insert(0, os.path.abspath("."))
-from src.subconscious.daemon import SubconsciousDaemon
+from mnemocore.subconscious.daemon import SubconsciousDaemon
 
 async def _async_test_save_evolution_state_non_blocking():
     """

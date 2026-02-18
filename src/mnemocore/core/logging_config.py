@@ -9,7 +9,7 @@ Provides:
   - Consistent logging across all modules
 
 Usage:
-    from src.core.logging_config import configure_logging, get_logger
+    from mnemocore.core.logging_config import configure_logging, get_logger
 
     # At application startup:
     configure_logging(level="INFO", json_format=False)

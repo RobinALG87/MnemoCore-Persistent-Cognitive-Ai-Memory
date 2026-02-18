@@ -7,7 +7,7 @@ import os
 # Add root to checking path
 sys.path.append(os.getcwd())
 
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.binary_hdv import BinaryHDV
 
 class TestMinimal(unittest.TestCase):
     def test_packed_payload_roundtrip(self):

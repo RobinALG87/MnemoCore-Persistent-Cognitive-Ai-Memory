@@ -25,10 +25,10 @@ from loguru import logger
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.engine import HAIMEngine
-from src.core.config import get_config
-from src.core.container import build_container, Container
-from src.api.middleware import (
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.config import get_config
+from mnemocore.core.container import build_container, Container
+from mnemocore.api.middleware import (
     SecurityHeadersMiddleware,
     RateLimiter,
     StoreRateLimiter,
@@ -38,7 +38,7 @@ from src.api.middleware import (
     rate_limit_exception_handler,
     RATE_LIMIT_CONFIGS
 )
-from src.api.models import (
+from mnemocore.api.models import (
     StoreRequest,
     QueryRequest,
     ConceptRequest,
@@ -54,8 +54,8 @@ from src.api.models import (
     RootResponse,
     ErrorResponse
 )
-from src.core.logging_config import configure_logging
-from src.core.exceptions import (
+from mnemocore.core.logging_config import configure_logging
+from mnemocore.core.exceptions import (
     MnemoCoreError,
     RecoverableError,
     IrrecoverableError,
@@ -70,7 +70,7 @@ configure_logging()
 
 # --- Observability ---
 from prometheus_client import make_asgi_app
-from src.core.metrics import (
+from mnemocore.core.metrics import (
     API_REQUEST_COUNT,
     API_REQUEST_LATENCY,
     track_async_latency,
@@ -105,7 +105,7 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
 
         if trace_id:
             # Set trace ID in context for downstream operations
-            from src.core.metrics import set_trace_id
+            from mnemocore.core.metrics import set_trace_id
             set_trace_id(trace_id)
         else:
             # Try to extract from W3C Trace Context format
@@ -150,7 +150,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize implementation of engine with injected dependencies
     logger.info("Initializing HAIMEngine...")
-    from src.core.tier_manager import TierManager
+    from mnemocore.core.tier_manager import TierManager
     tier_manager = TierManager(config=config, qdrant_store=container.qdrant_store)
     engine = HAIMEngine(
         persist_path="./data/memory.jsonl",
@@ -177,7 +177,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-from src.core.reliability import (
+from mnemocore.core.reliability import (
     CircuitBreakerError,
     storage_circuit_breaker,
     vector_circuit_breaker
@@ -590,8 +590,8 @@ async def rlm_query(
     """
     API_REQUEST_COUNT.labels(method="POST", endpoint="/rlm/query", status="200").inc()
 
-    from src.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
-    from src.core.ripple_context import RippleContext
+    from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+    from mnemocore.core.ripple_context import RippleContext
 
     # Build config from request overrides
     synth_config = SynthesizerConfig(

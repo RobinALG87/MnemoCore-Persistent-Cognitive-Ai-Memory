@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.core.config import (
+from mnemocore.core.config import (
     HAIMConfig,
     load_config,
     get_config,
@@ -17,7 +17,7 @@ from src.core.config import (
     TierConfig,
     LTPConfig,
 )
-from src.core.exceptions import ConfigurationError
+from mnemocore.core.exceptions import ConfigurationError
 
 
 @pytest.fixture(autouse=True)

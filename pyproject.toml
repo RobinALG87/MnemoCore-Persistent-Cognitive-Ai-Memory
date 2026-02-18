@@ -1,0 +1,109 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mnemocore"
+version = "4.5.0"
+description = "MnemoCore – Infrastructure for Persistent Cognitive Memory. A hierarchical AI memory engine with hot/warm/cold tiers, vector search, and subconscious consolidation."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Robin", email = "" },
+]
+keywords = [
+    "ai",
+    "memory",
+    "cognitive",
+    "vector-search",
+    "qdrant",
+    "llm",
+    "hyperdimensional-computing",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+# Runtime dependencies (migrated from requirements.txt)
+dependencies = [
+    "numpy>=1.24",
+    "requests>=2.31.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "redis>=5.0.0",
+    "qdrant-client>=1.7.0",
+    "prometheus-client>=0.17.0",
+    "loguru>=0.7.0",
+    "msgpack>=1.0.0",
+    "mcp>=0.1.0",
+    "faiss-cpu>=1.7.4",
+    "pybreaker>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "hypothesis>=6.0.0",
+    "mypy>=1.0.0",
+    "flake8>=6.0.0",
+    "isort>=5.0.0",
+    "black>=23.0.0",
+    "coverage>=7.0.0",
+]
+viz = [
+    "plotly>=5.0.0",
+    "pandas>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory"
+Repository = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory"
+"Bug Tracker" = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory/issues"
+
+[project.scripts]
+mnemocore = "mnemocore.api.main:app"
+
+# ── Hatchling build configuration ─────────────────────────────────────────────
+[tool.hatch.build.targets.wheel]
+packages = ["src/mnemocore"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "config.yaml",
+]
+
+# ── Pytest ─────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+
+# ── Coverage ───────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "**/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

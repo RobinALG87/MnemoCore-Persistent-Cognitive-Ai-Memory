@@ -65,7 +65,7 @@ rm -rf .pytest_cache __pycache__ */__pycache__ *.pyc
 source .venv/bin/activate && python -m pytest tests/ -v
 
 # 3. Verify import works
-python -c "from src.core.engine import HAIMEngine; print('OK')"
+python -c "from mnemocore.core.engine import HAIMEngine; print('OK')"
 
 # 4. Check for secrets (should return nothing)
 grep -r "sk-" src/ --include="*.py"

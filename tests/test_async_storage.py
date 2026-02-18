@@ -8,7 +8,7 @@ import json
 import unittest
 from unittest.mock import AsyncMock
 
-from src.core.async_storage import AsyncRedisStorage
+from mnemocore.core.async_storage import AsyncRedisStorage
 
 class TestAsyncStorage(unittest.IsolatedAsyncioTestCase):
     

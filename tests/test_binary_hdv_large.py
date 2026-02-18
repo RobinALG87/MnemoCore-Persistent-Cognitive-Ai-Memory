@@ -1,7 +1,7 @@
 
 import numpy as np
 import pytest
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.binary_hdv import BinaryHDV
 
 class TestLargeDimensionPermutation:
     """Tests for large-dimension permute correctness."""

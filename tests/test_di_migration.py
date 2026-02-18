@@ -14,13 +14,13 @@ class TestAsyncRedisStorageDI:
 
     def test_no_get_instance_method(self):
         """AsyncRedisStorage should not have get_instance class method."""
-        from src.core.async_storage import AsyncRedisStorage
+        from mnemocore.core.async_storage import AsyncRedisStorage
         assert not hasattr(AsyncRedisStorage, 'get_instance'), \
             "AsyncRedisStorage should not have get_instance method"
 
     def test_constructor_accepts_parameters(self):
         """AsyncRedisStorage constructor should accept explicit parameters."""
-        from src.core.async_storage import AsyncRedisStorage
+        from mnemocore.core.async_storage import AsyncRedisStorage
 
         # Create with explicit parameters to verify they work
         storage = AsyncRedisStorage(
@@ -36,7 +36,7 @@ class TestAsyncRedisStorageDI:
 
     def test_constructor_with_mock_client(self):
         """AsyncRedisStorage should accept a mock client for testing."""
-        from src.core.async_storage import AsyncRedisStorage
+        from mnemocore.core.async_storage import AsyncRedisStorage
 
         mock_client = MagicMock()
         storage = AsyncRedisStorage(client=mock_client)
@@ -49,13 +49,13 @@ class TestQdrantStoreDI:
 
     def test_no_get_instance_method(self):
         """QdrantStore should not have get_instance class method."""
-        from src.core.qdrant_store import QdrantStore
+        from mnemocore.core.qdrant_store import QdrantStore
         assert not hasattr(QdrantStore, 'get_instance'), \
             "QdrantStore should not have get_instance method"
 
     def test_constructor_accepts_parameters(self):
         """QdrantStore constructor should accept explicit parameters."""
-        from src.core.qdrant_store import QdrantStore
+        from mnemocore.core.qdrant_store import QdrantStore
 
         store = QdrantStore(
             url="http://test:6333",
@@ -77,14 +77,14 @@ class TestContainer:
 
     def test_container_exists(self):
         """Container module should exist and be importable."""
-        from src.core.container import Container, build_container
+        from mnemocore.core.container import Container, build_container
         assert Container is not None
         assert build_container is not None
 
     def test_build_container_creates_dependencies(self):
         """build_container should create all required dependencies."""
-        from src.core.container import build_container
-        from src.core.config import HAIMConfig
+        from mnemocore.core.container import build_container
+        from mnemocore.core.config import HAIMConfig
 
         # Create a minimal config
         config = HAIMConfig()
@@ -103,8 +103,8 @@ class TestContainer:
 
     def test_container_dataclass_fields(self):
         """Container should have expected fields."""
-        from src.core.container import Container
-        from src.core.config import HAIMConfig
+        from mnemocore.core.container import Container
+        from mnemocore.core.config import HAIMConfig
 
         config = HAIMConfig()
         container = Container(config=config)
@@ -119,8 +119,8 @@ class TestTierManagerDI:
 
     def test_constructor_accepts_config(self):
         """TierManager constructor should accept config parameter."""
-        from src.core.tier_manager import TierManager
-        from src.core.config import HAIMConfig
+        from mnemocore.core.tier_manager import TierManager
+        from mnemocore.core.config import HAIMConfig
 
         config = HAIMConfig()
 
@@ -132,8 +132,8 @@ class TestTierManagerDI:
 
     def test_constructor_accepts_qdrant_store(self):
         """TierManager constructor should accept qdrant_store parameter."""
-        from src.core.tier_manager import TierManager
-        from src.core.config import HAIMConfig
+        from mnemocore.core.tier_manager import TierManager
+        from mnemocore.core.config import HAIMConfig
 
         config = HAIMConfig()
         mock_qdrant = MagicMock()
@@ -151,8 +151,8 @@ class TestHAIMEngineDI:
 
     def test_constructor_accepts_config(self):
         """HAIMEngine constructor should accept config parameter."""
-        from src.core.engine import HAIMEngine
-        from src.core.config import HAIMConfig
+        from mnemocore.core.engine import HAIMEngine
+        from mnemocore.core.config import HAIMConfig
 
         config = HAIMConfig()
 
@@ -165,9 +165,9 @@ class TestHAIMEngineDI:
 
     def test_constructor_accepts_tier_manager(self):
         """HAIMEngine constructor should accept tier_manager parameter."""
-        from src.core.engine import HAIMEngine
-        from src.core.config import HAIMConfig
-        from src.core.tier_manager import TierManager
+        from mnemocore.core.engine import HAIMEngine
+        from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.tier_manager import TierManager
 
         config = HAIMConfig()
 
@@ -184,7 +184,7 @@ class TestConsolidationWorkerDI:
 
     def test_constructor_accepts_storage(self):
         """ConsolidationWorker constructor should accept storage parameter."""
-        from src.core.consolidation_worker import ConsolidationWorker
+        from mnemocore.core.consolidation_worker import ConsolidationWorker
 
         mock_storage = MagicMock()
         mock_tier_manager = MagicMock()
@@ -203,8 +203,8 @@ class TestNoSingletonPattern:
 
     def test_no_singleton_instances(self):
         """Classes should not have _instance class attribute for singletons."""
-        from src.core.async_storage import AsyncRedisStorage
-        from src.core.qdrant_store import QdrantStore
+        from mnemocore.core.async_storage import AsyncRedisStorage
+        from mnemocore.core.qdrant_store import QdrantStore
 
         # _instance is the typical singleton storage attribute
         assert not hasattr(AsyncRedisStorage, '_instance') or \
@@ -220,7 +220,7 @@ class TestNoSingletonPattern:
 
     def test_multiple_instances_independent(self):
         """Creating multiple instances should work independently."""
-        from src.core.async_storage import AsyncRedisStorage
+        from mnemocore.core.async_storage import AsyncRedisStorage
 
         mock_client1 = MagicMock()
         mock_client2 = MagicMock()

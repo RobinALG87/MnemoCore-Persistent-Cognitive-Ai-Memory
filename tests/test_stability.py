@@ -40,7 +40,7 @@ def test_engine_lifecycle(mock_deps):
     mock_engine, _ = mock_deps
 
     # We need to import app INSIDE the test or after the patch is active
-    from src.api.main import app
+    from mnemocore.api.main import app
 
     with TestClient(app) as client:
         # Check if engine was initialized and stored in app.state
@@ -53,7 +53,7 @@ def test_engine_lifecycle(mock_deps):
 def test_delete_endpoint_stability(mock_deps):
     """Test that DELETE endpoint uses the new engine.delete_memory method."""
     mock_engine, mock_redis = mock_deps
-    from src.api.main import app
+    from mnemocore.api.main import app
 
     with TestClient(app) as client:
         response = client.delete(
@@ -98,7 +98,7 @@ def test_security_middleware_fallback(mock_deps):
 
         # Re-import to get fresh app with new patches applied
         import importlib
-        import src.api.main as main_module
+        import mnemocore.api.main as main_module
         importlib.reload(main_module)
 
         with TestClient(main_module.app) as client:

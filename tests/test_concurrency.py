@@ -2,10 +2,10 @@
 import asyncio
 import random
 import time
-from src.core.engine import HAIMEngine
+from mnemocore.core.engine import HAIMEngine
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from src.core.config import get_config
+from mnemocore.core.config import get_config
 
 async def worker_task(engine, worker_id, num_ops=50):
     for i in range(num_ops):

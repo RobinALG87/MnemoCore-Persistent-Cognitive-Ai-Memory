@@ -6,7 +6,7 @@ In-memory mock implementation of AsyncRedisStorage for offline testing.
 Uses fakeredis for Redis-compatible behavior when available,
 falls back to pure Python in-memory implementation.
 
-Implements all public methods from src.core.async_storage.AsyncRedisStorage
+Implements all public methods from mnemocore.core.async_storage.AsyncRedisStorage
 """
 
 from typing import Dict, List, Optional, Any

@@ -8,9 +8,9 @@ from datetime import datetime
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.async_storage import AsyncRedisStorage
-from src.subconscious.daemon import SubconsciousDaemon
-from src.core.config import get_config
+from mnemocore.core.async_storage import AsyncRedisStorage
+from mnemocore.subconscious.daemon import SubconsciousDaemon
+from mnemocore.core.config import get_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

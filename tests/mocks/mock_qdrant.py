@@ -3,7 +3,7 @@ Mock Qdrant Store
 =================
 In-memory mock implementation of QdrantStore for offline testing.
 
-Implements all public methods from src.core.qdrant_store.QdrantStore
+Implements all public methods from mnemocore.core.qdrant_store.QdrantStore
 using Python dictionaries for storage, enabling full test isolation.
 """
 

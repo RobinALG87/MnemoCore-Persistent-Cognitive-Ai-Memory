@@ -1,6 +1,6 @@
 import requests
 
-from src.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
+from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
 
 
 class DummyResponse:

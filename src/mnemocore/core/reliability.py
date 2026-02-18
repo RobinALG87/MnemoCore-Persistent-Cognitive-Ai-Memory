@@ -8,7 +8,7 @@ This module provides both:
 - Pre-configured instances for Redis and Qdrant
 
 Usage:
-    from src.core.reliability import StorageCircuitBreaker, qdrant_breaker
+    from mnemocore.core.reliability import StorageCircuitBreaker, qdrant_breaker
 
     # Using pre-configured instances
     result = await qdrant_breaker.call(my_async_func, arg1, arg2)

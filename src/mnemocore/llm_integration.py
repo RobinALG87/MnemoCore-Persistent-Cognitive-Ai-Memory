@@ -12,9 +12,9 @@ from enum import Enum
 
 from loguru import logger
 
-from src.core.engine import HAIMEngine
-from src.core.node import MemoryNode
-from src.core.exceptions import (
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.node import MemoryNode
+from mnemocore.core.exceptions import (
     UnsupportedProviderError,
     AgentNotFoundError,
 )
@@ -505,7 +505,7 @@ Reconstruction:"""
         hypothesis_vectors = [self.haim.encode_content(h) for h in hypotheses]
 
         # Bundle all vectors together (superposition)
-        from src.core.binary_hdv import majority_bundle
+        from mnemocore.core.binary_hdv import majority_bundle
         all_vectors = [query_vec] + hypothesis_vectors
         superposition_vec = majority_bundle(all_vectors)
 
@@ -839,7 +839,7 @@ class RLMIntegrator:
     """
 
     def __init__(self, llm_integrator, config=None):
-        from src.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+        from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
         self.llm_integrator = llm_integrator
         self.haim = llm_integrator.haim
         llm_call = None
@@ -865,7 +865,7 @@ class RLMIntegrator:
             Dict: query, sub_queries, results, synthesis,
                   max_depth_hit, elapsed_ms, ripple_snippets, stats
         """
-        from src.core.ripple_context import RippleContext
+        from mnemocore.core.ripple_context import RippleContext
         ripple_ctx = None
         if context_text and context_text.strip():
             ripple_ctx = RippleContext(text=context_text, source_label="api_context")

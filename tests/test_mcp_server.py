@@ -3,9 +3,9 @@ import types
 
 import pytest
 
-from src.core.config import HAIMConfig, MCPConfig, SecurityConfig
-from src.mcp.adapters.api_adapter import MnemoCoreAPIError
-from src.mcp import server as mcp_server
+from mnemocore.core.config import HAIMConfig, MCPConfig, SecurityConfig
+from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIError
+from mnemocore.mcp import server as mcp_server
 
 
 class FakeFastMCP:

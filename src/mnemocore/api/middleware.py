@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
 
-from src.core.config import get_config
+from mnemocore.core.config import get_config
 
 
 # Rate limit configurations per endpoint category

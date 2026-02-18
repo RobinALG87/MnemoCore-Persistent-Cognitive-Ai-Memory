@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # RippleContext Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
-from src.core.ripple_context import RippleContext, RippleChunk
+from mnemocore.core.ripple_context import RippleContext, RippleChunk
 
 
 class TestRippleChunk:
@@ -112,7 +112,7 @@ class TestRippleContext:
 # Heuristic Decomposition Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
-from src.core.recursive_synthesizer import _heuristic_decompose
+from mnemocore.core.recursive_synthesizer import _heuristic_decompose
 
 
 class TestHeuristicDecompose:
@@ -147,7 +147,7 @@ class TestHeuristicDecompose:
 # RecursiveSynthesizer Tests (with mock engine)
 # ─────────────────────────────────────────────────────────────────────────────
 
-from src.core.recursive_synthesizer import (
+from mnemocore.core.recursive_synthesizer import (
     RecursiveSynthesizer, SynthesizerConfig, SynthesisResult
 )
 

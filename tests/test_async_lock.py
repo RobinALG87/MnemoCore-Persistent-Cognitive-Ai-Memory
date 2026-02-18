@@ -30,10 +30,10 @@ class TestHAIMEngineAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.engine import HAIMEngine
+            from mnemocore.core.engine import HAIMEngine
 
             # This should NOT raise RuntimeError
             engine = HAIMEngine(dimension=1024)
@@ -47,7 +47,7 @@ class TestHAIMEngineAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -62,11 +62,11 @@ class TestHAIMEngineAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.engine import HAIMEngine
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.engine import HAIMEngine
+            from mnemocore.core.tier_manager import TierManager
 
             # Create a TierManager with use_qdrant=False to avoid connection issues
             tier_manager = TierManager()
@@ -90,7 +90,7 @@ class TestHAIMEngineAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -105,11 +105,11 @@ class TestHAIMEngineAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.engine import HAIMEngine
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.engine import HAIMEngine
+            from mnemocore.core.tier_manager import TierManager
 
             # Create a TierManager with use_qdrant=False to avoid connection issues
             tier_manager = TierManager()
@@ -137,7 +137,7 @@ class TestHAIMEngineAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -151,11 +151,11 @@ class TestHAIMEngineAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.engine import HAIMEngine
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.engine import HAIMEngine
+            from mnemocore.core.tier_manager import TierManager
 
             # Create a TierManager with use_qdrant=False to avoid connection issues
             tier_manager = TierManager()
@@ -180,7 +180,7 @@ class TestHAIMEngineAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
 
@@ -198,10 +198,10 @@ class TestTierManagerAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.tier_manager import TierManager
 
             # Mock QdrantClient to raise error, forcing fallback to file system
             with patch("qdrant_client.QdrantClient", side_effect=Exception("Qdrant Mock Fail")):
@@ -215,7 +215,7 @@ class TestTierManagerAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -230,10 +230,10 @@ class TestTierManagerAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.tier_manager import TierManager
 
             tier_manager = TierManager()
             tier_manager.use_qdrant = False  # Force file system fallback
@@ -251,7 +251,7 @@ class TestTierManagerAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -266,10 +266,10 @@ class TestTierManagerAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.tier_manager import TierManager
 
             tier_manager = TierManager()
             tier_manager.use_qdrant = False  # Force file system fallback
@@ -291,7 +291,7 @@ class TestTierManagerAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -305,10 +305,10 @@ class TestTierManagerAsyncLock:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.tier_manager import TierManager
 
             tier_manager = TierManager()
             tier_manager.use_qdrant = False  # Force file system fallback
@@ -325,7 +325,7 @@ class TestTierManagerAsyncLock:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
 
@@ -343,11 +343,11 @@ class TestAsyncLockPatternIntegration:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.engine import HAIMEngine
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.engine import HAIMEngine
+            from mnemocore.core.tier_manager import TierManager
 
             # Create a TierManager with use_qdrant=False to avoid connection issues
             tier_manager = TierManager()
@@ -372,7 +372,7 @@ class TestAsyncLockPatternIntegration:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -386,11 +386,11 @@ class TestAsyncLockPatternIntegration:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.engine import HAIMEngine
-            from src.core.tier_manager import TierManager
+            from mnemocore.core.engine import HAIMEngine
+            from mnemocore.core.tier_manager import TierManager
 
             # Create a TierManager with use_qdrant=False to avoid connection issues
             tier_manager = TierManager()
@@ -415,7 +415,7 @@ class TestAsyncLockPatternIntegration:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
     @pytest.mark.asyncio
@@ -429,12 +429,12 @@ class TestAsyncLockPatternIntegration:
         os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(tmp_path / "cold")
 
         try:
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 
-            from src.core.tier_manager import TierManager
-            from src.core.node import MemoryNode
-            from src.core.binary_hdv import BinaryHDV
+            from mnemocore.core.tier_manager import TierManager
+            from mnemocore.core.node import MemoryNode
+            from mnemocore.core.binary_hdv import BinaryHDV
 
             tier_manager = TierManager()
             tier_manager.use_qdrant = False  # Force file system fallback
@@ -468,6 +468,6 @@ class TestAsyncLockPatternIntegration:
             # Cleanup
             for key in ["HAIM_DATA_DIR", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR"]:
                 os.environ.pop(key, None)
-            from src.core.config import reset_config
+            from mnemocore.core.config import reset_config
             reset_config()
 

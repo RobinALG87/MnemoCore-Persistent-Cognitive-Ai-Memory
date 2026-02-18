@@ -9,12 +9,12 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
-from src.core.binary_hdv import BinaryHDV
-from src.core.config import reset_config
-from src.core.node import MemoryNode
+from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.config import reset_config
+from mnemocore.core.node import MemoryNode
 
 try:
-    from src.core.engine import HAIMEngine
+    from mnemocore.core.engine import HAIMEngine
     _ENGINE_IMPORT_ERROR = None
 except (ModuleNotFoundError, ImportError) as exc:
     HAIMEngine = None

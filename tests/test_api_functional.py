@@ -26,7 +26,7 @@ patcher2 = patch("src.api.main.build_container", return_value=mock_container)
 patcher1.start()
 patcher2.start()
 
-from src.api.main import app, get_api_key
+from mnemocore.api.main import app, get_api_key
 
 client = TestClient(app)
 
@@ -35,7 +35,7 @@ API_KEY = "test-key"
 
 @pytest.fixture(autouse=True)
 def setup_mocks(monkeypatch):
-    from src.core.config import get_config, reset_config
+    from mnemocore.core.config import get_config, reset_config
     reset_config()
     monkeypatch.setenv("HAIM_API_KEY", API_KEY)
 

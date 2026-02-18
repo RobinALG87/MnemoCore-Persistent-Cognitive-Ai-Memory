@@ -12,7 +12,7 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.binary_hdv import BinaryHDV
 
 
 def permute_reference(data: np.ndarray, shift: int) -> np.ndarray:

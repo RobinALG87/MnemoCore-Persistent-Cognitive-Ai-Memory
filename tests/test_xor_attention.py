@@ -8,8 +8,8 @@ Tests the XORIsolationMask class and its integration with HAIMEngine.
 import pytest
 import numpy as np
 
-from src.core.attention import XORIsolationMask, IsolationConfig
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.attention import XORIsolationMask, IsolationConfig
+from mnemocore.core.binary_hdv import BinaryHDV
 
 
 class TestXORIsolationMask:
@@ -151,8 +151,8 @@ class TestXORIsolationMaskIntegration:
     @pytest.mark.asyncio
     async def test_same_project_query_finds_memory(self):
         """Query with same project_id should find stored memory with good score."""
-        from src.core.engine import HAIMEngine
-        from src.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
+        from mnemocore.core.engine import HAIMEngine
+        from mnemocore.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
         import tempfile
         import os
 
@@ -202,8 +202,8 @@ class TestXORIsolationMaskIntegration:
     @pytest.mark.asyncio
     async def test_different_project_cannot_find_memory(self):
         """Query with different project_id should NOT find stored memory with high score."""
-        from src.core.engine import HAIMEngine
-        from src.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
+        from mnemocore.core.engine import HAIMEngine
+        from mnemocore.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
         import tempfile
         import os
 
@@ -250,8 +250,8 @@ class TestXORIsolationMaskIntegration:
     @pytest.mark.asyncio
     async def test_no_project_id_no_isolation(self):
         """Query without project_id should work normally (no isolation)."""
-        from src.core.engine import HAIMEngine
-        from src.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
+        from mnemocore.core.engine import HAIMEngine
+        from mnemocore.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
         import tempfile
         import os
 

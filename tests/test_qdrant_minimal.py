@@ -7,7 +7,7 @@ import os
 # Add src to path just in case
 sys.path.append(os.getcwd())
 
-from src.core.qdrant_store import QdrantStore
+from mnemocore.core.qdrant_store import QdrantStore
 
 class TestMinimal(unittest.IsolatedAsyncioTestCase):
     async def test_minimal(self):

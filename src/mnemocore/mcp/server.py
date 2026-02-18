@@ -7,10 +7,10 @@ MCP bridge exposing MnemoCore API tools for agent clients.
 from typing import Any, Callable, Dict
 from loguru import logger
 
-from src.core.config import get_config, HAIMConfig
-from src.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
-from src.mcp.schemas import StoreToolInput, QueryToolInput, MemoryIdInput
-from src.core.exceptions import (
+from mnemocore.core.config import get_config, HAIMConfig
+from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
+from mnemocore.mcp.schemas import StoreToolInput, QueryToolInput, MemoryIdInput
+from mnemocore.core.exceptions import (
     DependencyMissingError,
     UnsupportedTransportError,
 )

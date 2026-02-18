@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.core.exceptions import ValidationError
+from mnemocore.core.exceptions import ValidationError
 
 
 class StoreToolInput(BaseModel):

@@ -23,7 +23,7 @@ class RLMIntegrator:
     """
 
     def __init__(self, llm_integrator, config=None):
-        from src.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+        from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
         self.llm_integrator = llm_integrator
         self.haim = llm_integrator.haim
         llm_call = None
@@ -49,7 +49,7 @@ class RLMIntegrator:
             Dict: query, sub_queries, results, synthesis,
                   max_depth_hit, elapsed_ms, ripple_snippets, stats
         """
-        from src.core.ripple_context import RippleContext
+        from mnemocore.core.ripple_context import RippleContext
         ripple_ctx = None
         if context_text and context_text.strip():
             ripple_ctx = RippleContext(text=context_text, source_label="api_context")

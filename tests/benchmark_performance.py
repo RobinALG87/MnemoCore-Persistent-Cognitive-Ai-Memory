@@ -2,10 +2,10 @@ import asyncio
 import time
 import tracemalloc
 import numpy as np
-from src.core.engine import HAIMEngine
-from src.core.synapse import SynapticConnection
-from src.core.binary_hdv import BinaryHDV
-from src.core.node import MemoryNode
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.synapse import SynapticConnection
+from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.node import MemoryNode
 
 async def benchmark_synapse_lookup():
     print("\n--- Benchmarking Synapse Lookup ---")

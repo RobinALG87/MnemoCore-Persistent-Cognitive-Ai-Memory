@@ -11,11 +11,11 @@ import pytest_asyncio
 from datetime import datetime, timezone
 import numpy as np
 
-from src.core.config import get_config, reset_config
-from src.core.engine import HAIMEngine
-from src.core.router import CognitiveRouter
-from src.core.binary_hdv import BinaryHDV
-from src.core.node import MemoryNode
+from mnemocore.core.config import get_config, reset_config
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.router import CognitiveRouter
+from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.node import MemoryNode
 
 @pytest.fixture
 def binary_engine(tmp_path):

@@ -8,8 +8,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 import numpy as np
 
-from src.core.batch_ops import BatchProcessor
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.batch_ops import BatchProcessor
+from mnemocore.core.binary_hdv import BinaryHDV
 
 class TestBatchOps(unittest.TestCase):
     

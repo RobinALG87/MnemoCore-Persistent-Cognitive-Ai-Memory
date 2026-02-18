@@ -4,9 +4,9 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, AsyncMock
 
-from src.core.tier_manager import TierManager
-from src.core.node import MemoryNode
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.tier_manager import TierManager
+from mnemocore.core.node import MemoryNode
+from mnemocore.core.binary_hdv import BinaryHDV
 import numpy as np
 
 @pytest.mark.asyncio
@@ -54,7 +54,7 @@ async def test_get_memory_demotion_race_condition():
     # Mock config thresholds to ensure demotion triggers
     # Config objects are frozen, so we must safely replace them
     import dataclasses
-    from src.core.config import get_config
+    from mnemocore.core.config import get_config
     
     real_config = get_config()
     # Set threshold very high (2.0) so even with access boost (LTP ~0.55) it still demotes

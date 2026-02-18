@@ -101,9 +101,9 @@ def engine(qdrant_store, redis_storage):
 @pytest.fixture(scope="session", autouse=True)
 def mock_hardware_dependencies():
     """Globally mock Qdrant and Redis to prevent hangs during testing."""
-    # Ensure modules are imported so patch can find them in src.core
-    import src.core.async_storage
-    import src.core.qdrant_store
+    # Ensure modules are imported so patch can find them in mnemocore.core
+    import mnemocore.core.async_storage
+    import mnemocore.core.qdrant_store
 
     # 1. Mock Redis client for AsyncRedisStorage
     mock_redis_client = MagicMock()
@@ -132,7 +132,7 @@ def mock_hardware_dependencies():
     mock_redis_client.pipeline.return_value = mock_pipeline
 
     # Create a mock AsyncRedisStorage instance
-    mock_redis_storage = MagicMock(spec=src.core.async_storage.AsyncRedisStorage)
+    mock_redis_storage = MagicMock(spec=mnemocore.core.async_storage.AsyncRedisStorage)
     mock_redis_storage.redis_client = mock_redis_client
     mock_redis_storage.check_health = AsyncMock(return_value=True)
     mock_redis_storage.store_memory = AsyncMock(return_value=None)
@@ -157,7 +157,7 @@ def mock_hardware_dependencies():
     mock_qdrant_client.close = AsyncMock(return_value=None)
 
     # Create a mock QdrantStore instance
-    mock_qdrant_instance = MagicMock(spec=src.core.qdrant_store.QdrantStore)
+    mock_qdrant_instance = MagicMock(spec=mnemocore.core.qdrant_store.QdrantStore)
     mock_qdrant_instance.client = mock_qdrant_client
     mock_qdrant_instance.ensure_collections = AsyncMock(return_value=None)
     mock_qdrant_instance.upsert = AsyncMock(return_value=None)
@@ -168,7 +168,7 @@ def mock_hardware_dependencies():
     mock_qdrant_instance.close = AsyncMock(return_value=None)
 
     # Patch the Container to return mocked instances
-    from src.core import container as container_module
+    from mnemocore.core import container as container_module
 
     original_build_container = container_module.build_container
 
@@ -184,14 +184,14 @@ def mock_hardware_dependencies():
 
     # Patch _initialize_from_pool instead of __init__ to allow constructor to run
     redis_init_patch = patch.object(
-        src.core.async_storage.AsyncRedisStorage,
+        mnemocore.core.async_storage.AsyncRedisStorage,
         '_initialize_from_pool',
         return_value=None
     )
     redis_init_patch.start()
 
     # Patch AsyncQdrantClient instead of __init__
-    qdrant_client_patch = patch('src.core.qdrant_store.AsyncQdrantClient')
+    qdrant_client_patch = patch('mnemocore.core.qdrant_store.AsyncQdrantClient')
     qdrant_client_patch.start()
 
     yield (mock_qdrant_instance, mock_redis_storage)
@@ -205,7 +205,7 @@ def mock_hardware_dependencies():
 @pytest.fixture(autouse=True)
 def clean_config():
     """Reset config state between tests."""
-    from src.core.config import reset_config
+    from mnemocore.core.config import reset_config
     reset_config()
     yield
     reset_config()
@@ -214,7 +214,7 @@ def clean_config():
 @pytest.fixture
 def mock_container():
     """Create a mock container for testing."""
-    from src.core.config import get_config
+    from mnemocore.core.config import get_config
 
     config = get_config()
 

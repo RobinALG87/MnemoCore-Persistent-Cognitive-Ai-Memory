@@ -7,7 +7,7 @@ from unittest.mock import patch
 # Add src to path
 sys.path.append(os.getcwd())
 
-from src.core.qdrant_store import QdrantStore
+from mnemocore.core.qdrant_store import QdrantStore
 
 async def main():
     print("Starting main", flush=True)

@@ -12,7 +12,7 @@ import pytest
 from hypothesis import given, settings, HealthCheck, assume
 import hypothesis.strategies as st
 
-from src.core.binary_hdv import BinaryHDV, majority_bundle
+from mnemocore.core.binary_hdv import BinaryHDV, majority_bundle
 
 
 # Use smaller dimension for faster property tests

@@ -3,8 +3,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 import asyncio
 
-from src.core.config import get_config, reset_config
-from src.core.engine import HAIMEngine
+from mnemocore.core.config import get_config, reset_config
+from mnemocore.core.engine import HAIMEngine
 
 @pytest.fixture
 def test_engine(tmp_path):

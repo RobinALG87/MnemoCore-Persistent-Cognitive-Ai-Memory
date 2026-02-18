@@ -7,8 +7,8 @@ Rewritten to use pytest-asyncio for proper async support.
 
 import pytest
 from unittest.mock import MagicMock, patch, ANY
-from src.core.config import get_config, reset_config
-from src.core.qdrant_store import QdrantStore
+from mnemocore.core.config import get_config, reset_config
+from mnemocore.core.qdrant_store import QdrantStore
 
 @pytest.fixture
 def mock_qdrant_client():

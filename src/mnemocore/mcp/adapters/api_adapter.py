@@ -7,7 +7,7 @@ HTTP client adapter for communicating with MnemoCore API server.
 from typing import Any, Dict, Optional
 import requests
 
-from src.core.exceptions import MnemoCoreError
+from mnemocore.core.exceptions import MnemoCoreError
 
 
 class MnemoCoreAPIError(MnemoCoreError):

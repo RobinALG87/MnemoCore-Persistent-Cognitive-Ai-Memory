@@ -27,7 +27,7 @@ Behavior, interfaces, and internals may change without backward compatibility gu
 ## Example
 
 ```python
-from src.core.engine import HAIMEngine
+from mnemocore.core.engine import HAIMEngine
 
 engine = HAIMEngine()
 memory_id = engine.store("The quick brown fox")

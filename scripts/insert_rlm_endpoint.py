@@ -60,8 +60,8 @@ async def rlm_query(
     """
     API_REQUEST_COUNT.labels(method="POST", endpoint="/rlm/query", status="200").inc()
 
-    from src.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
-    from src.core.ripple_context import RippleContext
+    from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+    from mnemocore.core.ripple_context import RippleContext
 
     # Build config from request overrides
     synth_config = SynthesizerConfig(

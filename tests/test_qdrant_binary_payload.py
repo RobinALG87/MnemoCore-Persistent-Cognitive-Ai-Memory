@@ -8,8 +8,8 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.core.binary_hdv import BinaryHDV
-from src.core.node import MemoryNode
+from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.node import MemoryNode
 
 class TestQdrantBinaryPayload(unittest.TestCase):
     def test_packed_payload_roundtrip(self):

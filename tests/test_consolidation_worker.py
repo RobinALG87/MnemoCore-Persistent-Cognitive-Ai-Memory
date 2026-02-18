@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
 
-from src.core.consolidation_worker import ConsolidationWorker
+from mnemocore.core.consolidation_worker import ConsolidationWorker
 
 class TestConsolidationWorker(unittest.IsolatedAsyncioTestCase):
     

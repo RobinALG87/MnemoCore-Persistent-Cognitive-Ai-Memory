@@ -18,12 +18,12 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.core.engine import HAIMEngine
-from src.core.async_storage import AsyncRedisStorage
-from src.core.config import get_config
-from src.meta.learning_journal import LearningJournal
-from src.core.node import MemoryNode
-from src.core.metrics import (
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.async_storage import AsyncRedisStorage
+from mnemocore.core.config import get_config
+from mnemocore.meta.learning_journal import LearningJournal
+from mnemocore.core.node import MemoryNode
+from mnemocore.core.metrics import (
     DREAM_LOOP_TOTAL,
     DREAM_LOOP_ITERATION_SECONDS,
     DREAM_LOOP_INSIGHTS_GENERATED,

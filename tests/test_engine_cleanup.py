@@ -3,9 +3,9 @@ Test HAIMEngine Synapse Cleanup
 """
 import os
 import pytest
-from src.core.engine import HAIMEngine
-from src.core.synapse import SynapticConnection
-from src.core.config import reset_config
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.synapse import SynapticConnection
+from mnemocore.core.config import reset_config
 
 @pytest.fixture
 def test_engine(tmp_path):

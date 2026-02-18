@@ -1,5 +1,7 @@
+# NOTE: This file is maintained for legacy compatibility/Docker.
+# The canonical source of dependencies is pyproject.toml.
 # Core
-numpy>=1.24,<2.0
+numpy>=1.24
 requests>=2.31.0
 fastapi>=0.100.0
 uvicorn>=0.23.0

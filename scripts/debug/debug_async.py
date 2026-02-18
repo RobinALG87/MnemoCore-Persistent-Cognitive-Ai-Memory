@@ -3,7 +3,7 @@ import sys
 import logging
 from unittest.mock import AsyncMock
 
-from src.core.async_storage import AsyncRedisStorage
+from mnemocore.core.async_storage import AsyncRedisStorage
 
 logging.basicConfig(level=logging.DEBUG)
 

@@ -14,9 +14,9 @@ import os
 import pytest
 import pytest_asyncio
 
-from src.core.config import get_config, reset_config
-from src.core.engine import HAIMEngine
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.config import get_config, reset_config
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.binary_hdv import BinaryHDV
 
 
 # =============================================================================

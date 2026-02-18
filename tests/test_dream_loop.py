@@ -138,7 +138,7 @@ def daemon_module():
         del sys.modules['src.subconscious.daemon']
 
     try:
-        import src.subconscious.daemon as dm
+        import mnemocore.subconscious.daemon as dm
         yield dm
     finally:
         # Restore original sys.modules
@@ -360,7 +360,7 @@ class TestDreamLoopConfiguration:
 
     def test_dream_loop_config_from_yaml(self):
         """Test that dream loop configuration is loaded from config.yaml."""
-        from src.core.config import load_config, DreamLoopConfig
+        from mnemocore.core.config import load_config, DreamLoopConfig
 
         config = load_config()
 
@@ -376,7 +376,7 @@ class TestDreamLoopConfiguration:
 
     def test_dream_loop_config_defaults(self):
         """Test that dream loop config has sensible defaults."""
-        from src.core.config import DreamLoopConfig
+        from mnemocore.core.config import DreamLoopConfig
 
         config = DreamLoopConfig()
 

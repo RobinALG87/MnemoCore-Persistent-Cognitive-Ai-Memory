@@ -8,7 +8,7 @@ Validates mathematical properties of VSA operations.
 import numpy as np
 import pytest
 
-from src.core.binary_hdv import (
+from mnemocore.core.binary_hdv import (
     BinaryHDV,
     TextEncoder,
     batch_hamming_distance,

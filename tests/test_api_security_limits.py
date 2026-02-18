@@ -13,7 +13,7 @@ import os
 # Ensure path is set
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.config import reset_config
+from mnemocore.core.config import reset_config
 
 API_KEY = "test-key"
 
@@ -60,7 +60,7 @@ patcher2 = patch("src.api.main.build_container", return_value=mock_container)
 patcher1.start()
 patcher2.start()
 
-from src.api.main import app
+from mnemocore.api.main import app
 
 
 @pytest.fixture(autouse=True)

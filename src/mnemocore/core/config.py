@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-from src.core.exceptions import ConfigurationError
+from mnemocore.core.exceptions import ConfigurationError
 
 
 @dataclass(frozen=True)

@@ -12,11 +12,11 @@ import warnings
 import numpy as np
 
 # Test legacy HDV (deprecated)
-from src.core.hdv import HDV
-from src.core.exceptions import DimensionMismatchError
+from mnemocore.core.hdv import HDV
+from mnemocore.core.exceptions import DimensionMismatchError
 
 # Test BinaryHDV with compatibility shims
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.binary_hdv import BinaryHDV
 
 
 class TestLegacyHDV:

@@ -21,9 +21,9 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.binary_hdv import BinaryHDV
-from src.core.engine import HAIMEngine
-from src.core.config import reset_config
+from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.config import reset_config
 
 
 def _percentile(values: List[float], pct: float) -> float:

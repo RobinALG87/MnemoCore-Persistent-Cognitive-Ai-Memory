@@ -17,10 +17,10 @@ import pytest
 import pytest_asyncio
 from unittest.mock import patch, MagicMock
 
-from src.core.binary_hdv import BinaryHDV
-from src.core.config import get_config, reset_config
-from src.core.node import MemoryNode
-from src.core.tier_manager import TierManager
+from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.config import get_config, reset_config
+from mnemocore.core.node import MemoryNode
+from mnemocore.core.tier_manager import TierManager
 
 
 @pytest.fixture

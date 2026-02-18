@@ -13,9 +13,9 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 
-from src.core.consolidation import SemanticConsolidator
-from src.core.binary_hdv import BinaryHDV, majority_bundle
-from src.core.node import MemoryNode
+from mnemocore.core.consolidation import SemanticConsolidator
+from mnemocore.core.binary_hdv import BinaryHDV, majority_bundle
+from mnemocore.core.node import MemoryNode
 
 
 # Helper to create similar vectors

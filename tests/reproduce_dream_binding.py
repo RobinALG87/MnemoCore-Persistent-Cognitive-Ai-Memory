@@ -14,11 +14,11 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(project_root)
 
-from src.core.engine import HAIMEngine
-from src.core.config import get_config, SubconsciousAIConfig, HAIMConfig
-from src.core.subconscious_ai import SubconsciousAIWorker, ModelClient
-from src.core.node import MemoryNode
-from src.core.binary_hdv import BinaryHDV
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.config import get_config, SubconsciousAIConfig, HAIMConfig
+from mnemocore.core.subconscious_ai import SubconsciousAIWorker, ModelClient
+from mnemocore.core.node import MemoryNode
+from mnemocore.core.binary_hdv import BinaryHDV
 
 # Mock Model Client
 class MockModelClient(ModelClient):
@@ -56,7 +56,7 @@ async def run_verification():
     # Configure
     # We must mock config properly using replace since it is frozen
     import dataclasses
-    from src.core.config import PathsConfig
+    from mnemocore.core.config import PathsConfig
     
     cfg = get_config()
     

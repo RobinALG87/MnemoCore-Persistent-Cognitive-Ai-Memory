@@ -1,8 +1,8 @@
 
 import asyncio
 import uuid
-from src.core.engine import HAIMEngine
-from src.core.config import get_config
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.config import get_config
 
 async def verify():
     print("Initializing Engine...")
