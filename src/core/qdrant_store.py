@@ -54,10 +54,26 @@ class QdrantStore:
         """
         Ensure HOT and WARM collections exist with proper schema.
 
+        Performs a connectivity ping before collection setup so that startup
+        failures produce a clear, actionable error message.
+
         Raises:
             CircuitOpenError: If circuit breaker is open.
-            StorageConnectionError: If Qdrant connection fails.
+            StorageConnectionError: If Qdrant is unreachable or connection fails.
         """
+        # Phase 4.3: Verify connectivity before attempting collection setup.
+        # This converts a cryptic ConnectionRefusedError into a clear message.
+        try:
+            await self.client.get_collections()
+        except Exception as e:
+            msg = (
+                f"MnemoCore cannot reach Qdrant at '{self.url}'. "
+                f"Ensure Qdrant is running and the URL/API key are correct. "
+                f"Original error: {e}"
+            )
+            logger.error(msg)
+            raise StorageConnectionError(msg) from e
+
         try:
             return await qdrant_breaker.call(self._ensure_collections)
         except CircuitOpenError:

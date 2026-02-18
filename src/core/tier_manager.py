@@ -219,8 +219,15 @@ class TierManager:
         if warm_node:
             warm_node.tier = "warm"
             warm_node.access()
+            # Decide promotion under lock, then do I/O outside lock
+            should_promote = False
             async with self.lock:
-                await self._check_promotion(warm_node)
+                should_promote = self._check_promotion(warm_node)
+            if should_promote:
+                await self._delete_from_warm(warm_node.id)
+                if len(self.hot) > self.config.tiers_hot.max_memories:
+                    async with self.lock:
+                        await self._evict_from_hot()
             return warm_node
 
         return None
@@ -519,20 +526,24 @@ class TierManager:
             return await self._run_in_thread(_fs_load)
         return None
 
-    async def _check_promotion(self, node: MemoryNode):
-        """Check if WARM node should be promoted to HOT. Assumes lock is held."""
+    def _check_promotion(self, node: MemoryNode) -> bool:
+        """Check if WARM node should be promoted to HOT. Assumes lock is held.
+
+        Returns True if the node was promoted (in-memory state updated).
+        The caller is responsible for performing I/O (delete from WARM,
+        possible eviction) OUTSIDE the lock to avoid blocking HOT-tier
+        operations during network round-trips.
+        """
         threshold = self.config.tiers_hot.ltp_threshold_min
         delta = self.config.hysteresis.promote_delta
 
         if node.ltp_strength > (threshold + delta):
             logger.info(f"Promoting {node.id} to HOT (LTP: {node.ltp_strength:.4f})")
-            await self._delete_from_warm(node.id)
             node.tier = "hot"
             self.hot[node.id] = node
             self._add_to_faiss(node)
-
-            if len(self.hot) > self.config.tiers_hot.max_memories:
-                await self._evict_from_hot()
+            return True
+        return False
 
     async def _check_demotion(self, node: MemoryNode):
         """Check if HOT node should be demoted to WARM. Assumes lock is held."""
@@ -607,6 +618,7 @@ class TierManager:
                             tier="warm",
                             access_count=payload.get("access_count", 0),
                             ltp_strength=payload.get("ltp_strength", 0.0),
+                            previous_id=payload.get("previous_id"),  # Phase 4.3: episodic chain
                         )
                         nodes.append(node)
                     except Exception as exc:
@@ -646,6 +658,30 @@ class TierManager:
             nodes = await self._run_in_thread(_list_fs)
 
         return nodes
+
+    async def get_next_in_chain(self, node_id: str) -> Optional[MemoryNode]:
+        """
+        Return the MemoryNode that directly follows node_id in the episodic chain.
+
+        This is a typed wrapper around QdrantStore.get_by_previous_id() that
+        returns a fully-deserialized MemoryNode instead of a raw models.Record,
+        making the episodic-chain API consistent with the rest of TierManager.
+
+        Returns:
+            The next MemoryNode in the chain, or None if not found / Qdrant
+            unavailable.
+        """
+        if not self.use_qdrant or not self.qdrant:
+            return None
+
+        record = await self.qdrant.get_by_previous_id(
+            self.qdrant.collection_warm, node_id
+        )
+        if record is None:
+            return None
+
+        # Resolve to a full MemoryNode via the standard warm-load path
+        return await self._load_from_warm(str(record.id))
 
     async def consolidate_warm_to_cold(self):
         """

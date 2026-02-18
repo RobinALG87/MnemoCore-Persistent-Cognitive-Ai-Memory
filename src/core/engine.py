@@ -591,15 +591,12 @@ class HAIMEngine:
                     if prev_mem and prev_mem.id not in scores:
                         neighbor_ids.add(prev_mem.id)
 
-                # Try to find the memory that follows this one (has this as previous_id)
-                # This requires scanning or indexing - we use Qdrant if available
-                if self.tier_manager.use_qdrant and self.tier_manager.qdrant:
-                    next_mem_rec = await self.tier_manager.qdrant.get_by_previous_id(
-                        self.tier_manager.qdrant.collection_hot,
-                        result_id,
-                    )
-                    if next_mem_rec and next_mem_rec.id not in scores:
-                        neighbor_ids.add(next_mem_rec.id)
+                # Try to find the memory that follows this one (has this as previous_id).
+                # Use the typed TierManager wrapper so we always work with MemoryNode,
+                # not raw models.Record from Qdrant.
+                next_mem = await self.tier_manager.get_next_in_chain(result_id)
+                if next_mem and next_mem.id not in scores:
+                    neighbor_ids.add(next_mem.id)
 
             # Add neighbors with their semantic scores (no chrono boost for context)
             for neighbor_id in neighbor_ids:
