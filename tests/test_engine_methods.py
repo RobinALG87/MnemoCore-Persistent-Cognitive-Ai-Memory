@@ -9,6 +9,7 @@ Unit tests for the refactored private helper methods in HAIMEngine:
 """
 
 import os
+from collections import deque
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -299,7 +300,8 @@ class TestTriggerPostStore:
         await test_engine.initialize()
 
         # Pre-populate queue to prevent dream from consuming our node
-        test_engine.subconscious_queue = ["placeholder"]
+        test_engine.subconscious_queue.clear()
+        test_engine.subconscious_queue.append("placeholder")
 
         node = MemoryNode(
             id="test-node-id",
@@ -318,7 +320,7 @@ class TestTriggerPostStore:
         """Test that background dream is skipped for gap-filled memories."""
         await test_engine.initialize()
 
-        test_engine.subconscious_queue = []
+        test_engine.subconscious_queue.clear()
 
         node = MemoryNode(
             id="gap-fill-node",
@@ -339,7 +341,8 @@ class TestTriggerPostStore:
         await test_engine.initialize()
 
         # Pre-populate to test that dream is triggered
-        test_engine.subconscious_queue = ["pre-existing"]
+        test_engine.subconscious_queue.clear()
+        test_engine.subconscious_queue.append("pre-existing")
 
         node = MemoryNode(
             id="normal-node",
@@ -360,7 +363,7 @@ class TestTriggerPostStore:
         """Test behavior when subconscious queue is initially empty."""
         await test_engine.initialize()
 
-        test_engine.subconscious_queue = []
+        test_engine.subconscious_queue.clear()
 
         node = MemoryNode(
             id="first-node",
@@ -380,7 +383,7 @@ class TestTriggerPostStore:
         """Test that gap-filled nodes remain in queue since dream is skipped."""
         await test_engine.initialize()
 
-        test_engine.subconscious_queue = []
+        test_engine.subconscious_queue.clear()
 
         # Gap fill should NOT trigger dream, so node should remain
         node = MemoryNode(
@@ -400,7 +403,7 @@ class TestTriggerPostStore:
         """Test multiple gap fill calls add multiple entries to queue."""
         await test_engine.initialize()
 
-        test_engine.subconscious_queue = []
+        test_engine.subconscious_queue.clear()
 
         for i in range(3):
             node = MemoryNode(
@@ -413,6 +416,47 @@ class TestTriggerPostStore:
             await test_engine._trigger_post_store(node, {"source": "llm_gap_fill"})
 
         assert len(test_engine.subconscious_queue) == 3
+
+    async def test_subconscious_queue_respects_maxlen_config(self, tmp_path):
+        """Queue should drop oldest items when maxlen is configured."""
+        reset_config()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        os.environ["HAIM_DATA_DIR"] = str(data_dir)
+        os.environ["HAIM_MEMORY_FILE"] = str(data_dir / "memory.jsonl")
+        os.environ["HAIM_CODEBOOK_FILE"] = str(data_dir / "codebook.json")
+        os.environ["HAIM_SYNAPSES_FILE"] = str(data_dir / "synapses.json")
+        os.environ["HAIM_WARM_MMAP_DIR"] = str(data_dir / "warm")
+        os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(data_dir / "cold")
+        os.environ["HAIM_ENCODING_MODE"] = "binary"
+        os.environ["HAIM_DIMENSIONALITY"] = "1024"
+        os.environ["HAIM_DREAM_LOOP_SUBCONSCIOUS_QUEUE_MAXLEN"] = "2"
+
+        reset_config()
+        engine = HAIMEngine()
+        assert isinstance(engine.subconscious_queue, deque)
+
+        engine.subconscious_queue.append("id-1")
+        engine.subconscious_queue.append("id-2")
+        engine.subconscious_queue.append("id-3")
+
+        assert list(engine.subconscious_queue) == ["id-2", "id-3"]
+
+        for key in [
+            "HAIM_DATA_DIR",
+            "HAIM_MEMORY_FILE",
+            "HAIM_CODEBOOK_FILE",
+            "HAIM_SYNAPSES_FILE",
+            "HAIM_WARM_MMAP_DIR",
+            "HAIM_COLD_ARCHIVE_DIR",
+            "HAIM_ENCODING_MODE",
+            "HAIM_DIMENSIONALITY",
+            "HAIM_DREAM_LOOP_SUBCONSCIOUS_QUEUE_MAXLEN",
+        ]:
+            if key in os.environ:
+                del os.environ[key]
+        reset_config()
 
 
 # =============================================================================

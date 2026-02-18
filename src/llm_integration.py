@@ -753,12 +753,7 @@ class MultiAgentHAIM:
         if agent_id not in self.agents:
             raise AgentNotFoundError(agent_id)
 
-        # Get all active nodes (in production, filter by relevance)
-        active_nodes = list(self.shared_memory.tier_manager.hot.values())
-
-        # TODO: orchestrate_orch_or() not implemented in HAIMEngine
-        # For now, return top nodes sorted by LTP strength as a proxy for "collapse"
-        collapsed = sorted(active_nodes, key=lambda n: getattr(n, 'ltp_strength', 0), reverse=True)[:max_collapse]
+        collapsed = self.shared_memory.orchestrate_orch_or(max_collapse=max_collapse)
 
         # Enrich with agent context
         result = []

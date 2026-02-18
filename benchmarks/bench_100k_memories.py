@@ -1,21 +1,20 @@
 """
-Benchmark for MnemoCore with 100k memories.
+Benchmark for MnemoCore with up to 100k memories.
 
 Measures:
-- store() latency (P50, P95, P99)
-- query() latency (P50, P95, P99)
-- Memory usage (RSS)
-
-Usage:
-    python benchmarks/bench_100k_memories.py
+- actual HAIMEngine.store() latency (P50, P95, P99)
+- actual HAIMEngine.query() latency (P50, P95, P99)
+- HDV primitive latency (P99)
 """
 
+import argparse
+import asyncio
+import os
 import sys
 import time
-import tracemalloc
 from pathlib import Path
-from statistics import mean, quantiles
-from typing import List, Tuple
+from statistics import mean
+from typing import Dict, List
 
 import numpy as np
 
@@ -23,182 +22,158 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.binary_hdv import BinaryHDV
-from src.core.config import get_config
+from src.core.engine import HAIMEngine
+from src.core.config import reset_config
 
 
-def generate_test_memories(count: int, dimension: int = 1024) -> List[Tuple[str, np.ndarray]]:
-    """Generate test memory vectors."""
-    print(f"Generating {count:,} test memories...")
-    memories = []
-    for i in range(count):
-        hdv = BinaryHDV.random(dimension)
-        memories.append((f"memory_{i:06d}", hdv.data))
-    return memories
+def _percentile(values: List[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    idx = min(int(len(sorted_values) * pct), len(sorted_values) - 1)
+    return sorted_values[idx]
 
 
-def measure_store_latency(memories: List[Tuple[str, np.ndarray]],
-                          tier_manager,
-                          n_samples: int = 1000) -> dict:
-    """Measure store operation latency."""
-    print(f"Measuring store latency ({n_samples} samples)...")
-
-    latencies = []
-    sample_memories = memories[:n_samples]
-
-    for memory_id, data in sample_memories:
-        start = time.perf_counter()
-        # Simulate store operation (in-memory tier add)
-        # tier_manager.add_memory(...) would be called here
-        elapsed = time.perf_counter() - start
-        latencies.append(elapsed * 1000)  # Convert to ms
-
-    # Calculate percentiles
-    sorted_latencies = sorted(latencies)
-    p50 = sorted_latencies[int(len(sorted_latencies) * 0.50)]
-    p95 = sorted_latencies[int(len(sorted_latencies) * 0.95)]
-    p99 = sorted_latencies[int(len(sorted_latencies) * 0.99)]
-
+def _ms_stats(samples: List[float]) -> Dict[str, float]:
     return {
-        "count": n_samples,
-        "mean_ms": mean(latencies),
-        "p50_ms": p50,
-        "p95_ms": p95,
-        "p99_ms": p99,
+        "count": float(len(samples)),
+        "mean_ms": mean(samples) if samples else 0.0,
+        "p50_ms": _percentile(samples, 0.50),
+        "p95_ms": _percentile(samples, 0.95),
+        "p99_ms": _percentile(samples, 0.99),
     }
 
 
-def measure_hdv_operations(dimension: int = 1024, n_samples: int = 10000) -> dict:
-    """Measure HDV operation latencies."""
-    print(f"Measuring HDV operations ({n_samples} samples)...")
+def generate_contents(count: int) -> List[str]:
+    print(f"Generating {count:,} memory payloads...")
+    return [f"benchmark memory #{i:06d} with signal {i % 97}" for i in range(count)]
 
-    # Generate test vectors
+
+async def measure_store_latency(engine: HAIMEngine, contents: List[str]) -> Dict[str, float]:
+    print(f"Measuring store() latency on {len(contents):,} real calls...")
+    latencies_ms: List[float] = []
+    for i, content in enumerate(contents):
+        start = time.perf_counter()
+        await engine.store(content, metadata={"benchmark": True, "index": i})
+        latencies_ms.append((time.perf_counter() - start) * 1000.0)
+    return _ms_stats(latencies_ms)
+
+
+async def measure_query_latency(
+    engine: HAIMEngine, queries: List[str], top_k: int = 5
+) -> Dict[str, float]:
+    print(f"Measuring query() latency on {len(queries):,} real calls...")
+    latencies_ms: List[float] = []
+    for query_text in queries:
+        start = time.perf_counter()
+        await engine.query(query_text, top_k=top_k)
+        latencies_ms.append((time.perf_counter() - start) * 1000.0)
+    return _ms_stats(latencies_ms)
+
+
+def measure_hdv_operations(dimension: int, n_samples: int = 10000) -> Dict[str, Dict[str, float]]:
+    print(f"Measuring HDV operations ({n_samples:,} samples)...")
     v1 = BinaryHDV.random(dimension)
     v2 = BinaryHDV.random(dimension)
 
-    # Measure bind
     bind_times = []
+    permute_times = []
+    distance_times = []
+
     for _ in range(n_samples):
         start = time.perf_counter()
         v1.xor_bind(v2)
-        bind_times.append(time.perf_counter() - start)
+        bind_times.append((time.perf_counter() - start) * 1_000_000)
 
-    # Measure permute
-    permute_times = []
-    for _ in range(n_samples):
         start = time.perf_counter()
         v1.permute(1)
-        permute_times.append(time.perf_counter() - start)
+        permute_times.append((time.perf_counter() - start) * 1_000_000)
 
-    # Measure distance
-    distance_times = []
-    for _ in range(n_samples):
         start = time.perf_counter()
         v1.hamming_distance(v2)
-        distance_times.append(time.perf_counter() - start)
-
-    def stats(times):
-        sorted_times = sorted(times)
-        return {
-            "mean_us": mean(times) * 1_000_000,
-            "p50_us": sorted_times[int(len(sorted_times) * 0.50)] * 1_000_000,
-            "p99_us": sorted_times[int(len(sorted_times) * 0.99)] * 1_000_000,
-        }
+        distance_times.append((time.perf_counter() - start) * 1_000_000)
 
     return {
-        "bind": stats(bind_times),
-        "permute": stats(permute_times),
-        "distance": stats(distance_times),
+        "bind": {"p99_us": _percentile(bind_times, 0.99), "mean_us": mean(bind_times)},
+        "permute": {"p99_us": _percentile(permute_times, 0.99), "mean_us": mean(permute_times)},
+        "distance": {"p99_us": _percentile(distance_times, 0.99), "mean_us": mean(distance_times)},
     }
 
 
-def measure_memory_usage(memories: List[Tuple[str, np.ndarray]]) -> dict:
-    """Measure memory usage for storing memories."""
-    print("Measuring memory usage...")
+async def run_benchmark(args: argparse.Namespace) -> None:
+    os.environ["HAIM_DIMENSIONALITY"] = str(args.dimension)
+    reset_config()
 
-    tracemalloc.start()
+    engine = HAIMEngine()
+    await engine.initialize()
+    try:
+        contents = generate_contents(args.n_memories)
 
-    # Store memories and measure
-    snapshot_before = tracemalloc.take_snapshot()
+        print()
+        print("=" * 72)
+        print("HAIMEngine store/query benchmark")
+        print("=" * 72)
 
-    # Simulate in-memory storage
-    storage = {}
-    for memory_id, data in memories:
-        storage[memory_id] = data.copy()
+        store_sample = contents[: args.store_samples]
+        store_stats = await measure_store_latency(engine, store_sample)
 
-    snapshot_after = tracemalloc.take_snapshot()
+        query_count = min(args.query_samples, len(store_sample))
+        query_inputs = [f"signal {(i * 7) % 97}" for i in range(query_count)]
+        query_stats = await measure_query_latency(engine, query_inputs, top_k=args.top_k)
 
-    # Calculate difference
-    top_stats = snapshot_after.compare_to(snapshot_before, 'lineno')
-    total_diff = sum(stat.size_diff for stat in top_stats)
+        hdv_stats = measure_hdv_operations(args.dimension, args.hdv_samples)
 
-    tracemalloc.stop()
+        print()
+        print(f"{'Metric':<32} {'Mean':<14} {'P50':<14} {'P95':<14} {'P99':<14}")
+        print("-" * 90)
+        print(
+            f"{'store() latency (ms)':<32} "
+            f"{store_stats['mean_ms']:<14.3f} {store_stats['p50_ms']:<14.3f} "
+            f"{store_stats['p95_ms']:<14.3f} {store_stats['p99_ms']:<14.3f}"
+        )
+        print(
+            f"{'query() latency (ms)':<32} "
+            f"{query_stats['mean_ms']:<14.3f} {query_stats['p50_ms']:<14.3f} "
+            f"{query_stats['p95_ms']:<14.3f} {query_stats['p99_ms']:<14.3f}"
+        )
 
-    return {
-        "memories_count": len(memories),
-        "bytes_per_memory": total_diff / len(memories),
-        "total_mb": total_diff / (1024 * 1024),
-    }
+        print()
+        print(f"{'HDV op':<20} {'Mean (us)':<16} {'P99 (us)':<16}")
+        print("-" * 54)
+        for op, stats in hdv_stats.items():
+            print(f"{op:<20} {stats['mean_us']:<16.2f} {stats['p99_us']:<16.2f}")
+
+        print()
+        print("=" * 72)
+        print("SLO Check")
+        print("=" * 72)
+        print(
+            f"store() P99 < 50ms: {'PASS' if store_stats['p99_ms'] < 50 else 'FAIL'} "
+            f"({store_stats['p99_ms']:.3f}ms)"
+        )
+        print(
+            f"query() P99 < 50ms: {'PASS' if query_stats['p99_ms'] < 50 else 'FAIL'} "
+            f"({query_stats['p99_ms']:.3f}ms)"
+        )
+    finally:
+        await engine.close()
+        reset_config()
 
 
-def main():
-    """Run all benchmarks."""
-    print("=" * 70)
-    print("MnemoCore 100k Memory Benchmark")
-    print("=" * 70)
-    print()
-
-    # Configuration
-    dimension = 1024
-    n_memories = 100_000
-    n_samples = 10_000
-
-    # Generate test data
-    memories = generate_test_memories(n_memories, dimension)
-
-    print()
-    print("-" * 70)
-    print("HDV Operations (10,000 samples)")
-    print("-" * 70)
-
-    hdv_results = measure_hdv_operations(dimension, n_samples)
-
-    print(f"{'Operation':<15} {'Mean (us)':<12} {'P50 (us)':<12} {'P99 (us)':<12}")
-    print("-" * 50)
-    for op, stats in hdv_results.items():
-        print(f"{op:<15} {stats['mean_us']:<12.2f} {stats['p50_us']:<12.2f} {stats['p99_us']:<12.2f}")
-
-    print()
-    print("-" * 70)
-    print("Memory Usage")
-    print("-" * 70)
-
-    mem_results = measure_memory_usage(memories[:10000])  # Sample for speed
-
-    print(f"Memories stored: {mem_results['memories_count']:,}")
-    print(f"Bytes per memory: {mem_results['bytes_per_memory']:.1f}")
-    print(f"Total memory: {mem_results['total_mb']:.2f} MB")
-    print(f"Estimated 100k memories: {mem_results['bytes_per_memory'] * 100000 / (1024*1024):.2f} MB")
-
-    print()
-    print("=" * 70)
-    print("SLO Targets vs Actual")
-    print("=" * 70)
-
-    print(f"{'Metric':<30} {'Target':<15} {'Actual':<15} {'Status':<10}")
-    print("-" * 70)
-
-    # Check SLOs
-    bind_p99_us = hdv_results['bind']['p99_us']
-    print(f"{'bind() P99 latency':<30} {'< 100 us':<15} {bind_p99_us:.2f} us{'':<5} {'PASS' if bind_p99_us < 100 else 'FAIL':<10}")
-
-    permute_p99_us = hdv_results['permute']['p99_us']
-    print(f"{'permute() P99 latency':<30} {'< 100 us':<15} {permute_p99_us:.2f} us{'':<5} {'PASS' if permute_p99_us < 100 else 'FAIL':<10}")
-
-    print()
-    print("=" * 70)
-    print("Benchmark Complete")
-    print("=" * 70)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Benchmark HAIMEngine store/query performance")
+    parser.add_argument("--dimension", type=int, default=1024, help="HDV dimensionality")
+    parser.add_argument("--n-memories", type=int, default=100000, help="Dataset size label")
+    parser.add_argument(
+        "--store-samples", type=int, default=5000, help="Number of real store() calls"
+    )
+    parser.add_argument(
+        "--query-samples", type=int, default=1000, help="Number of real query() calls"
+    )
+    parser.add_argument("--hdv-samples", type=int, default=10000, help="HDV primitive sample count")
+    parser.add_argument("--top-k", type=int, default=5, help="top_k for query() benchmark")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_benchmark(parse_args()))

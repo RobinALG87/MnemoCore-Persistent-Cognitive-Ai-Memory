@@ -146,6 +146,7 @@ class DreamLoopConfig:
     frequency_seconds: int = 60
     batch_size: int = 10
     max_iterations: int = 0  # 0 = unlimited
+    subconscious_queue_maxlen: Optional[int] = None
     ollama_url: str = "http://localhost:11434/api/generate"
     model: str = "gemma3:1b"
 
@@ -216,6 +217,17 @@ def _build_tier(name: str, raw: dict) -> TierConfig:
         compression=raw.get("compression", "gzip"),
         archive_threshold_days=raw.get("archive_threshold_days", 30),
     )
+
+
+def _parse_optional_positive_int(value: Optional[object]) -> Optional[int]:
+    """Parse positive int values. Non-positive/invalid values become None."""
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def load_config(path: Optional[Path] = None) -> HAIMConfig:
@@ -428,11 +440,17 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
 
     # Build dream loop config
     dream_raw = raw.get("dream_loop") or {}
+    raw_queue_maxlen = dream_raw.get("subconscious_queue_maxlen")
+    env_queue_maxlen = os.environ.get("HAIM_DREAM_LOOP_SUBCONSCIOUS_QUEUE_MAXLEN")
+    queue_maxlen = _parse_optional_positive_int(
+        env_queue_maxlen if env_queue_maxlen is not None else raw_queue_maxlen
+    )
     dream_loop = DreamLoopConfig(
         enabled=_env_override("DREAM_LOOP_ENABLED", dream_raw.get("enabled", True)),
         frequency_seconds=_env_override("DREAM_LOOP_FREQUENCY_SECONDS", dream_raw.get("frequency_seconds", 60)),
         batch_size=_env_override("DREAM_LOOP_BATCH_SIZE", dream_raw.get("batch_size", 10)),
         max_iterations=_env_override("DREAM_LOOP_MAX_ITERATIONS", dream_raw.get("max_iterations", 0)),
+        subconscious_queue_maxlen=queue_maxlen,
         ollama_url=_env_override("DREAM_LOOP_OLLAMA_URL", dream_raw.get("ollama_url", "http://localhost:11434/api/generate")),
         model=_env_override("DREAM_LOOP_MODEL", dream_raw.get("model", "gemma3:1b")),
     )

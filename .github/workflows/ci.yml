@@ -42,7 +42,6 @@ jobs:
 
       - name: Run mypy (static type checker)
         run: mypy src/
-        continue-on-error: true
 
   # ===========================================================================
   # TEST JOB - Unit & Integration Tests with Coverage

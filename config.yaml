@@ -106,6 +106,7 @@ haim:
     frequency_seconds: 60  # Seconds between dream cycles
     batch_size: 10  # Number of memories to process per cycle
     max_iterations: 0  # Maximum iterations (0 = unlimited)
+    subconscious_queue_maxlen: 10000  # Max queued IDs (null/0 = unlimited)
     ollama_url: "http://localhost:11434/api/generate"
     model: "gemma3:1b"
 

@@ -122,44 +122,11 @@ class BinaryHDV:
         # Normalize shift to positive value within dimension
         shift = shift % self.dimension
 
-        # Optimization: Use bitwise operations for large dimensions to avoid
-        # expensive unpackbits/packbits. Threshold determined empirically (32k).
-        if self.dimension < 32768:
-            # Convert to unpacked bits, roll, repack (faster for small D)
-            bits = np.unpackbits(self.data)
-            bits = np.roll(bits, shift)
-            return BinaryHDV(
-                data=np.packbits(bits), dimension=self.dimension
-            )
-        else:
-            # Bitwise operation approach (faster for large D)
-            byte_shift = shift // 8
-            bit_shift = shift % 8
-
-            # 1. Byte level shift (circular)
-            data = np.roll(self.data, byte_shift)
-
-            # 2. Bit level shift (if needed)
-            if bit_shift > 0:
-                r_shift = 8 - bit_shift
-                # Calculate bits that wrap from previous byte
-                # low_part[i] gets the top `bit_shift` bits of data[i-1]
-                # moved to the bottom.
-
-                # Construct array of "bits from previous byte"
-                # For index 0, previous is index -1.
-                low_part = np.empty_like(data)
-                low_part[0] = data[-1] << r_shift
-                low_part[1:] = data[:-1] << r_shift
-
-                # Shift current byte bits right
-                data >>= bit_shift
-                # Combine
-                data |= low_part
-
-            return BinaryHDV(
-                data=data, dimension=self.dimension
-            )
+        bits = np.unpackbits(self.data)
+        bits = np.roll(bits, shift)
+        return BinaryHDV(
+            data=np.packbits(bits), dimension=self.dimension
+        )
 
     def invert(self) -> "BinaryHDV":
         """Bitwise NOT — produces the maximally distant vector."""

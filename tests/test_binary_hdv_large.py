@@ -4,13 +4,13 @@ import pytest
 from src.core.binary_hdv import BinaryHDV
 
 class TestLargeDimensionPermutation:
-    """Tests for optimized permute logic with D >= 32768."""
+    """Tests for large-dimension permute correctness."""
 
     LARGE_DIM = 65536 # Well above 32768 threshold
 
     def test_permute_large_dim_correctness(self):
         """
-        Compare new bitwise implementation against the golden reference
+        Compare permute implementation against the golden reference
         (unpackbits->roll->packbits).
         """
         D = self.LARGE_DIM
@@ -26,7 +26,7 @@ class TestLargeDimensionPermutation:
             shifted_bits = np.roll(bits, shift)
             expected_data = np.packbits(shifted_bits)
 
-            # Actual (using optimized path)
+            # Actual
             permuted = v.permute(shift)
 
             assert permuted.dimension == D
