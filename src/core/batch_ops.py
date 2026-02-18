@@ -19,6 +19,7 @@ try:
     import torch
     TORCH_AVAILABLE = True
 except ImportError:
+    torch = None  # type: ignore[assignment]
     TORCH_AVAILABLE = False
 
 from .binary_hdv import BinaryHDV, TextEncoder, batch_hamming_distance

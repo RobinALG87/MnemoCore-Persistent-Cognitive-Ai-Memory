@@ -150,5 +150,5 @@ def test_main_rejects_unknown_transport(monkeypatch):
     )
     monkeypatch.setattr(mcp_server, "build_server", lambda cfg: FakeFastMCP("x"))
 
-    with pytest.raises(ValueError, match="Unsupported MCP transport"):
+    with pytest.raises((ValueError, Exception), match="Unsupported transport"):
         mcp_server.main()

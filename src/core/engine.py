@@ -89,12 +89,12 @@ class HAIMEngine:
         # ── Phase 3.x: synapse raw dicts (kept for backward compat) ──
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
         self.synapse_adjacency: Dict[str, List[SynapticConnection]] = {}
-        # Async locks - initialized in initialize() to avoid RuntimeError
-        self.synapse_lock: Optional[asyncio.Lock] = None
+        # Async locks – safe to create here in Python 3.10+
+        self.synapse_lock: asyncio.Lock = asyncio.Lock()
         # Serialises concurrent _save_synapses disk writes
-        self._write_lock: Optional[asyncio.Lock] = None
+        self._write_lock: asyncio.Lock = asyncio.Lock()
         # Semaphore: only one dream cycle at a time (rate limiting)
-        self._dream_sem: Optional[asyncio.Semaphore] = None
+        self._dream_sem: asyncio.Semaphore = asyncio.Semaphore(1)
 
         # ── Phase 4.0: hardened O(1) synapse adjacency index ──────────
         self._synapse_index = SynapseIndex()
@@ -139,11 +139,6 @@ class HAIMEngine:
         """Async initialization."""
         if self._initialized:
             return
-
-        # Initialize asyncio primitives (requires running event loop)
-        self.synapse_lock = asyncio.Lock()
-        self._write_lock = asyncio.Lock()
-        self._dream_sem = asyncio.Semaphore(1)
 
         await self.tier_manager.initialize()
         await self._load_legacy_if_needed()

@@ -28,7 +28,8 @@ class TestBatchOps(unittest.TestCase):
 
     def test_gpu_device_selection(self):
         """Verify selection of CUDA when available."""
-        with patch("src.core.batch_ops.torch") as mock_torch:
+        with patch("src.core.batch_ops.torch") as mock_torch, \
+             patch("src.core.batch_ops.TORCH_AVAILABLE", True):
             mock_torch.cuda.is_available.return_value = True
             mock_torch.backends.mps.is_available.return_value = False
             bp = BatchProcessor(use_gpu=True)

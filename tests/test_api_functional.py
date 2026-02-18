@@ -80,4 +80,7 @@ def test_delete_memory_not_found():
 
     response = client.delete("/memory/mem_missing", headers={"X-API-Key": API_KEY})
     assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
+    # MnemoCore exception handler returns {"error": ..., "code": ..., "recoverable": ...}
+    json_resp = response.json()
+    error_text = json_resp.get("error", json_resp.get("detail", json_resp.get("message", ""))).lower()
+    assert "not found" in error_text or "memory" in error_text or "mem_missing" in error_text

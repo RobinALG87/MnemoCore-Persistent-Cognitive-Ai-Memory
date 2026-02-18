@@ -38,10 +38,10 @@ class TestHAIMEngineAsyncLock:
             # This should NOT raise RuntimeError
             engine = HAIMEngine(dimension=1024)
 
-            # Locks should be None before initialize()
-            assert engine.synapse_lock is None
-            assert engine._write_lock is None
-            assert engine._dream_sem is None
+            # Locks are created eagerly in __init__ (Python 3.10+ allows this safely)
+            assert isinstance(engine.synapse_lock, asyncio.Lock)
+            assert isinstance(engine._write_lock, asyncio.Lock)
+            assert isinstance(engine._dream_sem, asyncio.Semaphore)
             assert engine._initialized is False
         finally:
             # Cleanup
@@ -208,8 +208,8 @@ class TestTierManagerAsyncLock:
                 # This should NOT raise RuntimeError
                 tier_manager = TierManager()
 
-                # Lock should be None before initialize()
-                assert tier_manager.lock is None
+                # Lock is created eagerly in __init__ (Python 3.10+ allows this safely)
+                assert isinstance(tier_manager.lock, asyncio.Lock)
                 assert tier_manager._initialized is False
         finally:
             # Cleanup

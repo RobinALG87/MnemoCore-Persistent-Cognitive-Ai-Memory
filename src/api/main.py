@@ -129,7 +129,9 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     # Startup: Security Check
     config = get_config()
-    if not config.security.api_key:
+    security = config.security if config else None
+    _api_key = (security.api_key if security else None) or os.getenv("HAIM_API_KEY", "")
+    if not _api_key:
         logger.critical("No API Key configured! Set HAIM_API_KEY env var or security.api_key in config.")
         sys.exit(1)
 
@@ -249,8 +251,9 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 async def get_api_key(api_key: str = Security(api_key_header)):
     config = get_config()
-    # Phase 3.5.1 Security - Prioritize config.security.api_key
-    expected_key = config.security.api_key
+    # Phase 3.5.1 Security - Prioritize config.security.api_key, fallback to env var
+    security = config.security if config else None
+    expected_key = (security.api_key if security else None) or os.getenv("HAIM_API_KEY", "")
 
     if not expected_key:
         # Should be caught by startup check, but double check
