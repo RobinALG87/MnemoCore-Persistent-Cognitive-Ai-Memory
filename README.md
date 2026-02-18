@@ -5,7 +5,7 @@
 > *"Memory is not a container. It is a living process — a holographic continuum where every fragment contains the whole."*
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Beta%203.5.1-orange?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Beta%204.3.0-orange?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/FastAPI-Async%20Ready-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" />
@@ -29,7 +29,7 @@ At its core lives the **Holographic Active Inference Memory (HAIM) Engine** — 
 - **Self-organizes** into tiered storage based on biologically-inspired Long-Term Potentiation (LTP)
 - **Scales** from a single process to distributed nodes targeting 1B+ memories
 
-Phase 4.0 introduces five cognitive enhancements — contextual query masking, reliability feedback loops, semantic consolidation, auto-associative cleanup, and proactive knowledge gap detection — transforming MnemoCore from passive storage into an active reasoning substrate.
+Phase 4.x introduces cognitive enhancements including contextual masking, reliability feedback loops, semantic consolidation, gap detection/filling, and temporal recall (episodic chaining + chrono-weighted query).
 
 ---
 
@@ -727,7 +727,7 @@ uvicorn src.api.main:app --host 0.0.0.0 --port 8100
 
 The API is now live at `http://localhost:8100`. Visit `http://localhost:8100/docs` for the interactive Swagger UI.
 
-### With Qdrant (Phase 3.5+ Scale)
+### With Qdrant (Phase 4.x Scale)
 
 ```bash
 # Start Qdrant alongside Redis
@@ -748,7 +748,7 @@ All configuration lives in `config.yaml`. Values can be overridden with environm
 
 ```yaml
 haim:
-  version: "3.5"
+  version: "4.3"
   dimensionality: 16384        # Binary vector dimensions (must be multiple of 8)
 
   encoding:
@@ -892,55 +892,35 @@ pytest
 pytest --cov=src --cov-report=html
 
 # Run specific feature tests
-pytest tests/test_contextual_masking.py    # Enhancement #1
-pytest tests/test_reliability.py           # Enhancement #2
-pytest tests/test_consolidation.py         # Enhancement #3
-pytest tests/test_cleanup.py               # Enhancement #4
-pytest tests/test_gap_detection.py         # Enhancement #5
+pytest tests/test_xor_attention.py         # Contextual masking
+pytest tests/test_stability.py             # Reliability/Bayesian stability
+pytest tests/test_consolidation.py         # Semantic consolidation
+pytest tests/test_engine_cleanup.py        # Cleanup and decay
+pytest tests/test_phase43_regressions.py   # Phase 4.3 regression guardrails
 
-# Integration suite (requires Redis)
-pytest tests/integration/ -m "integration"
-
-# Phase 4.0 full cognitive suite
-pytest tests/integration/test_cognitive_suite.py -v
+# End-to-end flow
+pytest tests/test_e2e_flow.py -v
 ```
 
 ---
 
 ## Roadmap
 
-### Phase 3.5 *(Current — Beta)*
+### Current Beta (v4.3)
 
-- [x] Binary HDV core with SHAKE-256 token encoding
-- [x] Three-tier HOT/WARM/COLD architecture
-- [x] LTP-driven memory eviction and promotion
-- [x] Async FastAPI with Redis dual-write
-- [x] Subconscious dream loop with Hebbian synapse strengthening
-- [x] Conceptual reasoning layer (analogy, cross-domain inference)
-- [x] Prometheus metrics + structured logging
-- [x] MCP server adapter
-- [ ] Qdrant binary index integration (COLD tier)
-- [ ] asyncio.Lock migration (threading safety)
-- [ ] UUID standardization (ID format)
+- [x] Binary HDV core (XOR bind / bundle / permute / Hamming)
+- [x] Three-tier HOT/WARM/COLD memory lifecycle
+- [x] Async API + MCP integration
+- [x] XOR attention masking + Bayesian reliability updates
+- [x] Semantic consolidation, immunology cleanup, and gap detection/filling
+- [x] Temporal recall: episodic chaining + chrono-weighted query
+- [x] Regression guardrails for Phase 4.3 critical paths
 
-### Phase 4.0 *(In Development)*
+### Next Steps
 
-- [ ] Contextual query masking (XOR attention)
-- [ ] Reliability feedback loop (Bayesian LTP)
-- [ ] Nightly semantic consolidation worker
-- [ ] Auto-associative cleanup loop (vector immunology)
-- [ ] Knowledge gap detection (proactive curiosity)
-- [ ] Autonomous gap-filling via LLM integration
-- [ ] FAISS / HNSW ANN index for HOT tier
-- [ ] Synapse adjacency list (O(1) lookup)
-
-### Phase 5.0 *(Research)*
-
-- [ ] GPU CUDA kernels for massively parallel bitwise ops
-- [ ] Federated distributed memory consensus across nodes
-- [ ] Temporal sequence memory (episodic ordering)
-- [ ] Active goal-directed memory search (free energy minimization)
-- [ ] Neuromorphic hardware deployment (Intel Loihi, IBM NorthPole)
+- [ ] Hardening pass for distributed/clustered HOT-tier behavior
+- [ ] Extended observability standardization (`mnemocore_*` transition)
+- [ ] Self-improvement loop (design documented, staged rollout pending)
 
 ---
 

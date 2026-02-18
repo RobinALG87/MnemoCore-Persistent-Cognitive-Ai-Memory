@@ -13,7 +13,7 @@
 
 ### BinaryHDV Operations (1024 dimensions)
 
-| Operation | Time (μs) | Notes |
+| Operation | Time (us) | Notes |
 |-----------|-----------|-------|
 | `xor_bind()` | ~5 | XOR binding of two vectors |
 | `permute()` | ~5 | Cyclic permutation |
@@ -22,16 +22,18 @@
 
 ### permute() Benchmark Results
 
-| Dimension | Unpackbits (μs) | Bitwise (μs) | Faster |
-|-----------|-----------------|--------------|--------|
-| 512 | 5.17 | 8.10 | unpackbits |
-| 4096 | 5.54 | 9.36 | unpackbits |
-| 16384 | 6.79 | 12.83 | unpackbits |
-| 32768 | 8.21 | 16.22 | unpackbits |
-| 65536 | 11.28 | 24.94 | unpackbits |
-| 131072 | 17.71 | 43.48 | unpackbits |
+`BinaryHDV.permute()` now uses one production path (`unpackbits` + `roll` + `packbits`) across all dimensions.
 
-**Recommendation:** Use `unpackbits` implementation for all dimensions (56-145% faster).
+| Dimension | permute() (us) | Notes |
+|-----------|----------------|-------|
+| 512 | ~5.2 | Production path |
+| 4096 | ~5.5 | Production path |
+| 16384 | ~6.8 | Production path |
+| 32768 | ~8.2 | Production path |
+| 65536 | ~11.3 | Production path |
+| 131072 | ~17.7 | Production path |
+
+Run `python benchmarks/bench_permute.py` for machine-specific current numbers.
 
 ## Load Testing
 
@@ -55,10 +57,10 @@ python benchmarks/bench_100k_memories.py
 
 ## Performance Optimization Tips
 
-1. **Use BinaryHDV instead of float HDV** - 10x faster operations
-2. **Batch operations** - Use batch methods for bulk inserts
-3. **Connection pooling** - Ensure Redis connection pool is sized appropriately
-4. **Qdrant quantization** - Enable binary quantization for faster search
+1. Use BinaryHDV instead of float HDV.
+2. Use batch operations for bulk work.
+3. Keep Redis connection pools right-sized.
+4. Enable Qdrant binary quantization for faster search.
 
 ## Monitoring
 

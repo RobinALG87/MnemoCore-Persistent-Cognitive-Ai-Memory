@@ -225,6 +225,29 @@ class TierManager:
 
         return None
 
+    async def get_memories_batch(self, node_ids: List[str]) -> List[Optional[MemoryNode]]:
+        """
+        Retrieve multiple memories concurrently.
+
+        Preserves input order and returns None for missing/error cases.
+        """
+        if not node_ids:
+            return []
+
+        unique_ids = list(dict.fromkeys(node_ids))
+        tasks = [self.get_memory(nid) for nid in unique_ids]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        result_by_id: Dict[str, Optional[MemoryNode]] = {}
+        for nid, result in zip(unique_ids, raw_results):
+            if isinstance(result, Exception):
+                logger.error(f"Batch get_memory failed for {nid}: {result}")
+                result_by_id[nid] = None
+            else:
+                result_by_id[nid] = result
+
+        return [result_by_id.get(nid) for nid in node_ids]
+
     async def delete_memory(self, node_id: str):
         """Robust delete from all tiers."""
         async with self.lock:
@@ -709,11 +732,12 @@ class TierManager:
         if time_range:
             start_ts = time_range[0].timestamp()
             end_ts = time_range[1].timestamp()
-            hot_results = [
-                (nid, score) for nid, score in hot_results
-                if nid in self.hot and
-                   start_ts <= self.hot[nid].created_at.timestamp() <= end_ts
-            ]
+            async with self.lock:
+                hot_results = [
+                    (nid, score) for nid, score in hot_results
+                    if nid in self.hot and
+                    start_ts <= self.hot[nid].created_at.timestamp() <= end_ts
+                ]
 
         # 2. Search WARM via Qdrant
         warm_results = []
