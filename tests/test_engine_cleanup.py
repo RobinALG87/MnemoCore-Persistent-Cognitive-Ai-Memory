@@ -30,7 +30,8 @@ def test_engine(tmp_path):
         del os.environ["HAIM_SYNAPSES_FILE"]
     reset_config()
 
-def test_cleanup_decay(test_engine):
+@pytest.mark.asyncio
+async def test_cleanup_decay(test_engine):
     # Add dummy synapses
     # Synapse 1: Weak (below threshold 0.1)
     syn1 = SynapticConnection("mem_1", "mem_2", initial_strength=0.05)
@@ -44,7 +45,7 @@ def test_cleanup_decay(test_engine):
     assert len(test_engine.synapses) == 2
 
     # Run cleanup
-    test_engine.cleanup_decay(threshold=0.1)
+    await test_engine.cleanup_decay(threshold=0.1)
 
     # Verify results
     assert len(test_engine.synapses) == 1
@@ -54,11 +55,12 @@ def test_cleanup_decay(test_engine):
     # Verify persistence
     assert os.path.exists(test_engine.synapse_path)
 
-def test_cleanup_no_decay(test_engine):
+@pytest.mark.asyncio
+async def test_cleanup_no_decay(test_engine):
     # All strong
     syn1 = SynapticConnection("mem_1", "mem_2", initial_strength=0.5)
     test_engine.synapses[("mem_1", "mem_2")] = syn1
 
-    test_engine.cleanup_decay(threshold=0.1)
+    await test_engine.cleanup_decay(threshold=0.1)
 
     assert len(test_engine.synapses) == 1

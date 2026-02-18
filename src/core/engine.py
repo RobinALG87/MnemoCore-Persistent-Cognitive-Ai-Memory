@@ -24,6 +24,15 @@ from .synapse import SynapticConnection
 from .holographic import ConceptualMemory
 from .tier_manager import TierManager
 
+# ── Phase 4.0 imports ──────────────────────────────────────────────
+from .attention import XORAttentionMasker, AttentionConfig
+from .bayesian_ltp import get_bayesian_updater
+from .semantic_consolidation import SemanticConsolidationWorker, SemanticConsolidationConfig
+from .immunology import ImmunologyLoop, ImmunologyConfig
+from .gap_detector import GapDetector, GapDetectorConfig
+from .gap_filler import GapFiller, GapFillerConfig
+from .synapse_index import SynapseIndex
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,9 +58,26 @@ class HAIMEngine:
         self.tier_manager = TierManager()
         self.binary_encoder = TextEncoder(self.dimension)
 
+        # ── Phase 3.x: synapse raw dicts (kept for backward compat) ──
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
         self.synapse_adjacency: Dict[str, List[SynapticConnection]] = {}
         self.synapse_lock = asyncio.Lock()
+
+        # ── Phase 4.0: hardened O(1) synapse adjacency index ──────────
+        self._synapse_index = SynapseIndex()
+
+        # ── Phase 4.0: XOR attention masker ───────────────────────────
+        self.attention_masker = XORAttentionMasker(AttentionConfig())
+
+        # ── Phase 4.0: gap detector & filler (wired in initialize()) ──
+        self.gap_detector = GapDetector(GapDetectorConfig())
+        self._gap_filler: Optional[GapFiller] = None
+
+        # ── Phase 4.0: semantic consolidation worker ───────────────────
+        self._semantic_worker: Optional[SemanticConsolidationWorker] = None
+
+        # ── Phase 4.0: immunology loop ─────────────────────────────────
+        self._immunology: Optional[ImmunologyLoop] = None
 
         # Conceptual Layer (VSA Soul)
         data_dir = self.config.paths.data_dir
@@ -73,6 +99,15 @@ class HAIMEngine:
         await self.tier_manager.initialize()
         await self._load_legacy_if_needed()
         await self._load_synapses()
+
+        # ── Phase 4.0: start background workers ───────────────────────
+        self._semantic_worker = SemanticConsolidationWorker(self)
+        await self._semantic_worker.start()
+
+        self._immunology = ImmunologyLoop(self)
+        await self._immunology.start()
+
+        logger.info("Phase 4.0 background workers started (consolidation + immunology).")
 
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run blocking function in thread pool."""
@@ -166,6 +201,8 @@ class HAIMEngine:
         """
         Delete a memory from all internal states and storage tiers.
         Returns True if something was deleted.
+
+        Phase 4.0: uses SynapseIndex.remove_node() for O(k) removal.
         """
         logger.info(f"Deleting memory {node_id}")
 
@@ -176,25 +213,20 @@ class HAIMEngine:
         if node_id in self.subconscious_queue:
             self.subconscious_queue.remove(node_id)
 
-        # 3. Clean up synapses safely
+        # 3. Phase 4.0: clean up via SynapseIndex (O(k))
         async with self.synapse_lock:
-            keys_to_remove = [k for k in self.synapses.keys() if node_id in k]
-            for k in keys_to_remove:
-                syn = self.synapses[k]
-                del self.synapses[k]
-                # Remove from adjacency
-                if syn.neuron_a_id in self.synapse_adjacency:
-                    if syn in self.synapse_adjacency[syn.neuron_a_id]:
-                        self.synapse_adjacency[syn.neuron_a_id].remove(syn)
-                if syn.neuron_b_id in self.synapse_adjacency:
-                    if syn in self.synapse_adjacency[syn.neuron_b_id]:
-                        self.synapse_adjacency[syn.neuron_b_id].remove(syn)
+            removed_count = self._synapse_index.remove_node(node_id)
 
-            # Remove node_id key from adjacency dict if present
-            if node_id in self.synapse_adjacency:
-                del self.synapse_adjacency[node_id]
+            # Rebuild legacy dicts
+            self.synapses = dict(self._synapse_index.items())
+            self.synapse_adjacency = {}
+            for syn in self._synapse_index.values():
+                self.synapse_adjacency.setdefault(syn.neuron_a_id, [])
+                self.synapse_adjacency.setdefault(syn.neuron_b_id, [])
+                self.synapse_adjacency[syn.neuron_a_id].append(syn)
+                self.synapse_adjacency[syn.neuron_b_id].append(syn)
 
-        if keys_to_remove:
+        if removed_count:
             await self._save_synapses()
 
         return deleted
@@ -202,6 +234,15 @@ class HAIMEngine:
     async def close(self):
         """Perform graceful shutdown of engine components."""
         logger.info("Shutting down HAIMEngine...")
+
+        # Phase 4.0: stop background workers
+        if self._semantic_worker:
+            await self._semantic_worker.stop()
+        if self._immunology:
+            await self._immunology.stop()
+        if self._gap_filler:
+            await self._gap_filler.stop()
+
         await self._save_synapses()
         if self.tier_manager.use_qdrant and self.tier_manager.qdrant:
             await self.tier_manager.qdrant.close()
@@ -215,60 +256,82 @@ class HAIMEngine:
         """
         Query memories using Hamming distance.
         Searches HOT tier and limited WARM tier.
+
+        Phase 4.0 additions:
+          - XOR attention masking re-ranks results for novelty.
+          - Gap detection runs on low-confidence results.
         """
         # Encode Query
         query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
 
-        # 1. Primary Search (Accelerated FAISS + Qdrant)
+        # 1. Primary Search (Accelerated FAISS/HNSW + Qdrant)
         search_results = await self.tier_manager.search(query_vec, top_k=top_k * 2)
 
         scores: Dict[str, float] = {}
         for nid, base_sim in search_results:
-            # Boost by synaptic health
-            boost = await self.get_node_boost(nid)
+            # Boost by synaptic health (Phase 4.0: use SynapseIndex.boost for O(k))
+            boost = self._synapse_index.boost(nid)
             scores[nid] = base_sim * boost
 
-        # 2. Associative Spreading
-        if associative_jump:
-            async with self.synapse_lock:
-                synapses_snap = list(self.synapses.items())
+        # 2. Associative Spreading (via SynapseIndex for O(1) adjacency lookup)
+        if associative_jump and self._synapse_index:
+            top_seeds = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            augmented_scores = scores.copy()
 
-            if synapses_snap:
-                augmented_scores = scores.copy()
-                top_seeds = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            for seed_id, seed_score in top_seeds:
+                if seed_score <= 0:
+                    continue
 
-                for seed_id, seed_score in top_seeds:
-                    if seed_score <= 0:
-                        continue
+                neighbour_synapses = self._synapse_index.neighbours(seed_id)
 
-                    neighbors_conns = []
-                    async with self.synapse_lock:
-                        if seed_id in self.synapse_adjacency:
-                            neighbors_conns = list(self.synapse_adjacency[seed_id])
+                for syn in neighbour_synapses:
+                    neighbor = (
+                        syn.neuron_b_id if syn.neuron_a_id == seed_id else syn.neuron_a_id
+                    )
+                    if neighbor not in augmented_scores:
+                        mem = await self.tier_manager.get_memory(neighbor)
+                        if mem:
+                            augmented_scores[neighbor] = query_vec.similarity(mem.hdv)
 
-                    for synapse in neighbors_conns:
-                        neighbor = (
-                            synapse.neuron_b_id
-                            if synapse.neuron_a_id == seed_id
-                            else synapse.neuron_a_id
-                        )
+                    if neighbor in augmented_scores:
+                        spread = seed_score * syn.get_current_strength() * 0.3
+                        augmented_scores[neighbor] += spread
 
-                        # Retrieve neighbor if not in scores (could be in WARM)
-                        if neighbor not in augmented_scores:
-                            mem = await self.tier_manager.get_memory(neighbor)
-                            if mem:
-                                n_sim = query_vec.similarity(mem.hdv)
-                                augmented_scores[neighbor] = n_sim
+            scores = augmented_scores
 
-                        if neighbor in augmented_scores:
-                            spread = seed_score * synapse.get_current_strength() * 0.3
-                            augmented_scores[neighbor] += spread
+        # ── Phase 4.0: XOR attention re-ranking ───────────────────────
+        attention_mask = None
+        top_results: List[Tuple[str, float]] = sorted(
+            scores.items(), key=lambda x: x[1], reverse=True
+        )[:top_k]
 
-                scores = augmented_scores
+        if scores:
+            # Build context key from recent HOT nodes
+            recent_nodes = await self.tier_manager.get_hot_recent(
+                self.attention_masker.config.context_sample_n
+            )
+            if recent_nodes:
+                ctx_vecs = [n.hdv for n in recent_nodes]
+                ctx_key = self.attention_masker.build_context_key(ctx_vecs)
+                attention_mask = self.attention_masker.build_attention_mask(query_vec, ctx_key)
 
-        # Sort
-        results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return results[:top_k]
+                # Collect HDVs for re-ranking (only HOT nodes available synchronously)
+                mem_vecs: Dict[str, BinaryHDV] = {}
+                async with self.tier_manager.lock:
+                    for nid in list(scores.keys()):
+                        node = self.tier_manager.hot.get(nid)
+                        if node:
+                            mem_vecs[nid] = node.hdv
+
+                ranked = self.attention_masker.rerank(scores, mem_vecs, attention_mask)
+                top_results = self.attention_masker.extract_scores(ranked)[:top_k]
+
+        # ── Phase 4.0: Knowledge gap detection ────────────────────────
+        asyncio.ensure_future(
+            self.gap_detector.assess_query(query_text, top_results, attention_mask)
+        )
+
+        return top_results
 
     async def _background_dream(self, depth: int = 2):
         """Passive Subconscious - Strengthening synapses in idle cycles"""
@@ -289,90 +352,156 @@ class HAIMEngine:
                 await self.bind_memories(stim_id, neighbor_id, success=True)
 
     async def bind_memories(self, id_a: str, id_b: str, success: bool = True):
-        """Bind two memories by ID."""
+        """
+        Bind two memories by ID.
+
+        Phase 4.0: delegates to SynapseIndex for O(1) insert/fire.
+        Also syncs legacy dicts for backward-compat.
+        """
         mem_a = await self.tier_manager.get_memory(id_a)
         mem_b = await self.tier_manager.get_memory(id_b)
 
         if not mem_a or not mem_b:
             return
 
-        synapse_key = tuple(sorted([id_a, id_b]))
-
         async with self.synapse_lock:
-            if synapse_key not in self.synapses:
-                syn = SynapticConnection(synapse_key[0], synapse_key[1])
-                self.synapses[synapse_key] = syn
-                # Update adjacency
-                if synapse_key[0] not in self.synapse_adjacency:
-                    self.synapse_adjacency[synapse_key[0]] = []
-                if synapse_key[1] not in self.synapse_adjacency:
-                    self.synapse_adjacency[synapse_key[1]] = []
-                self.synapse_adjacency[synapse_key[0]].append(syn)
-                self.synapse_adjacency[synapse_key[1]].append(syn)
+            syn = self._synapse_index.add_or_fire(id_a, id_b, success=success)
 
-            self.synapses[synapse_key].fire(success=success)
+            # Keep legacy dict in sync for any external code still using it
+            synapse_key = tuple(sorted([id_a, id_b]))
+            self.synapses[synapse_key] = syn
+            self.synapse_adjacency.setdefault(synapse_key[0], [])
+            self.synapse_adjacency.setdefault(synapse_key[1], [])
+            if syn not in self.synapse_adjacency[synapse_key[0]]:
+                self.synapse_adjacency[synapse_key[0]].append(syn)
+            if syn not in self.synapse_adjacency[synapse_key[1]]:
+                self.synapse_adjacency[synapse_key[1]].append(syn)
 
         await self._save_synapses()
 
     async def get_node_boost(self, node_id: str) -> float:
-        boost = 1.0
-        connections = []
-        async with self.synapse_lock:
-            if node_id in self.synapse_adjacency:
-                connections = list(self.synapse_adjacency[node_id])
+        """
+        Compute synaptic boost for scoring.
 
-        for synapse in connections:
-            boost *= (1.0 + synapse.get_current_strength())
-        return boost
+        Phase 4.0: O(k) via SynapseIndex (was O(k) before but with lock overhead).
+        """
+        return self._synapse_index.boost(node_id)
 
     async def cleanup_decay(self, threshold: float = 0.1):
-        """Remove synapses that have decayed below the threshold."""
+        """
+        Remove synapses that have decayed below the threshold.
+
+        Phase 4.0: O(E) via SynapseIndex.compact(), no lock required for the index itself.
+        Also syncs any legacy dict entries into the index before compacting.
+        """
         async with self.synapse_lock:
-            to_remove = []
-            for key, synapse in self.synapses.items():
-                if synapse.get_current_strength() < threshold:
-                    to_remove.append(key)
+            # Sync legacy dict → SynapseIndex (handles tests that inject directly)
+            for key, syn in list(self.synapses.items()):
+                if self._synapse_index.get(syn.neuron_a_id, syn.neuron_b_id) is None:
+                    from .synapse_index import _key as _sk
+                    self._synapse_index._edges[_sk(syn.neuron_a_id, syn.neuron_b_id)] = syn
+                    self._synapse_index._adj.setdefault(syn.neuron_a_id, set()).add(syn.neuron_b_id)
+                    self._synapse_index._adj.setdefault(syn.neuron_b_id, set()).add(syn.neuron_a_id)
 
-            for key in to_remove:
-                syn = self.synapses[key]
-                del self.synapses[key]
-                # Remove from adjacency
-                if syn.neuron_a_id in self.synapse_adjacency:
-                    if syn in self.synapse_adjacency[syn.neuron_a_id]:
-                        self.synapse_adjacency[syn.neuron_a_id].remove(syn)
-                if syn.neuron_b_id in self.synapse_adjacency:
-                    if syn in self.synapse_adjacency[syn.neuron_b_id]:
-                        self.synapse_adjacency[syn.neuron_b_id].remove(syn)
+            removed = self._synapse_index.compact(threshold)
 
-            should_save = len(to_remove) > 0
-            count = len(to_remove)
+            if removed:
+                # Rebuild legacy dicts from the index
+                self.synapses = dict(self._synapse_index.items())
+                self.synapse_adjacency = {}
+                for syn in self._synapse_index.values():
+                    self.synapse_adjacency.setdefault(syn.neuron_a_id, [])
+                    self.synapse_adjacency.setdefault(syn.neuron_b_id, [])
+                    self.synapse_adjacency[syn.neuron_a_id].append(syn)
+                    self.synapse_adjacency[syn.neuron_b_id].append(syn)
 
-        if should_save:
-            logger.info(f"Cleaning up {count} decayed synapses")
-            await self._save_synapses()
+                logger.info(f"cleanup_decay: pruned {removed} synapses below {threshold}")
+                await self._save_synapses()
 
     async def get_stats(self) -> Dict[str, Any]:
         """Aggregate statistics from engine components."""
         tier_stats = await self.tier_manager.get_stats()
 
         async with self.synapse_lock:
-            syn_count = len(self.synapses)
+            syn_count = len(self._synapse_index)
 
-        return {
-            "engine_version": "3.5.2",
+        stats = {
+            "engine_version": "4.0.0",
             "dimension": self.dimension,
             "encoding": "binary_hdv",
             "tiers": tier_stats,
             "concepts_count": len(self.soul.concepts),
             "symbols_count": len(self.soul.symbols),
             "synapses_count": syn_count,
+            "synapse_index": self._synapse_index.stats,
             "subconscious_backlog": len(self.subconscious_queue),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            # Phase 4.0
+            "gap_detector": self.gap_detector.stats,
+            "immunology": self._immunology.stats if self._immunology else {},
+            "semantic_consolidation": (
+                self._semantic_worker.stats if self._semantic_worker else {}
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        return stats
 
     def encode_content(self, content: str) -> BinaryHDV:
         """Encode text to Binary HDV."""
         return self.binary_encoder.encode(content)
+
+    # ── Phase 4.0: Gap filling ─────────────────────────────────────
+
+    async def enable_gap_filling(
+        self,
+        llm_integrator,
+        config: Optional["GapFillerConfig"] = None,
+    ) -> None:
+        """
+        Attach an LLM integrator to autonomously fill knowledge gaps.
+
+        Args:
+            llm_integrator: HAIMLLMIntegrator instance.
+            config: Optional GapFillerConfig overrides.
+        """
+        if self._gap_filler:
+            await self._gap_filler.stop()
+
+        self._gap_filler = GapFiller(
+            engine=self,
+            llm_integrator=llm_integrator,
+            gap_detector=self.gap_detector,
+            config=config or GapFillerConfig(),
+        )
+        await self._gap_filler.start()
+        logger.info("Phase 4.0 GapFiller started.")
+
+    async def record_retrieval_feedback(
+        self,
+        node_id: str,
+        helpful: bool,
+        eig_signal: float = 1.0,
+    ) -> None:
+        """
+        Record whether a retrieved memory was useful.
+
+        Phase 4.0: feeds the Bayesian LTP updater for the node.
+
+        Args:
+            node_id: The memory node that was retrieved.
+            helpful: Was the retrieval actually useful?
+            eig_signal: Strength of evidence (0–1).
+        """
+        node = await self.tier_manager.get_memory(node_id)
+        if node:
+            updater = get_bayesian_updater()
+            updater.observe_node_retrieval(node, helpful=helpful, eig_signal=eig_signal)
+
+    async def register_negative_feedback(self, query_text: str) -> None:
+        """
+        Signal that a recent query was not adequately answered.
+        Creates a high-priority gap record for LLM gap-filling.
+        """
+        await self.gap_detector.register_negative_feedback(query_text)
 
     async def get_memory(self, node_id: str) -> Optional[MemoryNode]:
         """Retrieve memory via TierManager."""
@@ -449,68 +578,43 @@ class HAIMEngine:
                 logger.warning(f"Failed to load record: {e}")
 
     async def _load_synapses(self):
+        """
+        Load synapses from disk.
+
+        Phase 4.0: uses SynapseIndex.load_from_file() which restores Bayesian state.
+        """
         if not os.path.exists(self.synapse_path):
             return
 
         def _load():
-            res = {}
-            try:
-                with open(self.synapse_path, 'r') as f:
-                    for line in f:
-                        if not line.strip():
-                            continue
-                        rec = json.loads(line)
-                        syn = SynapticConnection(
-                            rec['neuron_a_id'], rec['neuron_b_id'], rec['strength']
-                        )
-                        syn.fire_count = rec.get('fire_count', 0)
-                        syn.success_count = rec.get('success_count', 0)
-                        if 'last_fired' in rec:
-                            syn.last_fired = datetime.fromisoformat(rec['last_fired'])
-                        res[tuple(sorted([syn.neuron_a_id, syn.neuron_b_id]))] = syn
-            except Exception as e:
-                logger.error(f"Error loading synapses: {e}")
-            return res
+            self._synapse_index.load_from_file(self.synapse_path)
 
+        await self._run_in_thread(_load)
+
+        # Rebuild legacy dicts from SynapseIndex for backward compat
         async with self.synapse_lock:
-            loaded_synapses = await self._run_in_thread(_load)
-            self.synapses = loaded_synapses
-            # Rebuild adjacency
+            self.synapses = dict(self._synapse_index.items())
             self.synapse_adjacency = {}
-            for syn in self.synapses.values():
-                if syn.neuron_a_id not in self.synapse_adjacency:
-                    self.synapse_adjacency[syn.neuron_a_id] = []
-                if syn.neuron_b_id not in self.synapse_adjacency:
-                    self.synapse_adjacency[syn.neuron_b_id] = []
+            for syn in self._synapse_index.values():
+                self.synapse_adjacency.setdefault(syn.neuron_a_id, [])
+                self.synapse_adjacency.setdefault(syn.neuron_b_id, [])
                 self.synapse_adjacency[syn.neuron_a_id].append(syn)
                 self.synapse_adjacency[syn.neuron_b_id].append(syn)
 
     async def _save_synapses(self):
-        """Save synapses to disk in JSONL format."""
+        """
+        Save synapses to disk in JSONL format.
 
-        async with self.synapse_lock:
-            snapshot = list(self.synapses.values())
+        Phase 4.0: uses SynapseIndex.save_to_file() which includes Bayesian state.
+        Note: does NOT acquire synapse_lock – callers that need atomicity must hold
+        the lock themselves before calling this helper.
+        """
+        path_snapshot = self.synapse_path
 
-        def _save(syn_list):
-            try:
-                os.makedirs(os.path.dirname(self.synapse_path), exist_ok=True)
+        def _save():
+            self._synapse_index.save_to_file(path_snapshot)
 
-                with open(self.synapse_path, 'w') as f:
-                    for synapse in syn_list:
-                        rec = {
-                            'neuron_a_id': synapse.neuron_a_id,
-                            'neuron_b_id': synapse.neuron_b_id,
-                            'strength': synapse.strength,
-                            'fire_count': synapse.fire_count,
-                            'success_count': synapse.success_count,
-                        }
-                        if synapse.last_fired:
-                            rec['last_fired'] = synapse.last_fired.isoformat()
-                        f.write(json.dumps(rec) + "\n")
-            except Exception as e:
-                logger.error(f"Error saving synapses: {e}")
-
-        await self._run_in_thread(_save, snapshot)
+        await self._run_in_thread(_save)
 
     async def _append_persisted(self, node: MemoryNode):
         """Append-only log."""

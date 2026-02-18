@@ -48,6 +48,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Phase 4.0: HNSW index manager (replaces raw FAISS management)
+try:
+    from .hnsw_index import HNSWIndexManager
+    HNSW_AVAILABLE = True
+except ImportError:
+    HNSW_AVAILABLE = False
+
 
 class TierManager:
     """
@@ -83,21 +90,38 @@ class TierManager:
         self.cold_path = Path(self.config.paths.cold_archive_dir)
         self.cold_path.mkdir(parents=True, exist_ok=True)
 
-        # FAISS Index for HOT Tier (Binary)
+        # Phase 4.0: HNSW/FAISS Index for HOT Tier (Binary)
+        # HNSWIndexManager auto-selects Flat (small N) or HNSW (large N)
+        cfg = self.config
+        if HNSW_AVAILABLE:
+            self._hnsw = HNSWIndexManager(
+                dimension=cfg.dimensionality,
+                m=getattr(cfg.qdrant, "hnsw_m", 32),
+                ef_construction=getattr(cfg.qdrant, "hnsw_ef_construct", 200),
+                ef_search=64,
+            )
+            logger.info(
+                f"Phase 4.0 HNSWIndexManager initialised for HOT tier "
+                f"(dim={cfg.dimensionality}, M={getattr(cfg.qdrant, 'hnsw_m', 32)})"
+            )
+        else:
+            self._hnsw = None
+
+        # Legacy FAISS fields kept for backward-compat (unused when HNSW available)
         self.faiss_index = None
         self.faiss_id_map: Dict[int, str] = {}
         self.node_id_to_faiss_id: Dict[str, int] = {}
         self._next_faiss_id = 1
 
-        if FAISS_AVAILABLE:
+        if not HNSW_AVAILABLE and FAISS_AVAILABLE:
             self._init_faiss()
 
     def _init_faiss(self):
-        """Initialize FAISS binary index."""
+        """Initialize FAISS binary index (legacy path, used when hnsw_index unavailable)."""
         dim = self.config.dimensionality
         base_index = faiss.IndexBinaryFlat(dim)
         self.faiss_index = faiss.IndexBinaryIDMap(base_index)
-        logger.info(f"Initialized FAISS binary index for HOT tier (dim={dim})")
+        logger.info(f"Initialized FAISS flat binary index for HOT tier (dim={dim})")
 
     async def get_hot_snapshot(self) -> List[MemoryNode]:
         """Return a snapshot of values in HOT tier safely."""
@@ -142,7 +166,13 @@ class TierManager:
                 await self._evict_from_hot()
 
     def _add_to_faiss(self, node: MemoryNode):
-        """Internal helper to add node to FAISS index."""
+        """Add node to the ANN index (HNSW preferred, legacy flat as fallback)."""
+        # Phase 4.0: delegate to HNSWIndexManager
+        if self._hnsw is not None:
+            self._hnsw.add(node.id, node.hdv.data)
+            return
+
+        # Legacy FAISS flat path
         if not self.faiss_index:
             return
 
@@ -150,7 +180,6 @@ class TierManager:
             fid = self._next_faiss_id
             self._next_faiss_id += 1
 
-            # BinaryHDV.data is already packed uint8
             vec = np.expand_dims(node.hdv.data, axis=0)
             ids = np.array([fid], dtype='int64')
             self.faiss_index.add_with_ids(vec, ids)
@@ -192,7 +221,13 @@ class TierManager:
         await self._delete_from_warm(node_id)
 
     def _remove_from_faiss(self, node_id: str):
-        """Internal helper to remove node from FAISS index."""
+        """Remove node from the ANN index (HNSW preferred, legacy flat as fallback)."""
+        # Phase 4.0: delegate to HNSWIndexManager
+        if self._hnsw is not None:
+            self._hnsw.remove(node_id)
+            return
+
+        # Legacy FAISS flat path
         if not self.faiss_index:
             return
 
@@ -469,7 +504,9 @@ class TierManager:
             "hot_count": len(self.hot),
             "warm_count": 0,
             "cold_count": 0,
-            "using_qdrant": self.use_qdrant
+            "using_qdrant": self.use_qdrant,
+            # Phase 4.0: HNSW index stats
+            "ann_index": self._hnsw.stats() if self._hnsw is not None else {"index_type": "none"},
         }
 
         if self.use_qdrant:
@@ -487,6 +524,80 @@ class TierManager:
                 stats["warm_count"] = await self._run_in_thread(_count)
 
         return stats
+
+    async def list_warm(self, max_results: int = 500) -> List[MemoryNode]:
+        """
+        List nodes from the WARM tier (Phase 4.0 — used by SemanticConsolidationWorker).
+
+        Returns up to max_results MemoryNode objects from the WARM tier.
+        Falls back gracefully if Qdrant or filesystem is unavailable.
+        """
+        nodes: List[MemoryNode] = []
+
+        if self.use_qdrant:
+            try:
+                points_result = await self.qdrant.scroll(
+                    self.config.qdrant.collection_warm,
+                    limit=max_results,
+                    offset=None,
+                    with_vectors=True,
+                )
+                points = points_result[0] if points_result else []
+                for pt in points:
+                    payload = pt.payload
+                    try:
+                        arr = np.array(pt.vector) > 0.5
+                        packed = np.packbits(arr.astype(np.uint8))
+                        hdv = BinaryHDV(data=packed, dimension=payload["dimension"])
+                        node = MemoryNode(
+                            id=payload.get("id", pt.id),
+                            hdv=hdv,
+                            content=payload["content"],
+                            metadata=payload.get("metadata", {}),
+                            created_at=datetime.fromisoformat(payload["created_at"]),
+                            last_accessed=datetime.fromisoformat(payload["last_accessed"]),
+                            tier="warm",
+                            access_count=payload.get("access_count", 0),
+                            ltp_strength=payload.get("ltp_strength", 0.0),
+                        )
+                        nodes.append(node)
+                    except Exception as exc:
+                        logger.debug(f"list_warm: could not deserialize point {pt.id}: {exc}")
+            except Exception as exc:
+                logger.warning(f"list_warm Qdrant failed: {exc}")
+
+        elif hasattr(self, "warm_path") and self.warm_path:
+            def _list_fs() -> List[MemoryNode]:
+                result = []
+                for meta_file in list(self.warm_path.glob("*.json"))[:max_results]:
+                    try:
+                        import json as _json
+                        with open(meta_file, "r") as f:
+                            data = _json.load(f)
+                        hdv_path = self.warm_path / f"{data['id']}.npy"
+                        if not hdv_path.exists():
+                            continue
+                        hdv_data = np.load(hdv_path)
+                        hdv = BinaryHDV(data=hdv_data, dimension=data["dimension"])
+                        result.append(
+                            MemoryNode(
+                                id=data["id"],
+                                hdv=hdv,
+                                content=data["content"],
+                                metadata=data.get("metadata", {}),
+                                created_at=datetime.fromisoformat(data["created_at"]),
+                                last_accessed=datetime.fromisoformat(data["last_accessed"]),
+                                tier="warm",
+                                ltp_strength=data.get("ltp_strength", 0.0),
+                            )
+                        )
+                    except Exception as exc:
+                        logger.debug(f"list_warm FS: skip {meta_file.name}: {exc}")
+                return result
+
+            nodes = await self._run_in_thread(_list_fs)
+
+        return nodes
 
     async def consolidate_warm_to_cold(self):
         """
@@ -588,7 +699,15 @@ class TierManager:
         return sorted_results[:top_k]
 
     def search_hot(self, query_vec: BinaryHDV, top_k: int = 5) -> List[Tuple[str, float]]:
-        """Search HOT tier using FAISS binary index."""
+        """Search HOT tier using HNSW or FAISS binary index (Phase 4.0)."""
+        # Phase 4.0: use HNSWIndexManager (auto-selects flat vs HNSW)
+        if self._hnsw is not None and self._hnsw.size > 0:
+            try:
+                return self._hnsw.search(query_vec.data, top_k)
+            except Exception as e:
+                logger.error(f"HNSWIndexManager search failed, falling back: {e}")
+
+        # Legacy FAISS flat path
         if not self.faiss_index or not self.hot:
             return self._linear_search_hot(query_vec, top_k)
 
@@ -602,7 +721,6 @@ class TierManager:
                     continue
                 node_id = self.faiss_id_map.get(int(fid))
                 if node_id:
-                    # FAISS returns Hamming distance; convert to similarity
                     sim = 1.0 - (float(d) / self.config.dimensionality)
                     results.append((node_id, sim))
             return results
