@@ -5,7 +5,7 @@
 > *"Memory is not a container. It is a living process — a holographic continuum where every fragment contains the whole."*
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Beta%204.3.0-orange?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Beta%204.5.0-orange?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/FastAPI-Async%20Ready-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" />
@@ -29,7 +29,7 @@ At its core lives the **Holographic Active Inference Memory (HAIM) Engine** — 
 - **Self-organizes** into tiered storage based on biologically-inspired Long-Term Potentiation (LTP)
 - **Scales** from a single process to distributed nodes targeting 1B+ memories
 
-Phase 4.x introduces cognitive enhancements including contextual masking, reliability feedback loops, semantic consolidation, gap detection/filling, and temporal recall (episodic chaining + chrono-weighted query).
+Phase 4.x introduces cognitive enhancements including contextual masking, reliability feedback loops, semantic consolidation, gap detection/filling, temporal recall (episodic chaining + chrono-weighted query), a Subconscious Daemon with LLM-powered dream synthesis, and a full dependency-injection container pattern for clean modularity.
 
 ---
 
@@ -40,6 +40,7 @@ Phase 4.x introduces cognitive enhancements including contextual masking, reliab
 - [The Memory Lifecycle](#the-memory-lifecycle)
 - [Tiered Storage](#tiered-storage-hotwarmcold)
 - [Phase 4.0 Cognitive Enhancements](#phase-40-cognitive-enhancements)
+- [Phase 4.4–4.5 Subconscious Daemon & LLM Integration](#phase-4445-subconscious-daemon--llm-integration)
 - [API Reference](#api-reference)
 - [Python Library Usage](#python-library-usage)
 - [Installation](#installation)
@@ -99,16 +100,35 @@ Phase 4.x introduces cognitive enhancements including contextual masking, reliab
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| **HAIM Engine** | `src/core/engine.py` | Central cognitive coordinator — store, query, dream, delete |
-| **BinaryHDV** | `src/core/binary_hdv.py` | 16384-dim binary vector math (XOR, Hamming, bundle, permute) |
-| **TextEncoder** | `src/core/binary_hdv.py` | Token→HDV pipeline with positional permutation binding |
-| **MemoryNode** | `src/core/node.py` | Memory unit with LTP, epistemic values, tier state |
-| **TierManager** | `src/core/tier_manager.py` | HOT/WARM/COLD orchestration with LTP-driven eviction |
-| **SynapticConnection** | `src/core/synapse.py` | Hebbian synapse with strength, decay, and fire tracking |
-| **ConceptualMemory** | `src/core/holographic.py` | VSA soul for analogy and cross-domain symbolic reasoning |
-| **AsyncRedisStorage** | `src/core/async_storage.py` | Async Redis backend (WARM tier + pub/sub) |
-| **API** | `src/api/main.py` | FastAPI REST interface with async wrappers and middleware |
-| **MCP Server** | `src/mcp/server.py` | Model Context Protocol adapter for agent tool integration |
+| **HAIM Engine** | `src/mnemocore/core/engine.py` | Central cognitive coordinator — store, query, dream, delete |
+| **BinaryHDV** | `src/mnemocore/core/binary_hdv.py` | 16384-dim binary vector math (XOR, Hamming, bundle, permute) |
+| **TextEncoder** | `src/mnemocore/core/binary_hdv.py` | Token→HDV pipeline with positional permutation binding |
+| **MemoryNode** | `src/mnemocore/core/node.py` | Memory unit with LTP, epistemic values, tier state |
+| **TierManager** | `src/mnemocore/core/tier_manager.py` | HOT/WARM/COLD orchestration with LTP-driven eviction |
+| **SynapticConnection** | `src/mnemocore/core/synapse.py` | Hebbian synapse with strength, decay, and fire tracking |
+| **SynapseIndex** | `src/mnemocore/core/synapse_index.py` | Fast synapse lookup index for associative spreading |
+| **ConceptualMemory** | `src/mnemocore/core/holographic.py` | VSA soul for analogy and cross-domain symbolic reasoning |
+| **AsyncRedisStorage** | `src/mnemocore/core/async_storage.py` | Async Redis backend (WARM tier + pub/sub) |
+| **BayesianLTP** | `src/mnemocore/core/bayesian_ltp.py` | Bayesian reliability scoring on top of LTP strength |
+| **SemanticConsolidation** | `src/mnemocore/core/semantic_consolidation.py` | Memory deduplication via majority-bundle prototyping |
+| **ConsolidationWorker** | `src/mnemocore/core/consolidation_worker.py` | Async worker scheduling nightly consolidation |
+| **GapDetector** | `src/mnemocore/core/gap_detector.py` | Temporal co-occurrence analysis for knowledge gaps |
+| **GapFiller** | `src/mnemocore/core/gap_filler.py` | Bridge detected gaps via synapse creation |
+| **Immunology** | `src/mnemocore/core/immunology.py` | Auto-associative attractor cleanup for vector drift |
+| **Attention** | `src/mnemocore/core/attention.py` | XOR context masking / project isolation |
+| **BatchOps** | `src/mnemocore/core/batch_ops.py` | Vectorized bulk store / query operations |
+| **HNSWIndex** | `src/mnemocore/core/hnsw_index.py` | In-process HNSW approximate nearest-neighbour index |
+| **QdrantStore** | `src/mnemocore/core/qdrant_store.py` | Async Qdrant COLD tier backend |
+| **RecursiveSynthesizer** | `src/mnemocore/core/recursive_synthesizer.py` | Deep concept synthesis via iterative VSA composition |
+| **RippleContext** | `src/mnemocore/core/ripple_context.py` | Cascading context propagation across synaptic graph |
+| **SubconsciousAI** | `src/mnemocore/core/subconscious_ai.py` | LLM-guided dream synthesis worker |
+| **SubconsciousDaemon** | `src/mnemocore/subconscious/daemon.py` | Background process orchestrating dream/consolidation cycles |
+| **LLMIntegration** | `src/mnemocore/llm_integration.py` | Agent-facing LLM connector (OpenAI / Anthropic compatible) |
+| **Container** | `src/mnemocore/core/container.py` | Dependency-injection wiring for all core components |
+| **GoalTree** | `src/mnemocore/meta/goal_tree.py` | Hierarchical goal / task tracking for meta-cognition |
+| **LearningJournal** | `src/mnemocore/meta/learning_journal.py` | Persistent log of what the agent has learned over time |
+| **API** | `src/mnemocore/api/main.py` | FastAPI REST interface with async wrappers and middleware |
+| **MCP Server** | `src/mnemocore/mcp/server.py` | Model Context Protocol adapter for agent tool integration |
 
 ---
 
@@ -153,7 +173,7 @@ Key mathematical properties:
 Creates a **prototype** that is similar to all inputs. This is how multiple memories combine into a concept.
 
 ```python
-from src.core.binary_hdv import majority_bundle
+from mnemocore.core.binary_hdv import majority_bundle
 
 # Create semantic prototype from related memories
 concept = majority_bundle([vec_a, vec_b, vec_c, vec_d])  # similar to all inputs
@@ -446,6 +466,65 @@ The system becomes capable of **saying what it doesn't understand** and requesti
 
 ---
 
+## Phase 4.4–4.5: Subconscious Daemon & LLM Integration
+
+### Subconscious Daemon *(Autonomous Background Mind)*
+
+Phase 4.4 introduced `SubconsciousAI` — a worker that fires during idle cycles and calls an external LLM to generate **synthetic dream memories**: structured insights derived by reasoning over existing memory clusters, rather than through direct observation.
+
+Phase 4.5 hardened this into a full `SubconsciousDaemon` — an independently managed asyncio process that orchestrates dream cycles, consolidation scheduling, and subconscious queue processing:
+
+```python
+# The daemon is started automatically when the API starts up.
+# It coordinates:
+#   - Dream synthesis: SubconsciousAI → LLM → synthetic insights stored back
+#   - Consolidation scheduling: ConsolidationWorker fired on a configurable interval
+#   - Subconscious queue: novelty detection from Redis pub/sub stream
+```
+
+Configure in `config.yaml`:
+
+```yaml
+haim:
+  subconscious_ai:
+    enabled: true
+    api_url: "https://api.openai.com/v1/chat/completions"  # or Anthropic
+    model: "gpt-4o-mini"
+    # api_key: set via SUBCONSCIOUS_AI_API_KEY env var
+    dream_interval_seconds: 300
+    batch_size: 5
+```
+
+### Dependency Injection Container
+
+All major services (TierManager, AsyncRedisStorage, QdrantStore, SubconsciousAI, etc.) are now wired through `src/mnemocore/core/container.py`. This eliminates global singleton state and makes every subsystem testable in isolation:
+
+```python
+from mnemocore.core.container import build_container
+
+container = build_container(config)
+engine   = container.engine()
+tier_mgr = container.tier_manager()
+```
+
+### LLM Agent Integration
+
+`src/mnemocore/llm_integration.py` provides a high-level interface for attaching MnemoCore to any OpenAI/Anthropic-style LLM agent loop:
+
+```python
+from mnemocore.llm_integration import MnemoCoreAgent
+
+agent = MnemoCoreAgent(engine)
+
+# Store agent observations
+agent.observe("User prefers concise answers over verbose ones")
+
+# Recall relevant context before a response
+context = agent.recall("user preference", top_k=3)
+```
+
+---
+
 ## API Reference
 
 ### Authentication
@@ -600,7 +679,7 @@ Prometheus metrics endpoint.
 ### Basic Store and Query
 
 ```python
-from src.core.engine import HAIMEngine
+from mnemocore.core.engine import HAIMEngine
 
 engine = HAIMEngine(persist_path="./data/memory.jsonl")
 
@@ -639,7 +718,7 @@ print(result)  # [("queen", 0.934), ...]
 ### Working with the Binary HDV Layer Directly
 
 ```python
-from src.core.binary_hdv import BinaryHDV, TextEncoder, majority_bundle
+from mnemocore.core.binary_hdv import BinaryHDV, TextEncoder, majority_bundle
 
 encoder = TextEncoder(dimension=16384)
 
@@ -659,7 +738,7 @@ print(python_vec.similarity(web_dev_prototype))  # High (part of bundle)
 print(python_vec.similarity(error_vec))          # ~0.5 (unrelated)
 
 # Batch nearest-neighbor search
-from src.core.binary_hdv import batch_hamming_distance
+from mnemocore.core.binary_hdv import batch_hamming_distance
 import numpy as np
 
 database = np.stack([v.data for v in [python_vec, fastapi_vec, error_vec]])
@@ -708,24 +787,53 @@ git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-
 cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
 
 # 2. Create virtual environment
-python -m venv venv
-source venv/bin/activate       # Linux/macOS
-# venv\Scripts\activate         # Windows
+python -m venv .venv
+.\.venv\Scripts\activate          # Windows (PowerShell)
+# source .venv/bin/activate       # Linux / macOS
 
-# 3. Install dependencies
-pip install -r requirements.txt
+# 3. Install (recommended — uses pyproject.toml as canonical source)
+pip install -e .
+
+# Or install runtime deps only (Docker / legacy):
+# pip install -r requirements.txt
+
+# To include dev tools (pytest, mypy, black, etc.):
+pip install -e ".[dev]"
 
 # 4. Start Redis
-docker run -d -p 6379:6379 redis:alpine
+docker run -d -p 6379:6379 redis:7.2-alpine
 
-# 5. Set API key
-export HAIM_API_KEY="your-secure-key-here"
+# 5. Set API key (never hardcode — use env var or .env file)
+# Windows PowerShell:
+$env:HAIM_API_KEY = "your-secure-key-here"
+# Linux / macOS:
+# export HAIM_API_KEY="your-secure-key-here"
 
 # 6. Start the API
-uvicorn src.api.main:app --host 0.0.0.0 --port 8100
+uvicorn mnemocore.api.main:app --host 0.0.0.0 --port 8100
 ```
 
 The API is now live at `http://localhost:8100`. Visit `http://localhost:8100/docs` for the interactive Swagger UI.
+
+### Using the .env file
+
+Copy the provided template and fill in your values — the API and docker-compose both pick it up automatically:
+
+```bash
+cp .env.example .env
+# Edit .env and set HAIM_API_KEY, REDIS_URL, etc.
+```
+
+> **Note:** `.env` is listed in `.gitignore` and must never be committed. Only `.env.example` (with placeholder values) belongs in version control.
+
+### Full Stack with Docker Compose
+
+```bash
+# Requires .env with HAIM_API_KEY set
+docker compose up -d
+```
+
+This starts MnemoCore, Redis 7.2, and Qdrant in one command.
 
 ### With Qdrant (Phase 4.x Scale)
 
@@ -744,51 +852,85 @@ qdrant:
 
 ## Configuration
 
-All configuration lives in `config.yaml`. Values can be overridden with environment variables (`HAIM_` prefix).
+All configuration lives in `config.yaml`. Sensitive values can be overridden with environment variables — the config loader looks for `HAIM_`-prefixed vars and also honours per-service overrides like `HAIM_API_KEY`, `REDIS_PASSWORD`, `QDRANT_API_KEY`, `HAIM_CORS_ORIGINS`, and `SUBCONSCIOUS_AI_API_KEY`.
 
 ```yaml
 haim:
-  version: "4.3"
-  dimensionality: 16384        # Binary vector dimensions (must be multiple of 8)
+  version: "4.5"
+  dimensionality: 16384        # Binary vector dimensions (must be multiple of 64)
 
   encoding:
-    mode: "binary"             # "binary" (recommended) or "float" (legacy)
+    mode: "binary"             # "binary" (recommended) or "float" (legacy, deprecated)
+    token_method: "bundle"     # "bundle" (XOR+permute) or "hash"
 
   tiers:
     hot:
       max_memories: 2000       # Max nodes in RAM
-      ltp_threshold: 0.3       # Evict below this LTP strength
+      ltp_threshold_min: 0.7   # Evict below this LTP strength
+      eviction_policy: "lru"
     warm:
       max_memories: 100000     # Max nodes in Redis/mmap
+      ltp_threshold_min: 0.3
     cold:
-      enabled: true
+      storage_backend: "filesystem"   # "filesystem" or "s3"
+      compression: "gzip"
 
   ltp:
     initial_importance: 0.5
     decay_lambda: 0.01         # Higher = faster forgetting
-    permanence_threshold: 2.0  # LTP above this is considered permanent
+    permanence_threshold: 0.95 # LTP above this is immune to decay
+    half_life_days: 30.0
+
+  hysteresis:
+    promote_delta: 0.15        # LTP must exceed threshold by this much to promote
+    demote_delta: 0.10
 
   redis:
     url: "redis://localhost:6379/0"
+    stream_key: "haim:subconscious"
+    max_connections: 10
+    socket_timeout: 5
+    # password: set via REDIS_PASSWORD env var
 
   qdrant:
+    url: "http://localhost:6333"
+    collection_hot:  "haim_hot"
+    collection_warm: "haim_warm"
     enabled: false
-    host: "localhost"
-    port: 6333
-    collection: "mnemocore_warm"
+    # api_key: set via QDRANT_API_KEY env var
 
   security:
-    api_key: "${HAIM_API_KEY}"  # Never hardcode — use env variable
+    # api_key: set via HAIM_API_KEY env var — never hardcode here
     cors_origins: ["http://localhost:3000"]
 
+  subconscious_ai:
+    enabled: false
+    api_url: "https://api.openai.com/v1/chat/completions"
+    model: "gpt-4o-mini"
+    dream_interval_seconds: 300
+    batch_size: 5
+    # api_key: set via SUBCONSCIOUS_AI_API_KEY env var
+
   observability:
-    metrics_enabled: true
+    metrics_port: 9090
     log_level: "INFO"
+    structured_logging: true
 
   paths:
     data_dir: "./data"
     memory_file: "./data/memory.jsonl"
-    synapses_file: "./data/synapses.jsonl"
+    codebook_file: "./data/codebook.json"
+    concepts_file: "./data/concepts.json"
+    synapses_file: "./data/synapses.json"
+    warm_mmap_dir: "./data/warm_tier"
+    cold_archive_dir: "./data/cold_archive"
+
+  mcp:
+    enabled: false
+    transport: "stdio"
+    host: "127.0.0.1"
+    port: 8110
+    api_base_url: "http://localhost:8100"
 ```
 
 ### Security Note
@@ -796,8 +938,11 @@ haim:
 MnemoCore requires an explicit API key. There is no default fallback key in production builds.
 
 ```bash
-# Required — will raise exception if not set
-export HAIM_API_KEY="$(openssl rand -hex 32)"
+# Generate a cryptographically secure key:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Set it (never commit this value):
+export HAIM_API_KEY="<generated-value>"
 ```
 
 ---
@@ -810,7 +955,7 @@ MnemoCore exposes a **Model Context Protocol (MCP)** server, enabling direct int
 
 ```bash
 # Start API first
-uvicorn src.api.main:app --host 0.0.0.0 --port 8100
+uvicorn mnemocore.api.main:app --host 0.0.0.0 --port 8100
 
 # Configure MCP in config.yaml
 haim:
@@ -819,7 +964,7 @@ haim:
     transport: "stdio"  # or "sse" for streaming
 
 # Run MCP server
-python -m src.mcp.server
+python -m mnemocore.mcp.server
 ```
 
 ### Claude Desktop Configuration
@@ -831,7 +976,7 @@ Add to your Claude Desktop `config.json`:
   "mcpServers": {
     "mnemocore": {
       "command": "python",
-      "args": ["-m", "src.mcp.server"],
+      "args": ["-m", "mnemocore.mcp.server"],
       "env": {
         "HAIM_API_KEY": "your-key",
         "HAIM_BASE_URL": "http://localhost:8100"
@@ -867,7 +1012,7 @@ Available at `GET /metrics`:
 
 ### Grafana Dashboard
 
-A sample Grafana dashboard config is available at `observability/grafana_dashboard.json`.
+A sample Grafana dashboard config is available at `grafana-dashboard.json` in the repository root. Import it directly into Grafana via **Dashboards → Import → Upload JSON file**.
 
 ### Structured Logging
 
@@ -897,6 +1042,12 @@ pytest tests/test_stability.py             # Reliability/Bayesian stability
 pytest tests/test_consolidation.py         # Semantic consolidation
 pytest tests/test_engine_cleanup.py        # Cleanup and decay
 pytest tests/test_phase43_regressions.py   # Phase 4.3 regression guardrails
+pytest tests/test_tier_manager.py          # Tier demotion / promotion logic
+pytest tests/test_dream_loop.py            # Subconscious dream loop
+pytest tests/test_subconscious_ai_worker.py # LLM-powered dream worker (if offline: uses mocks)
+pytest tests/test_recursive_synthesizer.py  # Deep concept synthesis
+pytest tests/test_batch_ops.py             # Bulk ingestion operations
+pytest tests/test_mcp_server.py            # MCP server adapter
 
 # End-to-end flow
 pytest tests/test_e2e_flow.py -v
@@ -906,7 +1057,7 @@ pytest tests/test_e2e_flow.py -v
 
 ## Roadmap
 
-### Current Beta (v4.3)
+### Current Release (v4.5.0)
 
 - [x] Binary HDV core (XOR bind / bundle / permute / Hamming)
 - [x] Three-tier HOT/WARM/COLD memory lifecycle
@@ -915,12 +1066,20 @@ pytest tests/test_e2e_flow.py -v
 - [x] Semantic consolidation, immunology cleanup, and gap detection/filling
 - [x] Temporal recall: episodic chaining + chrono-weighted query
 - [x] Regression guardrails for Phase 4.3 critical paths
+- [x] Phase 4.4 — Subconscious AI Worker (LLM-powered dream synthesis)
+- [x] Phase 4.5 — Subconscious Daemon, persistence hardening, tier-manager demotion race fix
+- [x] Dependency-injection Container pattern (replaces singleton)
+- [x] HNSW in-process index for hot-tier ANN search
+- [x] Batch operations for bulk ingestion
+- [x] Meta-cognition layer: GoalTree + LearningJournal
 
 ### Next Steps
 
 - [ ] Hardening pass for distributed/clustered HOT-tier behavior
-- [ ] Extended observability standardization (`mnemocore_*` transition)
-- [ ] Self-improvement loop (design documented, staged rollout pending)
+- [ ] Extended observability standardization (`mnemocore_*` metric prefix across all components)
+- [ ] Self-improvement loop (design documented in `docs/SELF_IMPROVEMENT_DEEP_DIVE.md`, staged rollout pending)
+- [ ] CUDA kernels for batch HDV operations at scale
+- [ ] Helm chart production hardening (resource autoscaling, PodDisruptionBudget)
 
 ---
 
@@ -948,7 +1107,7 @@ git commit -m "feat(consolidation): add LLM-powered prototype labeling"
 # Open PR — describe the what, why, and performance impact
 ```
 
-Please follow the implementation patterns in [`COGNITIVE_ENHANCEMENTS.md`](COGNITIVE_ENHANCEMENTS.md) and [`CODE_REVIEW_ISSUES.md`](CODE_REVIEW_ISSUES.md) for architectural guidance.
+Please follow the implementation patterns established in `docs/ARCHITECTURE.md` and `docs/ROADMAP.md` for architectural guidance, and review `CHANGELOG.md` to understand what has already landed.
 
 ---
 

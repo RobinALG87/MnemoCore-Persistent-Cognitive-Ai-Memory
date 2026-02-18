@@ -27,7 +27,7 @@ FROM python:3.11-slim AS production
 # Labels for container metadata
 LABEL maintainer="MnemoCore Team"
 LABEL description="MnemoCore - Infrastructure for Persistent Cognitive Memory"
-LABEL version="3.5.2"
+LABEL version="4.5.0"
 
 # Security: Create non-root user
 RUN groupadd --gid 1000 mnemocore && \

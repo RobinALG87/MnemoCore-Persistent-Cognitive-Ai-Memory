@@ -1,8 +1,8 @@
-# HAIM Configuration — Phase 3.0+
+# HAIM Configuration — Phase 4.5
 # All hardcoded constants are centralized here.
 
 haim:
-  version: "3.0"
+  version: "4.5"
   dimensionality: 16384  # 2^14, must be multiple of 64
 
   # Vector encoding
