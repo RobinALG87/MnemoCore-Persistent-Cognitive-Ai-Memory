@@ -427,7 +427,25 @@ class TextEncoder:
         if len(tokens) == 1:
             return self.get_token_vector(tokens[0])
 
-        # Build position-bound token vectors
+        # Optimization: for standard dimensions (< 32k), avoid intermediate packing
+        # by accumulating unpacked bits directly.
+        if self.dimension < 32768:
+            sums = np.zeros(self.dimension, dtype=np.int32)
+            for i, token in enumerate(tokens):
+                token_hdv = self.get_token_vector(token)
+                # Unpack and slice to exact dimension (robustness for non-byte-aligned D)
+                bits = np.unpackbits(token_hdv.data)[:self.dimension]
+                # Roll bits (circular shift)
+                # Note: This logic matches BinaryHDV.permute for D < 32k
+                rolled = np.roll(bits, i)
+                sums += rolled
+
+            threshold = len(tokens) / 2.0
+            result_bits = np.zeros(self.dimension, dtype=np.uint8)
+            result_bits[sums > threshold] = 1
+            return BinaryHDV(data=np.packbits(result_bits), dimension=self.dimension)
+
+        # Build position-bound token vectors (fallback for large D)
         bound_vectors = []
         for i, token in enumerate(tokens):
             token_hdv = self.get_token_vector(token)
