@@ -1,7 +1,28 @@
+"""
+Circuit Breaker Implementation for MnemoCore
+=============================================
+Consolidated resilience patterns for external service dependencies.
+
+This module provides both:
+- Native async-friendly circuit breaker implementation
+- Pre-configured instances for Redis and Qdrant
+
+Usage:
+    from src.core.reliability import StorageCircuitBreaker, qdrant_breaker
+
+    # Using pre-configured instances
+    result = await qdrant_breaker.call(my_async_func, arg1, arg2)
+
+    # Using class methods
+    breaker = StorageCircuitBreaker.get_qdrant_breaker()
+    result = await breaker.call(my_async_func)
+"""
+
 import logging
 import time
 from typing import Optional, Callable, Any
-from .config import get_config
+
+from .exceptions import CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -11,9 +32,8 @@ REDIS_RESET_TIMEOUT_SEC = 60
 QDRANT_FAIL_THRESHOLD = 3
 QDRANT_RESET_TIMEOUT_SEC = 30
 
-class CircuitBreakerError(Exception):
-    """Exception raised when a circuit breaker is open."""
-    pass
+# Backward compatibility alias - CircuitBreakerError now uses the domain exception
+CircuitBreakerError = CircuitOpenError
 
 class NativeCircuitBreaker:
     """Light-weight native implementation of a Circuit Breaker."""
@@ -34,9 +54,13 @@ class NativeCircuitBreaker:
         
     async def call(self, func: Callable, *args, **kwargs) -> Any:
         self._check_state()
-        
+
         if self.state == "open":
-            raise CircuitBreakerError(f"Circuit Breaker {self.name} is OPEN")
+            raise CircuitOpenError(
+                breaker_name=self.name,
+                failures=self.failures,
+                context={"state": self.state, "reset_timeout": self.reset_timeout}
+            )
             
         try:
             if hasattr(func, "__call__"):
@@ -105,3 +129,61 @@ def is_storage_available(breaker_name: str) -> bool:
     elif breaker_name == "qdrant":
         return StorageCircuitBreaker.get_qdrant_breaker().state == "closed"
     return True
+
+
+# =============================================================================
+# Pre-configured instances for convenience (replaces resilience.py)
+# =============================================================================
+
+# Pre-configured breakers matching the old resilience.py API
+redis_breaker = StorageCircuitBreaker.get_redis_breaker()
+qdrant_breaker = StorageCircuitBreaker.get_qdrant_breaker()
+
+# Aliases for backward compatibility with resilience.py naming
+storage_circuit_breaker = redis_breaker
+vector_circuit_breaker = qdrant_breaker
+
+
+def circuit_breaker(breaker: NativeCircuitBreaker):
+    """
+    Decorator factory for synchronous functions.
+
+    Usage:
+        @circuit_breaker(redis_breaker)
+        def my_function():
+            ...
+    """
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*args, **kwargs):
+            # For sync functions, we need to handle this differently
+            # since NativeCircuitBreaker.call is async
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None:
+                # We're in an async context, create a task
+                return breaker.call(func, *args, **kwargs)
+            else:
+                # No event loop, run synchronously
+                return asyncio.run(breaker.call(func, *args, **kwargs))
+        return wrapper
+    return decorator
+
+
+def async_circuit_breaker(breaker: NativeCircuitBreaker):
+    """
+    Decorator factory for asynchronous functions.
+
+    Usage:
+        @async_circuit_breaker(qdrant_breaker)
+        async def my_async_function():
+            ...
+    """
+    def decorator(func: Callable) -> Callable:
+        async def wrapper(*args, **kwargs):
+            return await breaker.call(func, *args, **kwargs)
+        return wrapper
+    return decorator

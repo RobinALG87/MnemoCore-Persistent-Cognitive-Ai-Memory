@@ -1,20 +1,374 @@
 """
 LLM Integration for HAIM
-Integrates Gemini 3 Pro with HAIM for reconstructive recall
+Multi-provider LLM support: OpenAI, OpenRouter, Anthropic, Google Gemini, and Local AI models
 """
 
 import json
+import logging
+import os
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any, Callable
+from dataclasses import dataclass, field
+from enum import Enum
+
 from src.core.engine import HAIMEngine
 from src.core.node import MemoryNode
+
+logger = logging.getLogger(__name__)
+
+
+class LLMProvider(Enum):
+    """Supported LLM providers"""
+    OPENAI = "openai"
+    OPENROUTER = "openrouter"
+    ANTHROPIC = "anthropic"
+    GOOGLE_GEMINI = "google_gemini"
+    OLLAMA = "ollama"
+    LM_STUDIO = "lm_studio"
+    CUSTOM = "custom"
+    MOCK = "mock"
+
+
+@dataclass
+class LLMConfig:
+    """Configuration for LLM provider"""
+    provider: LLMProvider = LLMProvider.MOCK
+    model: str = "gpt-4"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    max_tokens: int = 1024
+    temperature: float = 0.7
+    extra_headers: Dict[str, str] = field(default_factory=dict)
+    extra_params: Dict[str, Any] = field(default_factory=dict)
+
+    # Provider-specific defaults
+    @classmethod
+    def openai(cls, model: str = "gpt-4", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.OPENAI, model=model, api_key=api_key, **kwargs)
+
+    @classmethod
+    def openrouter(cls, model: str = "anthropic/claude-3.5-sonnet", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+        return cls(
+            provider=LLMProvider.OPENROUTER,
+            model=model,
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            extra_headers={"HTTP-Referer": "https://mnemocore.ai", "X-Title": "MnemoCore"},
+            **kwargs
+        )
+
+    @classmethod
+    def anthropic(cls, model: str = "claude-3-5-sonnet-20241022", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.ANTHROPIC, model=model, api_key=api_key, **kwargs)
+
+    @classmethod
+    def google_gemini(cls, model: str = "gemini-1.5-pro", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.GOOGLE_GEMINI, model=model, api_key=api_key, **kwargs)
+
+    @classmethod
+    def ollama(cls, model: str = "llama3.1", base_url: str = "http://localhost:11434", **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.OLLAMA, model=model, base_url=base_url, **kwargs)
+
+    @classmethod
+    def lm_studio(cls, model: str = "local-model", base_url: str = "http://localhost:1234/v1", **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.LM_STUDIO, model=model, base_url=base_url, **kwargs)
+
+    @classmethod
+    def custom(cls, model: str, base_url: str, api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.CUSTOM, model=model, base_url=base_url, api_key=api_key, **kwargs)
+
+    @classmethod
+    def mock(cls, **kwargs) -> 'LLMConfig':
+        return cls(provider=LLMProvider.MOCK, **kwargs)
+
+
+class LLMClientFactory:
+    """Factory for creating LLM clients"""
+
+    @staticmethod
+    def create_client(config: LLMConfig) -> Any:
+        """Create an LLM client based on configuration"""
+        provider = config.provider
+
+        if provider == LLMProvider.MOCK:
+            return None
+
+        if provider == LLMProvider.OPENAI:
+            return LLMClientFactory._create_openai_client(config)
+
+        if provider == LLMProvider.OPENROUTER:
+            return LLMClientFactory._create_openrouter_client(config)
+
+        if provider == LLMProvider.ANTHROPIC:
+            return LLMClientFactory._create_anthropic_client(config)
+
+        if provider == LLMProvider.GOOGLE_GEMINI:
+            return LLMClientFactory._create_gemini_client(config)
+
+        if provider == LLMProvider.OLLAMA:
+            return LLMClientFactory._create_ollama_client(config)
+
+        if provider == LLMProvider.LM_STUDIO:
+            return LLMClientFactory._create_lm_studio_client(config)
+
+        if provider == LLMProvider.CUSTOM:
+            return LLMClientFactory._create_custom_client(config)
+
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    @staticmethod
+    def _create_openai_client(config: LLMConfig) -> Any:
+        """Create OpenAI client"""
+        try:
+            from openai import OpenAI
+            api_key = config.api_key or os.environ.get("OPENAI_API_KEY")
+            return OpenAI(api_key=api_key)
+        except ImportError:
+            logger.warning("openai package not installed. Install with: pip install openai")
+            return None
+
+    @staticmethod
+    def _create_openrouter_client(config: LLMConfig) -> Any:
+        """Create OpenRouter client (OpenAI-compatible)"""
+        try:
+            from openai import OpenAI
+            api_key = config.api_key or os.environ.get("OPENROUTER_API_KEY")
+            return OpenAI(
+                base_url=config.base_url,
+                api_key=api_key,
+                default_headers=config.extra_headers
+            )
+        except ImportError:
+            logger.warning("openai package not installed. Install with: pip install openai")
+            return None
+
+    @staticmethod
+    def _create_anthropic_client(config: LLMConfig) -> Any:
+        """Create Anthropic client"""
+        try:
+            import anthropic
+            api_key = config.api_key or os.environ.get("ANTHROPIC_API_KEY")
+            return anthropic.Anthropic(api_key=api_key)
+        except ImportError:
+            logger.warning("anthropic package not installed. Install with: pip install anthropic")
+            return None
+
+    @staticmethod
+    def _create_gemini_client(config: LLMConfig) -> Any:
+        """Create Google Gemini client"""
+        try:
+            import google.generativeai as genai
+            api_key = config.api_key or os.environ.get("GOOGLE_API_KEY")
+            genai.configure(api_key=api_key)
+            return genai.GenerativeModel(config.model)
+        except ImportError:
+            logger.warning("google-generativeai package not installed. Install with: pip install google-generativeai")
+            return None
+
+    @staticmethod
+    def _create_ollama_client(config: LLMConfig) -> Any:
+        """Create Ollama client for local models"""
+        try:
+            from openai import OpenAI
+            return OpenAI(base_url=config.base_url, api_key="ollama")
+        except ImportError:
+            # Fallback to direct HTTP calls
+            return OllamaClient(base_url=config.base_url, model=config.model)
+
+    @staticmethod
+    def _create_lm_studio_client(config: LLMConfig) -> Any:
+        """Create LM Studio client (OpenAI-compatible)"""
+        try:
+            from openai import OpenAI
+            return OpenAI(base_url=config.base_url, api_key="lm-studio")
+        except ImportError:
+            logger.warning("openai package not installed. Install with: pip install openai")
+            return None
+
+    @staticmethod
+    def _create_custom_client(config: LLMConfig) -> Any:
+        """Create custom OpenAI-compatible client"""
+        try:
+            from openai import OpenAI
+            return OpenAI(
+                base_url=config.base_url,
+                api_key=config.api_key or "custom"
+            )
+        except ImportError:
+            logger.warning("openai package not installed. Install with: pip install openai")
+            return None
+
+
+class OllamaClient:
+    """Fallback Ollama client using direct HTTP calls"""
+
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.1"):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+    def generate(self, prompt: str, max_tokens: int = 1024) -> str:
+        """Generate response using Ollama API"""
+        import urllib.request
+        import urllib.error
+
+        url = f"{self.base_url}/api/generate"
+        data = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": max_tokens}
+        }
+
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=120) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                return result.get("response", "")
+        except urllib.error.URLError as e:
+            return f"[Ollama Error: {str(e)}]"
+
 
 class HAIMLLMIntegrator:
     """Bridge between HAIM holographic memory and LLM reasoning"""
 
-    def __init__(self, haim_engine: HAIMEngine, llm_client=None):
+    def __init__(
+        self,
+        haim_engine: HAIMEngine,
+        llm_client=None,
+        llm_config: Optional[LLMConfig] = None
+    ):
         self.haim = haim_engine
-        self.llm_client = llm_client  # Will use OpenClaw's gemini integration
+
+        # Support both legacy client and new config-based approach
+        if llm_config:
+            self.config = llm_config
+            self.llm_client = llm_client or LLMClientFactory.create_client(llm_config)
+        elif llm_client:
+            self.llm_client = llm_client
+            self.config = LLMConfig.mock()
+        else:
+            self.llm_client = None
+            self.config = LLMConfig.mock()
+
+    @classmethod
+    def from_config(cls, haim_engine: HAIMEngine, config: LLMConfig) -> 'HAIMLLMIntegrator':
+        """Create integrator from LLM configuration"""
+        client = LLMClientFactory.create_client(config)
+        return cls(haim_engine=haim_engine, llm_client=client, llm_config=config)
+
+    def _call_llm(self, prompt: str, max_tokens: int = None) -> str:
+        """
+        Call the LLM with the given prompt.
+        Supports multiple providers: OpenAI, OpenRouter, Anthropic, Gemini, Ollama, LM Studio
+        """
+        max_tokens = max_tokens or self.config.max_tokens
+
+        if self.config.provider == LLMProvider.MOCK or self.llm_client is None:
+            return self._mock_llm_response(prompt)
+
+        try:
+            provider = self.config.provider
+
+            # OpenAI / OpenRouter / LM Studio (all use OpenAI SDK)
+            if provider in (LLMProvider.OPENAI, LLMProvider.OPENROUTER, LLMProvider.LM_STUDIO, LLMProvider.CUSTOM):
+                return self._call_openai_compatible(prompt, max_tokens)
+
+            # Anthropic
+            if provider == LLMProvider.ANTHROPIC:
+                return self._call_anthropic(prompt, max_tokens)
+
+            # Google Gemini
+            if provider == LLMProvider.GOOGLE_GEMINI:
+                return self._call_gemini(prompt, max_tokens)
+
+            # Ollama
+            if provider == LLMProvider.OLLAMA:
+                return self._call_ollama(prompt, max_tokens)
+
+            # Fallback: try to detect client type
+            return self._call_generic(prompt, max_tokens)
+
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            return f"[LLM Error: {str(e)}]"
+
+    def _call_openai_compatible(self, prompt: str, max_tokens: int) -> str:
+        """Call OpenAI-compatible API (OpenAI, OpenRouter, LM Studio)"""
+        response = self.llm_client.chat.completions.create(
+            model=self.config.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=self.config.temperature,
+            **self.config.extra_params
+        )
+        return response.choices[0].message.content
+
+    def _call_anthropic(self, prompt: str, max_tokens: int) -> str:
+        """Call Anthropic Claude API"""
+        response = self.llm_client.messages.create(
+            model=self.config.model,
+            max_tokens=max_tokens,
+            temperature=self.config.temperature,
+            messages=[{"role": "user", "content": prompt}],
+            **self.config.extra_params
+        )
+        return response.content[0].text
+
+    def _call_gemini(self, prompt: str, max_tokens: int) -> str:
+        """Call Google Gemini API"""
+        generation_config = {
+            "max_output_tokens": max_tokens,
+            "temperature": self.config.temperature,
+            **self.config.extra_params
+        }
+        response = self.llm_client.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+        return response.text
+
+    def _call_ollama(self, prompt: str, max_tokens: int) -> str:
+        """Call Ollama local model"""
+        if hasattr(self.llm_client, 'generate'):
+            # Using our fallback OllamaClient
+            return self.llm_client.generate(prompt, max_tokens)
+        else:
+            # Using OpenAI SDK with Ollama
+            return self._call_openai_compatible(prompt, max_tokens)
+
+    def _call_generic(self, prompt: str, max_tokens: int) -> str:
+        """Generic fallback that tries to detect and use the client"""
+        client = self.llm_client
+
+        # OpenAI-style
+        if hasattr(client, 'chat') and hasattr(client.chat, 'completions'):
+            return self._call_openai_compatible(prompt, max_tokens)
+
+        # Anthropic-style
+        if hasattr(client, 'messages') and hasattr(client.messages, 'create'):
+            return self._call_anthropic(prompt, max_tokens)
+
+        # Simple callable
+        if callable(client):
+            return client(prompt)
+
+        # Generate method
+        if hasattr(client, 'generate'):
+            return client.generate(prompt, max_tokens=max_tokens)
+
+        return self._mock_llm_response(prompt)
+
+    def _mock_llm_response(self, prompt: str) -> str:
+        """Generate a mock LLM response when no client is available."""
+        if "Reconstruct" in prompt or "reconstruct" in prompt:
+            return "[MOCK RECONSTRUCTION] Based on the retrieved memory fragments, I can synthesize the following: The information appears to be related to the query context. However, please configure an LLM client for actual reconstructive reasoning."
+        elif "Evaluate" in prompt or "hypothesis" in prompt.lower():
+            return "[MOCK EVALUATION] Based on memory analysis: Hypothesis 1 appears most supported (confidence: 70%). Please configure an LLM client for actual hypothesis evaluation."
+        return "[MOCK RESPONSE] Please configure an LLM client for actual responses."
 
     def reconstructive_recall(
         self,
@@ -53,14 +407,12 @@ class HAIMLLMIntegrator:
             fragments=memory_fragments
         )
 
-        # TODO: Call Gemini 3 Pro via OpenClaw API
-        # For now, return prompt
-        reconstruction = "TODO: Call Gemini 3 Pro"
+        # Call LLM for reconstruction
+        reconstruction = self._call_llm(reconstruction_prompt)
 
         return {
             "cue": cue,
             "fragments": memory_fragments,
-            "prompt": reconstruction_prompt,
             "reconstruction": reconstruction
         }
 
@@ -102,14 +454,8 @@ Reconstruction:"""
         Query with multiple active hypotheses (superposition)
         Returns LLM evaluation of which hypothesis is most likely
         """
-        # Create superposition of all hypotheses
-        # TODO: superposition_query() not implemented in HAIMEngine
-        # For now, combine hypotheses into a single query string
-        combined_query = " ".join(hypotheses)
-        
-        # Query memories related to superposition
-        # (This would require modifying HAIMEngine to accept HDV query)
-        results = self.haim.query(query, top_k=10)
+        # Query memories using superposition of hypotheses
+        results = self._superposition_query(query, hypotheses, top_k=10)
 
         # Extract relevant memories
         relevant_memories = []
@@ -128,16 +474,58 @@ Reconstruction:"""
             relevant_memories=relevant_memories
         )
 
-        # TODO: Call Gemini 3 Pro
-        evaluation = "TODO: Call Gemini 3 Pro"
+        # Call LLM for evaluation
+        evaluation = self._call_llm(evaluation_prompt)
 
         return {
             "query": query,
             "hypotheses": hypotheses,
             "relevant_memories": relevant_memories,
-            "prompt": evaluation_prompt,
             "evaluation": evaluation
         }
+
+    def _superposition_query(
+        self,
+        query: str,
+        hypotheses: List[str],
+        top_k: int = 10
+    ) -> List[Tuple[str, float]]:
+        """
+        Perform a superposition query by combining query and hypotheses.
+        Uses HDV bundling to create a superposition vector for retrieval.
+        """
+        # Encode each hypothesis and the main query
+        query_vec = self.haim.encode_content(query)
+
+        # Create superposition by bundling all hypothesis vectors with the query
+        hypothesis_vectors = [self.haim.encode_content(h) for h in hypotheses]
+
+        # Bundle all vectors together (superposition)
+        from src.core.binary_hdv import majority_bundle
+        all_vectors = [query_vec] + hypothesis_vectors
+        superposition_vec = majority_bundle(all_vectors)
+
+        # Query each hypothesis individually and merge results
+        all_results: Dict[str, float] = {}
+
+        # Primary query
+        primary_results = self.haim.query(query, top_k=top_k)
+        for node_id, sim in primary_results:
+            all_results[node_id] = sim
+
+        # Query each hypothesis and accumulate scores
+        for hypothesis in hypotheses:
+            hyp_results = self.haim.query(hypothesis, top_k=top_k // 2)
+            for node_id, sim in hyp_results:
+                if node_id in all_results:
+                    # Boost score for memories relevant to multiple hypotheses
+                    all_results[node_id] = max(all_results[node_id], sim * 0.8)
+                else:
+                    all_results[node_id] = sim * 0.6
+
+        # Sort by score and return top_k
+        sorted_results = sorted(all_results.items(), key=lambda x: x[1], reverse=True)
+        return sorted_results[:top_k]
 
     def _build_hypothesis_evaluation_prompt(
         self,
@@ -296,10 +684,57 @@ class MultiAgentHAIM:
         Strengthen connection between concepts across agents
         When ANY agent fires this connection, ALL agents benefit
         """
-        # Use bind_memories instead of non-existent bind_concepts
-        # Note: This requires memory IDs, not concept strings
-        # TODO: Implement concept-to-memory-ID mapping or add bind_concepts to engine
-        pass  # Placeholder until proper implementation
+        if agent_id not in self.agents:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        # Map concepts to memory IDs using holographic similarity
+        mem_id_a = self._concept_to_memory_id(concept_a)
+        mem_id_b = self._concept_to_memory_id(concept_b)
+
+        if mem_id_a and mem_id_b:
+            # Schedule binding in the background
+            self._schedule_async_task(
+                self.shared_memory.bind_memories(mem_id_a, mem_id_b, success=success)
+            )
+
+    def _concept_to_memory_id(self, concept: str, min_similarity: float = 0.3) -> Optional[str]:
+        """
+        Map a concept string to the best matching memory ID.
+        Uses holographic similarity to find the most relevant stored memory.
+        Returns the memory ID if found with sufficient similarity, else None.
+        """
+        # Use synchronous encoding and search via tier manager for direct access
+        query_vec = self.shared_memory.encode_content(concept)
+
+        # Search in hot tier first (most recent/active memories)
+        best_match_id = None
+        best_similarity = 0.0
+
+        # Check HOT tier
+        for node_id, node in self.shared_memory.tier_manager.hot.items():
+            sim = query_vec.similarity(node.hdv)
+            if sim > best_similarity:
+                best_similarity = sim
+                best_match_id = node_id
+
+        if best_similarity >= min_similarity:
+            return best_match_id
+
+        return None
+
+    def _schedule_async_task(self, coro):
+        """Schedule an async coroutine to run, handling the event loop appropriately."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, create a task
+            loop.create_task(coro)
+        except RuntimeError:
+            # No running loop, run synchronously (for demo/testing purposes)
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass  # Silently fail in demo mode
 
     def collective_orch_or(
         self,

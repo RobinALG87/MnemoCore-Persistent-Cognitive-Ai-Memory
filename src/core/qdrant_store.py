@@ -1,3 +1,9 @@
+"""
+Qdrant Vector Store Layer
+=========================
+Provides async access to Qdrant for vector storage and similarity search.
+"""
+
 import logging
 from typing import List, Any, Optional
 import asyncio
@@ -5,9 +11,15 @@ import asyncio
 from qdrant_client import AsyncQdrantClient, models
 
 from .config import get_config
-from .resilience import vector_circuit_breaker
+from .reliability import qdrant_breaker
+from .exceptions import (
+    CircuitOpenError,
+    StorageConnectionError,
+    wrap_storage_exception,
+)
 
 logger = logging.getLogger(__name__)
+
 
 class QdrantStore:
     _instance = None
@@ -27,17 +39,25 @@ class QdrantStore:
         return cls._instance
 
     async def ensure_collections(self):
-        """Ensure HOT and WARM collections exist with proper schema."""
+        """
+        Ensure HOT and WARM collections exist with proper schema.
+
+        Raises:
+            CircuitOpenError: If circuit breaker is open.
+            StorageConnectionError: If Qdrant connection fails.
+        """
         try:
-            return await vector_circuit_breaker.call_async(self._ensure_collections)
-        except Exception:
-            # ensure_collections if critical, but if breaker is open, we carry on if we can
-            logger.error("Circuit breaker blocked or failed ensure_collections")
+            return await qdrant_breaker.call(self._ensure_collections)
+        except CircuitOpenError:
+            logger.error("Circuit breaker blocked ensure_collections")
             raise
+        except Exception as e:
+            logger.error(f"Qdrant ensure_collections failed: {e}")
+            raise wrap_storage_exception("qdrant", "ensure_collections", e)
 
     async def _ensure_collections(self):
         cfg = self.config.qdrant
-        
+
         # Define BQ config if enabled
         quantization_config = None
         if cfg.binary_quantization:
@@ -54,7 +74,7 @@ class QdrantStore:
                 collection_name=cfg.collection_hot,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.COSINE, # Cosine on bipolar (-1,1) ~ Hamming
+                    distance=models.Distance.COSINE,
                     on_disk=False
                 ),
                 quantization_config=quantization_config,
@@ -72,42 +92,82 @@ class QdrantStore:
                 collection_name=cfg.collection_warm,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.MANHATTAN, # Manhattan on 0/1 is exactly Hamming
+                    distance=models.Distance.MANHATTAN,
                     on_disk=True
                 ),
                 quantization_config=quantization_config,
                 hnsw_config=models.HnswConfigDiff(
-                    m=cfg.hnsw_m, 
+                    m=cfg.hnsw_m,
                     ef_construct=cfg.hnsw_ef_construct,
                     on_disk=True
                 )
             )
 
     async def upsert(self, collection: str, points: List[models.PointStruct]):
-        """Async batch upsert."""
-        try:
-            await vector_circuit_breaker.call_async(self.client.upsert, collection_name=collection, points=points)
-        except Exception as e:
-            logger.exception(f"Qdrant upsert failed or blocked for {collection}")
-            raise
+        """
+        Async batch upsert.
 
-    async def search(self, collection: str, query_vector: List[float], limit: int = 5, score_threshold: float = 0.0) -> List[models.ScoredPoint]:
-        """Async semantic search."""
+        Raises:
+            CircuitOpenError: If circuit breaker is open.
+            StorageConnectionError: If Qdrant connection fails.
+        """
         try:
-            return await vector_circuit_breaker.call_async(self.client.search,
+            await qdrant_breaker.call(
+                self.client.upsert, collection_name=collection, points=points
+            )
+        except CircuitOpenError:
+            logger.error(f"Qdrant upsert blocked for {collection}: circuit breaker open")
+            raise
+        except Exception as e:
+            logger.exception(f"Qdrant upsert failed for {collection}")
+            raise wrap_storage_exception("qdrant", "upsert", e)
+
+    async def search(
+        self,
+        collection: str,
+        query_vector: List[float],
+        limit: int = 5,
+        score_threshold: float = 0.0
+    ) -> List[models.ScoredPoint]:
+        """
+        Async semantic search.
+
+        Returns:
+            List of scored points (empty list on errors).
+
+        Note:
+            This method returns an empty list on errors rather than raising,
+            as search failures should not crash the calling code.
+        """
+        try:
+            return await qdrant_breaker.call(
+                self.client.search,
                 collection_name=collection,
                 query_vector=query_vector,
                 limit=limit,
                 score_threshold=score_threshold
             )
-        except Exception:
-            logger.error(f"Qdrant search failed or blocked for {collection}")
+        except CircuitOpenError:
+            logger.warning(f"Qdrant search blocked for {collection}: circuit breaker open")
             return []
-        
+        except Exception as e:
+            logger.error(f"Qdrant search failed for {collection}: {e}")
+            return []
+
     async def get_point(self, collection: str, point_id: str) -> Optional[models.Record]:
-        """Get a single point by ID."""
+        """
+        Get a single point by ID.
+
+        Returns:
+            Record if found, None if not found.
+
+        Raises:
+            CircuitOpenError: If circuit breaker is open.
+            StorageConnectionError: If Qdrant connection fails.
+        """
         try:
-            records = await vector_circuit_breaker.call_async(self.client.retrieve,
+            records = await qdrant_breaker.call(
+                self.client.retrieve,
                 collection_name=collection,
                 ids=[point_id],
                 with_vectors=True,
@@ -115,34 +175,67 @@ class QdrantStore:
             )
             if records:
                 return records[0]
-        except Exception:
-            logger.error(f"Qdrant get_point failed or blocked for {point_id}")
-        return None
+            return None  # Not found - expected case
+        except CircuitOpenError:
+            logger.error(f"Qdrant get_point blocked for {point_id}: circuit breaker open")
+            raise
+        except Exception as e:
+            logger.error(f"Qdrant get_point failed for {point_id}: {e}")
+            raise wrap_storage_exception("qdrant", "get_point", e)
 
-    async def scroll(self, collection: str, limit: int = 100, offset: Any = None, with_vectors: bool = False) -> Any:
-        """Scroll/Iterate over collection (for consolidation)."""
+    async def scroll(
+        self,
+        collection: str,
+        limit: int = 100,
+        offset: Any = None,
+        with_vectors: bool = False
+    ) -> Any:
+        """
+        Scroll/Iterate over collection (for consolidation).
+
+        Returns:
+            Tuple of (points, next_offset). Returns ([], None) on errors.
+
+        Note:
+            This method returns empty results on errors rather than raising,
+            as scroll is typically used for background operations.
+        """
         try:
-            return await vector_circuit_breaker.call_async(self.client.scroll,
+            return await qdrant_breaker.call(
+                self.client.scroll,
                 collection_name=collection,
                 limit=limit,
                 with_vectors=with_vectors,
                 with_payload=True,
                 offset=offset
             )
-        except Exception:
-            logger.error(f"Qdrant scroll failed or blocked for {collection}")
+        except CircuitOpenError:
+            logger.warning(f"Qdrant scroll blocked for {collection}: circuit breaker open")
+            return [], None
+        except Exception as e:
+            logger.error(f"Qdrant scroll failed for {collection}: {e}")
             return [], None
 
     async def delete(self, collection: str, point_ids: List[str]):
-        """Delete points by ID."""
+        """
+        Delete points by ID.
+
+        Raises:
+            CircuitOpenError: If circuit breaker is open.
+            StorageConnectionError: If Qdrant connection fails.
+        """
         try:
-            await vector_circuit_breaker.call_async(self.client.delete,
+            await qdrant_breaker.call(
+                self.client.delete,
                 collection_name=collection,
                 points_selector=models.PointIdsList(points=point_ids)
             )
-        except Exception:
-            logger.error(f"Qdrant delete failed or blocked for {point_ids}")
+        except CircuitOpenError:
+            logger.error(f"Qdrant delete blocked for {point_ids}: circuit breaker open")
             raise
+        except Exception as e:
+            logger.error(f"Qdrant delete failed for {point_ids}: {e}")
+            raise wrap_storage_exception("qdrant", "delete", e)
 
     async def close(self):
         await self.client.close()

@@ -1,6 +1,34 @@
+"""
+DEPRECATED: Legacy Float HDV Implementation
+============================================
+
+This module is DEPRECATED and will be removed in a future version.
+Use `binary_hdv.BinaryHDV` instead for all new code.
+
+Migration notes:
+  - HDV(dimension=N) -> BinaryHDV.random(dimension=N)
+  - hdv.bind(other) -> hdv.xor_bind(other)
+  - hdv.unbind(other) -> hdv.xor_bind(other)  # XOR is self-inverse
+  - hdv.cosine_similarity(other) -> hdv.similarity(other)
+  - hdv.permute(shift) -> hdv.permute(shift)
+
+This module is kept temporarily for backward compatibility.
+"""
+
+import warnings
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional
+
+from .exceptions import DimensionMismatchError
+
+# Emit deprecation warning on import
+warnings.warn(
+    "src.core.hdv.HDV is deprecated. Use src.core.binary_hdv.BinaryHDV instead. "
+    "This module will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 @dataclass
 class HDV:
@@ -18,13 +46,21 @@ class HDV:
                 size=self.dimension
             )
         elif self.vector.shape[0] != self.dimension:
-             raise ValueError(f"Vector dimension mismatch. Expected {self.dimension}, got {self.vector.shape[0]}")
+            raise DimensionMismatchError(
+                expected=self.dimension,
+                actual=self.vector.shape[0],
+                operation="HDV initialization"
+            )
 
 
     def __add__(self, other: 'HDV') -> 'HDV':
         """Superposition: v_A + v_B contains both"""
         if self.dimension != other.dimension:
-            raise ValueError("Dimensions must match for superposition")
+            raise DimensionMismatchError(
+                expected=self.dimension,
+                actual=other.dimension,
+                operation="superposition"
+            )
         return HDV(
             vector=self.vector + other.vector,
             dimension=self.dimension
@@ -37,7 +73,11 @@ class HDV:
     def bind(self, other: 'HDV') -> 'HDV':
         """Binding: v_A ⊗ v_B (HRR circular convolution)"""
         if self.dimension != other.dimension:
-             raise ValueError("Dimensions must match for binding")
+            raise DimensionMismatchError(
+                expected=self.dimension,
+                actual=other.dimension,
+                operation="binding"
+            )
         return HDV(
             vector=self.fft_convolution(self.vector, other.vector),
             dimension=self.dimension
@@ -46,7 +86,11 @@ class HDV:
     def unbind(self, other: 'HDV') -> 'HDV':
         """Unbinding: v_AB ⊗ v_A* (Approximate inverse)"""
         if self.dimension != other.dimension:
-            raise ValueError("Dimensions must match for unbinding")
+            raise DimensionMismatchError(
+                expected=self.dimension,
+                actual=other.dimension,
+                operation="unbinding"
+            )
         # Unbinding is convolution with involution
         inv = self.involution(other.vector)
         return HDV(

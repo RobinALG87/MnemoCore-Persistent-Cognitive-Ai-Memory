@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from src.core.hdv import HDV
+from src.core.exceptions import DimensionMismatchError
 
 class TestHDV:
     def test_initialization(self):
@@ -52,5 +53,5 @@ class TestHDV:
         v1 = HDV(dimension=100)
         v2 = HDV(dimension=200)
 
-        with pytest.raises(ValueError, match="Dimensions must match"):
+        with pytest.raises(DimensionMismatchError, match="Dimension mismatch"):
             _ = v1 ^ v2

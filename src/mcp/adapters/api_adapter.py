@@ -1,10 +1,28 @@
+"""
+MnemoCore API Adapter
+=====================
+HTTP client adapter for communicating with MnemoCore API server.
+"""
+
 from typing import Any, Dict, Optional
 import requests
 
+from src.core.exceptions import MnemoCoreError
 
-class MnemoCoreAPIError(Exception):
-    def __init__(self, message: str, status_code: Optional[int] = None):
-        super().__init__(message)
+
+class MnemoCoreAPIError(MnemoCoreError):
+    """
+    Exception raised when API communication fails.
+
+    Attributes:
+        status_code: HTTP status code if available (None for network errors).
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None, context: Optional[dict] = None):
+        ctx = context or {}
+        if status_code is not None:
+            ctx["status_code"] = status_code
+        super().__init__(message, ctx)
         self.status_code = status_code
 
 

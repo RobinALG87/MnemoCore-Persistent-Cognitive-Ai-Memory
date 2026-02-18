@@ -1,6 +1,33 @@
+"""
+DEPRECATED: Legacy Circuit Breaker Implementation
+==================================================
+
+This module is DEPRECATED and will be removed in a future version.
+Use `src.core.reliability` instead.
+
+Migration:
+    from src.core.resilience import storage_circuit_breaker, vector_circuit_breaker
+    ->
+    from src.core.reliability import storage_circuit_breaker, vector_circuit_breaker
+
+    pybreaker.CircuitBreakerError
+    ->
+    from src.core.reliability import CircuitBreakerError
+
+The new reliability module uses a native async-friendly implementation.
+"""
+
+import warnings
+
+warnings.warn(
+    "src.core.resilience is deprecated. Use src.core.reliability instead. "
+    "This module will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 import logging
 import pybreaker
-from .config import get_config
 
 logger = logging.getLogger(__name__)
 

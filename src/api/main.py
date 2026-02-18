@@ -96,15 +96,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MnemoCore API",
     description="MnemoCore - Infrastructure for Persistent Cognitive Memory - REST API (Async)",
-    version="3.5.1",
+    version="3.5.2",
     lifespan=lifespan
 )
 
-import pybreaker
-from src.core.resilience import storage_circuit_breaker, vector_circuit_breaker
+from src.core.reliability import (
+    CircuitBreakerError,
+    storage_circuit_breaker,
+    vector_circuit_breaker
+)
 
-@app.exception_handler(pybreaker.CircuitBreakerError)
-async def circuit_breaker_exception_handler(request: Request, exc: pybreaker.CircuitBreakerError):
+
+@app.exception_handler(CircuitBreakerError)
+async def circuit_breaker_exception_handler(request: Request, exc: CircuitBreakerError):
     logger.error(f"Service Unavailable (Circuit Open): {exc}")
     return JSONResponse(
         status_code=503,
@@ -225,13 +229,13 @@ async def root():
 async def health(engine: HAIMEngine = Depends(get_engine)):
     # Check Redis connectivity
     redis_connected = await AsyncRedisStorage.get_instance().check_health()
-    
-    # Check Circuit Breaker States
-    storage_cb_state = storage_circuit_breaker.state.name # 'closed', 'open', 'half-open'
-    vector_cb_state = vector_circuit_breaker.state.name
-    
+
+    # Check Circuit Breaker States (native implementation uses string state)
+    storage_cb_state = storage_circuit_breaker.state
+    vector_cb_state = vector_circuit_breaker.state
+
     is_healthy = redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
-    
+
     return {
         "status": "healthy" if is_healthy else "degraded",
         "redis_connected": redis_connected,

@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Any, Union, Optional
+from typing import Dict, Any, Optional
 import math
 
-from .hdv import HDV
 from .binary_hdv import BinaryHDV
 from .config import get_config
 
@@ -12,11 +11,11 @@ from .config import get_config
 class MemoryNode:
     """
     Holographic memory neuron (Phase 3.0+).
-    Supports both legacy float HDVs and new BinaryHDVs.
+    Uses BinaryHDV for efficient storage and computation.
     """
 
     id: str
-    hdv: Union[HDV, BinaryHDV]
+    hdv: BinaryHDV
     content: str  # Original text/data
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
