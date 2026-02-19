@@ -12,7 +12,7 @@ from mnemocore.core.qdrant_store import QdrantStore
 
 @pytest.fixture
 def mock_qdrant_client():
-    with patch("src.core.qdrant_store.AsyncQdrantClient") as MockClass:
+    with patch("mnemocore.core.qdrant_store.AsyncQdrantClient") as MockClass:
         mock_instance = MockClass.return_value
         # Setup default behaviors
         mock_instance.collection_exists.return_value = False

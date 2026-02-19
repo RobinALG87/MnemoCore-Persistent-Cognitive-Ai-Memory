@@ -89,8 +89,8 @@ class TestContainer:
         # Create a minimal config
         config = HAIMConfig()
 
-        with patch('src.core.container.AsyncRedisStorage') as mock_redis_class, \
-             patch('src.core.container.QdrantStore') as mock_qdrant_class:
+        with patch('mnemocore.core.container.AsyncRedisStorage') as mock_redis_class, \
+             patch('mnemocore.core.container.QdrantStore') as mock_qdrant_class:
 
             mock_redis_class.return_value = MagicMock()
             mock_qdrant_class.return_value = MagicMock()
@@ -124,8 +124,8 @@ class TestTierManagerDI:
 
         config = HAIMConfig()
 
-        with patch('src.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('src.core.tier_manager.FAISS_AVAILABLE', False):
+        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
+             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
             manager = TierManager(config=config)
 
         assert manager.config is config
@@ -138,8 +138,8 @@ class TestTierManagerDI:
         config = HAIMConfig()
         mock_qdrant = MagicMock()
 
-        with patch('src.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('src.core.tier_manager.FAISS_AVAILABLE', False):
+        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
+             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
             manager = TierManager(config=config, qdrant_store=mock_qdrant)
 
         assert manager.qdrant is mock_qdrant
@@ -157,8 +157,8 @@ class TestHAIMEngineDI:
         config = HAIMConfig()
 
         # Patch at tier_manager level since that's where HNSW/FAISS is used
-        with patch('src.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('src.core.tier_manager.FAISS_AVAILABLE', False):
+        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
+             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
             engine = HAIMEngine(config=config)
 
         assert engine.config is config
@@ -171,8 +171,8 @@ class TestHAIMEngineDI:
 
         config = HAIMConfig()
 
-        with patch('src.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('src.core.tier_manager.FAISS_AVAILABLE', False):
+        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
+             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
             tier_manager = TierManager(config=config)
             engine = HAIMEngine(config=config, tier_manager=tier_manager)
 

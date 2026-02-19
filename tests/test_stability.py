@@ -30,9 +30,9 @@ def mock_deps():
     mock_config.security = mock_security
     mock_config.dimensionality = 1024
 
-    with patch("src.api.main.HAIMEngine", return_value=mock_engine), \
-         patch("src.api.main.build_container", return_value=mock_container), \
-         patch("src.api.main.get_config", return_value=mock_config):
+    with patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine), \
+         patch("mnemocore.api.main.build_container", return_value=mock_container), \
+         patch("mnemocore.api.main.get_config", return_value=mock_config):
         yield mock_engine, mock_redis
 
 def test_engine_lifecycle(mock_deps):
@@ -91,9 +91,9 @@ def test_security_middleware_fallback(mock_deps):
     mock_conf_no_sec.security = mock_security_no_key
     mock_conf_no_sec.dimensionality = 1024
 
-    with patch("src.api.main.get_config", return_value=mock_conf_no_sec), \
-         patch("src.api.main.HAIMEngine", return_value=mock_engine2), \
-         patch("src.api.main.build_container", return_value=mock_container2), \
+    with patch("mnemocore.api.main.get_config", return_value=mock_conf_no_sec), \
+         patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine2), \
+         patch("mnemocore.api.main.build_container", return_value=mock_container2), \
          patch.dict(os.environ, {"HAIM_API_KEY": "env-secret-key"}, clear=False):
 
         # Re-import to get fresh app with new patches applied

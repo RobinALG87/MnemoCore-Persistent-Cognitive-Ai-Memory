@@ -38,6 +38,7 @@ ENV/
 htmlcov/
 .tox/
 .nox/
+.hypothesis/
 
 # Data (runtime generated)
 data/memory.jsonl

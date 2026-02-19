@@ -20,7 +20,7 @@ class TestBatchOps(unittest.TestCase):
         
     def test_cpu_device_selection(self):
         """Verify fallback to CPU when GPU unavailable."""
-        with patch("src.core.batch_ops.torch") as mock_torch:
+        with patch("mnemocore.core.batch_ops.torch") as mock_torch:
             mock_torch.cuda.is_available.return_value = False
             mock_torch.backends.mps.is_available.return_value = False
             bp = BatchProcessor(use_gpu=True)
@@ -28,8 +28,8 @@ class TestBatchOps(unittest.TestCase):
 
     def test_gpu_device_selection(self):
         """Verify selection of CUDA when available."""
-        with patch("src.core.batch_ops.torch") as mock_torch, \
-             patch("src.core.batch_ops.TORCH_AVAILABLE", True):
+        with patch("mnemocore.core.batch_ops.torch") as mock_torch, \
+             patch("mnemocore.core.batch_ops.TORCH_AVAILABLE", True):
             mock_torch.cuda.is_available.return_value = True
             mock_torch.backends.mps.is_available.return_value = False
             bp = BatchProcessor(use_gpu=True)
@@ -71,7 +71,7 @@ class TestBatchOps(unittest.TestCase):
         self.assertEqual(dists[0, 1], 0)  # q vs t2 (identical)
         self.assertGreater(dists[0, 0], 0) # q vs t1 (random)
 
-    @patch("src.core.batch_ops.torch")
+    @patch("mnemocore.core.batch_ops.torch")
     def test_search_gpu_mock(self, mock_torch):
         """Test GPU search logic flow (mocked tensor operations)."""
         # Configure mock torch behavior

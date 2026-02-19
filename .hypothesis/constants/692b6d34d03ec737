@@ -1,4 +1,0 @@
-# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\immunology.py
-# hypothesis_version: 6.151.9
-
-[0.0, 0.05, 0.4, 0.48, 1.0, 300.0, 'corrected', 'drifted_corrected', 'elapsed_seconds', 'immune_attractor_at', 'immune_re_encoded_at', 'immunology_loop', 'last_sweep', 'nodes_scanned', 'ok', 'quarantined', 'sweeps', 'synapses_cleaned']

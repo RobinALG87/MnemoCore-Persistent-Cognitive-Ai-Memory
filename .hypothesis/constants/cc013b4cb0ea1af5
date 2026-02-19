@@ -1,4 +1,0 @@
-# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\bayesian_ltp.py
-# hypothesis_version: 6.151.9
-
-[0.0, 0.25, 0.5, 1.0, 1.65, 2.0, 'BayesianState', '_bayes', 'access_count', 'alpha', 'beta', 'epistemic_value', 'pragmatic_value']

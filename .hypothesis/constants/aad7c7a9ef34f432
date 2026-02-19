@@ -1,4 +1,0 @@
-# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\tier_manager.py
-# hypothesis_version: 6.151.9
-
-[0.0, 0.5, 1.0, 100, 200, 500, '%Y-%m-%d', '*.json', 'QdrantStore', 'access_count', 'ann_index', 'archived_at', 'at', 'binary', 'cold', 'cold_count', 'content', 'created_at', 'dimension', 'epistemic_value', 'hdv_type', 'hdv_vector', 'hnsw_ef_construct', 'hnsw_m', 'hot', 'hot_count', 'id', 'index_type', 'int64', 'last_accessed', 'ltp_strength', 'metadata', 'none', 'pragmatic_value', 'r', 'tier', 'using_qdrant', 'utf-8', 'w', 'warm', 'warm_count', 'warm_path']

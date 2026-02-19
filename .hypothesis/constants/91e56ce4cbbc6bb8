@@ -1,4 +1,0 @@
-# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\batch_ops.py
-# hypothesis_version: 6.151.9
-
-[256, 16384, '1', 'cpu', 'cuda', 'mps']

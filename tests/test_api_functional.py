@@ -21,8 +21,8 @@ mock_container.redis_storage.check_health = AsyncMock(return_value=True)
 mock_container.qdrant_store = MagicMock()
 
 # Patch before import
-patcher1 = patch("src.api.main.HAIMEngine", mock_engine_cls)
-patcher2 = patch("src.api.main.build_container", return_value=mock_container)
+patcher1 = patch("mnemocore.api.main.HAIMEngine", mock_engine_cls)
+patcher2 = patch("mnemocore.api.main.build_container", return_value=mock_container)
 patcher1.start()
 patcher2.start()
 

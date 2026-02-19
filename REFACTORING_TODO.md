@@ -26,7 +26,7 @@ Status för kodoptimering inför kommande funktionalitet.
 ---
 
 ### 2. Ofullständiga features
-**Status:** Pending
+**Status:** ✅ Verified / Resolved
 
 **Problem:**
 - Flera TODOs i produktionskod som lämnats oimplementerade
@@ -44,8 +44,10 @@ Line 320: # TODO: orchestrate_orch_or() not implemented
 ```
 
 **Åtgärd:**
-- Implementera funktionerna
-- Eller ta bort dödkod
+- `superposition_query`: Implemented as `_superposition_query` in `HAIMLLMIntegrator`.
+- `orchestrate_orch_or`: Implemented in `HAIMEngine`.
+- LLM Calls: Code now supports generic providers (OpenAI, Gemini via `google.generativeai`, etc) with safe fallbacks (`_mock_llm_response`) if not configured.
+- `_concept_to_memory_id`: Implemented in `MultiAgentHAIM`.
 
 ---
 
@@ -165,7 +167,7 @@ Import-stilen följer redan rekommenderad Python-praxis. Ingen åtgärd behövs.
 ## Förbättra testtäckning
 
 ```bash
-pytest --cov=src --cov-report=html
+pytest --cov=mnemocore --cov-report=html
 ```
 
 Kör för att identifiera luckor i testtäckningen.
@@ -187,13 +189,14 @@ Kör för att identifiera luckor i testtäckningen.
 ## Framsteg
 
 - [x] Punkt 1: HDV-konsolidering ✅
-- [ ] Punkt 2: Ofullständiga features
+- [x] Punkt 2: Ofullständiga features ✅
 - [ ] Punkt 3: Felhantering
 - [ ] Punkt 4: Singleton-reduktion 📋 Roadmap
 - [ ] Punkt 5: Stora funktioner 📋 Roadmap
 - [x] Punkt 6: Circuit breakers ✅
 - [x] Punkt 7: Hårkodade sökvägar ✅
 - [x] Punkt 8: Import-stil ✅ (redan konsekvent)
+- [x] Test-suite import fixad (src. -> mnemocore.) ✅
 
 ---
 

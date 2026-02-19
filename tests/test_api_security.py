@@ -47,8 +47,8 @@ mock_redis_client.pipeline.return_value = mock_pipeline
 mock_container.redis_storage.redis_client = mock_redis_client
 
 # Patch before import
-patcher1 = patch("src.api.main.HAIMEngine", mock_engine_cls)
-patcher2 = patch("src.api.main.build_container", return_value=mock_container)
+patcher1 = patch("mnemocore.api.main.HAIMEngine", mock_engine_cls)
+patcher2 = patch("mnemocore.api.main.build_container", return_value=mock_container)
 patcher1.start()
 patcher2.start()
 
