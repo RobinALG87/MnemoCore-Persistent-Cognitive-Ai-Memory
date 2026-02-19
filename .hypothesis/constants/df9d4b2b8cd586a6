@@ -1,4 +1,0 @@
-# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\gap_detector.py
-# hypothesis_version: 6.151.9
-
-[0.0, 0.2, 0.3, 0.45, 0.46, 0.5, 1.0, 2.0, 10.0, 24.0, 3600.0, 500, 86400, 'coverage', 'filled_gaps', 'low_confidence', 'math', 'negative', 'numpy', 'open_gaps', 'sparse', 'total_gaps']

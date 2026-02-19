@@ -12,7 +12,7 @@ from mnemocore.core.qdrant_store import QdrantStore
 class TestMinimal(unittest.IsolatedAsyncioTestCase):
     async def test_minimal(self):
         print("Starting test_minimal", flush=True)
-        with patch("src.core.qdrant_store.AsyncQdrantClient") as MockClass:
+        with patch("mnemocore.core.qdrant_store.AsyncQdrantClient") as MockClass:
             # Use AsyncMock so async methods (ensure_collections) can be awaited
             MockClass.return_value = AsyncMock()
             print("Patched AsyncQdrantClient", flush=True)

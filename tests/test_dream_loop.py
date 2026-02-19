@@ -119,11 +119,11 @@ def daemon_module():
     # Patch sys.modules to inject mocks before import
     patches = {
         'aiohttp': mock_aiohttp,
-        'src.subconscious.daemon.aiohttp': mock_aiohttp,
-        'src.subconscious.daemon.DREAM_LOOP_TOTAL': mock_dream_loop_total,
-        'src.subconscious.daemon.DREAM_LOOP_ITERATION_SECONDS': mock_dream_loop_iteration_seconds,
-        'src.subconscious.daemon.DREAM_LOOP_INSIGHTS_GENERATED': mock_dream_loop_insights,
-        'src.subconscious.daemon.DREAM_LOOP_ACTIVE': mock_dream_loop_active,
+        'mnemocore.subconscious.daemon.aiohttp': mock_aiohttp,
+        'mnemocore.subconscious.daemon.DREAM_LOOP_TOTAL': mock_dream_loop_total,
+        'mnemocore.subconscious.daemon.DREAM_LOOP_ITERATION_SECONDS': mock_dream_loop_iteration_seconds,
+        'mnemocore.subconscious.daemon.DREAM_LOOP_INSIGHTS_GENERATED': mock_dream_loop_insights,
+        'mnemocore.subconscious.daemon.DREAM_LOOP_ACTIVE': mock_dream_loop_active,
     }
 
     # Apply patches to sys.modules
@@ -134,8 +134,8 @@ def daemon_module():
         sys.modules[key] = value
 
     # Remove daemon from sys.modules if it exists to force reload
-    if 'src.subconscious.daemon' in sys.modules:
-        del sys.modules['src.subconscious.daemon']
+    if 'mnemocore.subconscious.daemon' in sys.modules:
+        del sys.modules['mnemocore.subconscious.daemon']
 
     try:
         import mnemocore.subconscious.daemon as dm
@@ -148,8 +148,8 @@ def daemon_module():
             elif key in sys.modules:
                 del sys.modules[key]
         # Clean up daemon module
-        if 'src.subconscious.daemon' in sys.modules:
-            del sys.modules['src.subconscious.daemon']
+        if 'mnemocore.subconscious.daemon' in sys.modules:
+            del sys.modules['mnemocore.subconscious.daemon']
 
 
 class TestDreamLoopStartsAndStops:

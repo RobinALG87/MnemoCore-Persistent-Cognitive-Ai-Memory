@@ -24,23 +24,23 @@ except ImportError:
     pass
 
 # Mock dependencies if they are not importable
-if "src.core.engine" not in sys.modules:
-    mock_module("src.core")
-    mock_module("src.core.engine")
-    sys.modules["src.core.engine"].HAIMEngine = MagicMock()
-    mock_module("src.core.node")
-    sys.modules["src.core.node"].MemoryNode = MagicMock()
-    mock_module("src.core.qdrant_store")
-    sys.modules["src.core.qdrant_store"].QdrantStore = MagicMock()
+if "mnemocore.core.engine" not in sys.modules:
+    mock_module("mnemocore.core")
+    mock_module("mnemocore.core.engine")
+    sys.modules["mnemocore.core.engine"].HAIMEngine = MagicMock()
+    mock_module("mnemocore.core.node")
+    sys.modules["mnemocore.core.node"].MemoryNode = MagicMock()
+    mock_module("mnemocore.core.qdrant_store")
+    sys.modules["mnemocore.core.qdrant_store"].QdrantStore = MagicMock()
 
-if "src.core.async_storage" not in sys.modules:
-    mock_module("src.core.async_storage")
-    sys.modules["src.core.async_storage"].AsyncRedisStorage = MagicMock()
+if "mnemocore.core.async_storage" not in sys.modules:
+    mock_module("mnemocore.core.async_storage")
+    sys.modules["mnemocore.core.async_storage"].AsyncRedisStorage = MagicMock()
 
-if "src.meta.learning_journal" not in sys.modules:
-    mock_module("src.meta")
-    mock_module("src.meta.learning_journal")
-    sys.modules["src.meta.learning_journal"].LearningJournal = MagicMock()
+if "mnemocore.meta.learning_journal" not in sys.modules:
+    mock_module("mnemocore.meta")
+    mock_module("mnemocore.meta.learning_journal")
+    sys.modules["mnemocore.meta.learning_journal"].LearningJournal = MagicMock()
 
 if "aiohttp" not in sys.modules:
     mock_module("aiohttp")
@@ -60,7 +60,7 @@ async def _async_test_save_evolution_state_non_blocking():
     daemon = SubconsciousDaemon()
 
     # Use a temp path for the state file to avoid permission issues
-    with patch("src.subconscious.daemon.EVOLUTION_STATE_PATH", "/tmp/test_evolution_perf.json"):
+    with patch("mnemocore.subconscious.daemon.EVOLUTION_STATE_PATH", "/tmp/test_evolution_perf.json"):
 
         # 2. Patch json.dump to be slow (simulate blocking I/O)
         # We need to patch it where it is used. daemon.py imports json.

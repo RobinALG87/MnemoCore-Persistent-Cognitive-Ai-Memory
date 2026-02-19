@@ -14,9 +14,9 @@ class TestConsolidationWorker(unittest.IsolatedAsyncioTestCase):
     
     async def asyncSetUp(self):
         # Patch dependencies
-        self.storage_patcher = patch('src.core.consolidation_worker.AsyncRedisStorage')
-        self.tier_manager_patcher = patch('src.core.consolidation_worker.TierManager')
-        self.config_patcher = patch('src.core.consolidation_worker.get_config')
+        self.storage_patcher = patch('mnemocore.core.consolidation_worker.AsyncRedisStorage')
+        self.tier_manager_patcher = patch('mnemocore.core.consolidation_worker.TierManager')
+        self.config_patcher = patch('mnemocore.core.consolidation_worker.get_config')
         
         self.MockStorage = self.storage_patcher.start()
         self.MockTierManager = self.tier_manager_patcher.start()

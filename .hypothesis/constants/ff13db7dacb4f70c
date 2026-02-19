@@ -1,4 +1,0 @@
-# file: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\core\hnsw_index.py
-# hypothesis_version: 6.151.9
-
-[0.2, 1.0, 200, 256, 16384, '_position_map', '_stale_count', '_vcache', 'dimension', 'ef_construction', 'ef_search', 'faiss_available', 'flat', 'hnsw', 'hnsw_m', 'index_type', 'indexed_nodes', 'int64', 'linear']
