@@ -24,6 +24,20 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 
+# Cached lookup table for popcount (bits set per byte value 0-255)
+_POPCOUNT_TABLE: Optional[np.ndarray] = None
+
+
+def _build_popcount_table() -> np.ndarray:
+    """Build or return cached popcount lookup table for bytes (0-255)."""
+    global _POPCOUNT_TABLE
+    if _POPCOUNT_TABLE is None:
+        _POPCOUNT_TABLE = np.array(
+            [bin(i).count("1") for i in range(256)], dtype=np.int32
+        )
+    return _POPCOUNT_TABLE
+
+
 class BinaryHDV:
     """
     A binary hyperdimensional vector stored as a packed uint8 array.
@@ -138,12 +152,13 @@ class BinaryHDV:
         """
         Hamming distance: count of differing bits.
 
-        Uses np.unpackbits + sum for correctness.
+        Uses lookup table for speed (replacing unpackbits).
         Range: [0, dimension].
         """
         assert self.dimension == other.dimension
         xor_result = np.bitwise_xor(self.data, other.data)
-        return int(np.unpackbits(xor_result).sum())
+        # Optimized: use precomputed popcount table instead of unpacking bits
+        return int(_build_popcount_table()[xor_result].sum())
 
     def normalized_distance(self, other: "BinaryHDV") -> float:
         """Hamming distance normalized to [0.0, 1.0]."""
@@ -210,7 +225,8 @@ class BinaryHDV:
         return cls(data=data, dimension=dimension)
 
     def __repr__(self) -> str:
-        popcount = int(np.unpackbits(self.data).sum())
+        # Optimized: use precomputed popcount table
+        popcount = int(_build_popcount_table()[self.data].sum())
         return f"BinaryHDV(dim={self.dimension}, popcount={popcount}/{self.dimension})"
 
     def __eq__(self, other: object) -> bool:
@@ -415,21 +431,3 @@ class TextEncoder:
         """
         content_hdv = self.encode(text)
         return content_hdv.xor_bind(context_hdv)
-
-
-# ======================================================================
-# Internal helpers
-# ======================================================================
-
-# Cached lookup table for popcount (bits set per byte value 0-255)
-_POPCOUNT_TABLE: Optional[np.ndarray] = None
-
-
-def _build_popcount_table() -> np.ndarray:
-    """Build or return cached popcount lookup table for bytes (0-255)."""
-    global _POPCOUNT_TABLE
-    if _POPCOUNT_TABLE is None:
-        _POPCOUNT_TABLE = np.array(
-            [bin(i).count("1") for i in range(256)], dtype=np.int32
-        )
-    return _POPCOUNT_TABLE
