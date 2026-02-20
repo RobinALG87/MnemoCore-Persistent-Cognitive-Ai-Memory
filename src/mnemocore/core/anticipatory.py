@@ -36,7 +36,7 @@ class AnticipatoryEngine:
         # We use a relatively low depth to avoid flooding the HOT tier
         neighbors = self.synapse_index.get_multi_hop_neighbors(
             current_node_id,
-            max_depth=self.config.predictive_depth
+            depth=self.config.predictive_depth
         )
         
         # We'll just take the top 5 highest-weighted neighbors

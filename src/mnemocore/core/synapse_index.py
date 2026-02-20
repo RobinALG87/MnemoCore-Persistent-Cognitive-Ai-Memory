@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Iterator, List, Optional, Set, Tuple
@@ -239,10 +240,11 @@ class SynapseIndex:
 
         Returns 1.0 for isolated nodes.
         """
-        boost = 1.0
-        for syn in self.neighbours(node_id):
-            boost *= (1.0 + syn.get_current_strength())
-        return boost
+        # Phase 4.5 Hotfix (Robin's Score Bug e+195):
+        # Instead of exponential product scaling which explodes for hub nodes,
+        # we aggregate the strengths and bound the multiplier logarithmically.
+        total_strength = sum(syn.get_current_strength() for syn in self.neighbours(node_id))
+        return 1.0 + math.log1p(total_strength)
 
     def __len__(self) -> int:
         return len(self._edges)

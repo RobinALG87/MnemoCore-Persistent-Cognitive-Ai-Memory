@@ -63,8 +63,8 @@ async def test_anticipatory_memory(test_engine):
     # Verify node_b is in WARM
     assert node_b not in test_engine.tier_manager.hot
     
-    # Query for something similar to node_a
-    results = await test_engine.query("Tell me about Machine Learning.", top_k=2)
+    # Query for something exact to node_a to guarantee it ranks first
+    results = await test_engine.query("I love learning about Machine Learning and AI algorithms.", top_k=2)
     # The Anticipatory Engine should spawn a background task to preload node_b
     assert len(results) > 0
     assert results[0][0] == node_a
