@@ -229,7 +229,7 @@ class SubconsciousAIConfig:
 class HAIMConfig:
     """Root configuration for the HAIM system."""
 
-    version: str = "3.0"
+    version: str = "4.5"
     dimensionality: int = 16384
     encoding: EncodingConfig = field(default_factory=EncodingConfig)
     tiers_hot: TierConfig = field(
@@ -380,15 +380,6 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     encoding = EncodingConfig(
         mode=_env_override("ENCODING_MODE", enc_raw.get("mode", "binary")),
         token_method=enc_raw.get("token_method", "bundle"),
-    )
-
-    # Build LTP config
-    ltp_raw = raw.get("ltp") or {}
-    ltp = LTPConfig(
-        initial_importance=ltp_raw.get("initial_importance", 0.5),
-        decay_lambda=ltp_raw.get("decay_lambda", 0.01),
-        permanence_threshold=ltp_raw.get("permanence_threshold", 0.95),
-        half_life_days=ltp_raw.get("half_life_days", 30.0),
     )
 
     # Build paths config
@@ -591,7 +582,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     return HAIMConfig(
-        version=raw.get("version", "3.0"),
+        version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
         encoding=encoding,
         tiers_hot=_build_tier("hot", hot_raw),

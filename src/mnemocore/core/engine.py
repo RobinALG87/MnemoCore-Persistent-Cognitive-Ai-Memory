@@ -354,18 +354,23 @@ class HAIMEngine:
         """
         _is_gap_fill = metadata.get("source") == "llm_gap_fill"
 
-        # Phase 12.1: Aggressive Synapse Formation (Auto-bind)
+        # Phase 12.1: Aggressive Synapse Formation (Auto-bind).
+        # Fix 4: collect all bindings first, persist synapses only once at the end.
         if hasattr(self.config, 'synapse') and self.config.synapse.auto_bind_on_store:
-            # Query for similar nodes to auto-bind immediately
             similar_nodes = await self.query(
                 node.content,
                 top_k=3,
                 associative_jump=False,
-                track_gaps=False
+                track_gaps=False,
             )
-            for neighbor_id, similarity in similar_nodes:
-                if neighbor_id != node.id and similarity >= self.config.synapse.similarity_threshold:
-                    await self.bind_memories(node.id, neighbor_id, success=True)
+            bind_pairs = [
+                (node.id, neighbor_id)
+                for neighbor_id, similarity in similar_nodes
+                if neighbor_id != node.id
+                and similarity >= self.config.synapse.similarity_threshold
+            ]
+            if bind_pairs:
+                await self._auto_bind_batch(bind_pairs)
 
         self.subconscious_queue.append(node.id)
 
@@ -375,6 +380,9 @@ class HAIMEngine:
     # ==========================================================================
     # Main store() method - Orchestration only
     # ==========================================================================
+
+    # Maximum allowed content length (Fix 5: input validation)
+    _MAX_CONTENT_LENGTH: int = 100_000
 
     @timer(STORE_DURATION_SECONDS, labels={"tier": "hot"})
     @traced("store_memory")
@@ -389,20 +397,38 @@ class HAIMEngine:
         Store new memory with holographic encoding.
 
         This method orchestrates the memory storage pipeline:
-        1. Encode input content
-        2. Evaluate tier placement via EIG
-        3. Persist to storage
-        4. Trigger post-store processing
+        1. Validate input
+        2. Encode input content
+        3. Evaluate tier placement via EIG
+        4. Persist to storage
+        5. Trigger post-store processing
 
         Args:
-            content: The text content to store.
+            content: The text content to store. Must be non-empty and ≤100 000 chars.
             metadata: Optional metadata dictionary.
             goal_id: Optional goal identifier for context binding.
             project_id: Optional project identifier for isolation masking (Phase 4.1).
 
         Returns:
             The unique identifier of the stored memory node.
+
+        Raises:
+            ValueError: If content is empty or exceeds the maximum allowed length.
+            RuntimeError: If the engine has not been initialized via initialize().
         """
+        # Fix 5: Input validation
+        if not content or not content.strip():
+            raise ValueError("Memory content cannot be empty or whitespace-only.")
+        if len(content) > self._MAX_CONTENT_LENGTH:
+            raise ValueError(
+                f"Memory content is too long ({len(content):,} chars). "
+                f"Maximum: {self._MAX_CONTENT_LENGTH:,}."
+            )
+        if not self._initialized:
+            raise RuntimeError(
+                "HAIMEngine.initialize() must be awaited before calling store()."
+            )
+
         # 1. Encode input and bind goal context
         encoded_vec, updated_metadata = await self._encode_input(content, metadata, goal_id)
 
@@ -442,18 +468,10 @@ class HAIMEngine:
         if node_id in self.subconscious_queue:
             self.subconscious_queue.remove(node_id)
 
-        # 3. Phase 4.0: clean up via SynapseIndex (O(k))
+        # 3. Phase 4.0: clean up via SynapseIndex (O(k)).
+        # Fix 2: legacy dict rebuild removed — _synapse_index is authoritative.
         async with self.synapse_lock:
             removed_count = self._synapse_index.remove_node(node_id)
-
-            # Rebuild legacy dicts
-            self.synapses = dict(self._synapse_index.items())
-            self.synapse_adjacency = {}
-            for syn in self._synapse_index.values():
-                self.synapse_adjacency.setdefault(syn.neuron_a_id, [])
-                self.synapse_adjacency.setdefault(syn.neuron_b_id, [])
-                self.synapse_adjacency[syn.neuron_a_id].append(syn)
-                self.synapse_adjacency[syn.neuron_b_id].append(syn)
 
         if removed_count:
             await self._save_synapses()
@@ -500,6 +518,7 @@ class HAIMEngine:
         chrono_lambda: float = 0.0001,
         include_neighbors: bool = False,
         metadata_filter: Optional[Dict[str, Any]] = None,
+        include_cold: bool = False,
     ) -> List[Tuple[str, float]]:
         """
         Query memories using Hamming distance.
@@ -519,6 +538,9 @@ class HAIMEngine:
             Formula: Final_Score = Semantic_Similarity * (1 / (1 + lambda * Time_Delta))
           - chrono_lambda: Decay rate in seconds^-1 (default: 0.0001 ~ 2.7h half-life).
           - include_neighbors: Also fetch temporal neighbors (previous/next) for top results.
+          - include_cold: Include COLD tier in the search (bounded linear scan, default False).
+
+        Fix 3: Triggers anticipatory preloading (Phase 13.2) as fire-and-forget after returning.
         """
         # Encode Query
         query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
@@ -539,6 +561,7 @@ class HAIMEngine:
             top_k=top_k * 2,
             time_range=time_range,
             metadata_filter=metadata_filter,
+            include_cold=include_cold,
         )
 
         scores: Dict[str, float] = {}
@@ -687,6 +710,13 @@ class HAIMEngine:
             # Re-sort after adding neighbors, but preserve query() top_k contract.
             top_results = sorted(top_results, key=lambda x: x[1], reverse=True)[:top_k]
 
+        # Phase 13.2 (Fix 3): Anticipatory preloading — fire-and-forget so it
+        # never blocks the caller. Only activated when the engine is fully warm.
+        if top_results and self._initialized and self.config.anticipatory.enabled:
+            asyncio.ensure_future(
+                self.anticipatory_engine.predict_and_preload(top_results[0][0])
+            )
+
         return top_results
 
     async def get_context_nodes(self, top_k: int = 3) -> List[Tuple[str, float]]:
@@ -761,12 +791,32 @@ class HAIMEngine:
 
         return sorted(active_nodes, key=score, reverse=True)[:max_collapse]
 
+    async def _auto_bind_batch(
+        self,
+        pairs: List[Tuple[str, str]],
+        success: bool = True,
+        weight: float = 1.0,
+    ) -> None:
+        """
+        Fix 4: Bind multiple (id_a, id_b) pairs in one pass, saving synapses once.
+
+        Used by auto-bind in _trigger_post_store() to avoid N disk writes per store.
+        """
+        async with self.synapse_lock:
+            for id_a, id_b in pairs:
+                mem_a = await self.tier_manager.get_memory(id_a)
+                mem_b = await self.tier_manager.get_memory(id_b)
+                if mem_a and mem_b:
+                    self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
+        await self._save_synapses()
+
     async def bind_memories(self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0):
         """
         Bind two memories by ID.
 
-        Phase 4.0: delegates to SynapseIndex for O(1) insert/fire.
-        Also syncs legacy dicts for backward-compat.
+        Fix 2: delegates exclusively to SynapseIndex — legacy dict sync removed.
+        The legacy self.synapses / self.synapse_adjacency attributes remain for
+        backward compatibility but are only populated at startup from disk.
         """
         mem_a = await self.tier_manager.get_memory(id_a)
         mem_b = await self.tier_manager.get_memory(id_b)
@@ -775,17 +825,7 @@ class HAIMEngine:
             return
 
         async with self.synapse_lock:
-            syn = self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
-
-            # Keep legacy dict in sync for any external code still using it
-            synapse_key = tuple(sorted([id_a, id_b]))
-            self.synapses[synapse_key] = syn
-            self.synapse_adjacency.setdefault(synapse_key[0], [])
-            self.synapse_adjacency.setdefault(synapse_key[1], [])
-            if syn not in self.synapse_adjacency[synapse_key[0]]:
-                self.synapse_adjacency[synapse_key[0]].append(syn)
-            if syn not in self.synapse_adjacency[synapse_key[1]]:
-                self.synapse_adjacency[synapse_key[1]].append(syn)
+            self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
 
         await self._save_synapses()
 
@@ -805,26 +845,17 @@ class HAIMEngine:
         Also syncs any legacy dict entries into the index before compacting.
         """
         async with self.synapse_lock:
-            # Sync legacy dict → SynapseIndex via the public register() API
-            # (handles tests / external code that injects into self.synapses directly)
-            for key, syn in list(self.synapses.items()):
+            # Retain legacy→index sync so tests that write to self.synapses directly
+            # still get their entries registered (Fix 2: sync only in this direction).
+            for syn in list(self.synapses.values()):
                 if self._synapse_index.get(syn.neuron_a_id, syn.neuron_b_id) is None:
                     self._synapse_index.register(syn)
 
             removed = self._synapse_index.compact(threshold)
 
-            if removed:
-                # Rebuild legacy dicts from the index
-                self.synapses = dict(self._synapse_index.items())
-                self.synapse_adjacency = {}
-                for syn in self._synapse_index.values():
-                    self.synapse_adjacency.setdefault(syn.neuron_a_id, [])
-                    self.synapse_adjacency.setdefault(syn.neuron_b_id, [])
-                    self.synapse_adjacency[syn.neuron_a_id].append(syn)
-                    self.synapse_adjacency[syn.neuron_b_id].append(syn)
-
-                logger.info(f"cleanup_decay: pruned {removed} synapses below {threshold}")
-                await self._save_synapses()
+        if removed:
+            logger.info(f"cleanup_decay: pruned {removed} synapses below {threshold}")
+            await self._save_synapses()
 
     async def get_stats(self) -> Dict[str, Any]:
         """Aggregate statistics from engine components."""
@@ -1029,17 +1060,8 @@ class HAIMEngine:
         def _load():
             self._synapse_index.load_from_file(self.synapse_path)
 
+        # Fix 2: _synapse_index is authoritative — legacy dicts no longer rebuilt.
         await self._run_in_thread(_load)
-
-        # Rebuild legacy dicts from SynapseIndex for backward compat
-        async with self.synapse_lock:
-            self.synapses = dict(self._synapse_index.items())
-            self.synapse_adjacency = {}
-            for syn in self._synapse_index.values():
-                self.synapse_adjacency.setdefault(syn.neuron_a_id, [])
-                self.synapse_adjacency.setdefault(syn.neuron_b_id, [])
-                self.synapse_adjacency[syn.neuron_a_id].append(syn)
-                self.synapse_adjacency[syn.neuron_b_id].append(syn)
 
     async def _save_synapses(self):
         """

@@ -86,6 +86,9 @@ class TierManager:
 
         # HOT Tier: In-memory dictionary
         self.hot: Dict[str, MemoryNode] = {}
+        # Phase 13.2: O(1) inverted index for episodic chain – previous_id → node_id.
+        # Maintained in sync with self.hot so get_next_in_chain() avoids O(N) scans.
+        self._next_chain: Dict[str, str] = {}
 
         # WARM Tier: Qdrant (injected) or fallback to filesystem
         self.qdrant = qdrant_store
@@ -179,6 +182,9 @@ class TierManager:
         async with self.lock:
             self.hot[node.id] = node
             self._add_to_faiss(node)
+            # Maintain inverted chain index (Fix 7: O(1) get_next_in_chain)
+            if node.previous_id:
+                self._next_chain[node.previous_id] = node.id
 
             # Check if we need to evict - decide under lock, execute outside
             if len(self.hot) > self.config.tiers_hot.max_memories:
@@ -263,7 +269,11 @@ class TierManager:
                 await self._promote_to_hot(warm_node)
             return warm_node
 
-        return None
+        # Fix 1: Fall back to COLD tier (read-only archive scan).
+        cold_node = await self._load_from_cold(node_id)
+        if cold_node:
+            logger.debug(f"Retrieved {node_id} from COLD tier.")
+        return cold_node
 
     async def get_memories_batch(self, node_ids: List[str]) -> List[Optional[MemoryNode]]:
         """
@@ -311,6 +321,10 @@ class TierManager:
         """Robust delete from all tiers."""
         async with self.lock:
             if node_id in self.hot:
+                _node = self.hot[node_id]
+                # Maintain inverted chain index before removal
+                if _node.previous_id:
+                    self._next_chain.pop(_node.previous_id, None)
                 del self.hot[node_id]
                 self._remove_from_faiss(node_id)
                 logger.debug(f"Deleted {node_id} from HOT")
@@ -404,8 +418,10 @@ class TierManager:
 
         victim = min(candidates, key=lambda n: n.ltp_strength)
         logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
-        
-        # Remove from HOT structure
+
+        # Remove from HOT structure (maintain inverted chain index)
+        if victim.previous_id:
+            self._next_chain.pop(victim.previous_id, None)
         del self.hot[victim.id]
         self._remove_from_faiss(victim.id)
         
@@ -640,6 +656,9 @@ class TierManager:
             node.tier = "hot"
             self.hot[node.id] = node
             self._add_to_faiss(node)
+            # Maintain inverted chain index
+            if node.previous_id:
+                self._next_chain[node.previous_id] = node.id
 
             # Check if we need to evict - prepare under lock, execute outside
             if len(self.hot) > self.config.tiers_hot.max_memories:
@@ -762,12 +781,11 @@ class TierManager:
             The next MemoryNode in the chain, or None if not found / Qdrant
             unavailable.
         """
-        # 1. Check HOT tier first (fast Linear Scan)
-        # This ensures we find recently created links that haven't been demoted yet.
+        # 1. Check HOT tier via O(1) inverted index (Fix 7).
         async with self.lock:
-            for node in self.hot.values():
-                if node.previous_id == node_id:
-                    return node
+            next_id = self._next_chain.get(node_id)
+            if next_id and next_id in self.hot:
+                return self.hot[next_id]
 
         # 2. Check WARM tier (Qdrant)
         if not self.use_qdrant or not self.qdrant:
@@ -854,12 +872,14 @@ class TierManager:
         top_k: int = 5,
         time_range: Optional[Tuple[datetime, datetime]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
+        include_cold: bool = False,
     ) -> List[Tuple[str, float]]:
         """
         Global search across all tiers.
-        Combines FAISS (HOT) and Qdrant (WARM).
+        Combines HNSW/FAISS (HOT), Qdrant/FS (WARM), and optionally COLD.
 
         Phase 4.3: time_range filters results to memories within the given datetime range.
+        Fix 1: include_cold=True enables a bounded linear scan of the COLD archive.
         """
         # 1. Search HOT via FAISS (time filtering done post-hoc for in-memory)
         hot_results = self.search_hot(query_vec, top_k)
@@ -909,11 +929,18 @@ class TierManager:
             except Exception as e:
                 logger.error(f"WARM tier search failed: {e}")
 
-        # 3. Combine and Sort
+        # 3. Optionally search COLD tier (Fix 1: bounded linear scan)
+        cold_results: List[Tuple[str, float]] = []
+        if include_cold:
+            cold_results = await self.search_cold(query_vec, top_k)
+
+        # 4. Combine and Sort (HOT scores take precedence over WARM/COLD for same ID)
         combined = {}
         for nid, score in hot_results:
             combined[nid] = score
         for nid, score in warm_results:
+            combined[nid] = max(combined.get(nid, 0), score)
+        for nid, score in cold_results:
             combined[nid] = max(combined.get(nid, 0), score)
 
         sorted_results = sorted(combined.items(), key=lambda x: x[1], reverse=True)
@@ -958,6 +985,115 @@ class TierManager:
 
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[:top_k]
+
+    async def _load_from_cold(self, node_id: str) -> Optional[MemoryNode]:
+        """
+        Scan COLD archive files for a specific node (Fix 1: COLD read path).
+
+        Archives are gzip JSONL, sorted newest-first for early-exit on recent data.
+        Returns None if not found or on error.
+        """
+        def _scan():
+            for archive_file in sorted(
+                self.cold_path.glob("archive_*.jsonl.gz"), reverse=True
+            ):
+                try:
+                    with gzip.open(archive_file, "rt", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                rec = json.loads(line)
+                                if rec.get("id") == node_id:
+                                    return rec
+                            except json.JSONDecodeError:
+                                continue
+                except Exception:
+                    continue
+            return None
+
+        rec = await self._run_in_thread(_scan)
+        if rec is None:
+            return None
+
+        try:
+            raw_vec = rec.get("hdv_vector")
+            dim = rec.get("dimension", self.config.dimensionality)
+            if raw_vec:
+                hdv_data = np.array(raw_vec, dtype=np.uint8)
+                hdv = BinaryHDV(data=hdv_data, dimension=dim)
+            else:
+                hdv = BinaryHDV.zeros(dim)
+
+            node = MemoryNode(
+                id=rec["id"],
+                hdv=hdv,
+                content=rec.get("content", ""),
+                metadata=rec.get("metadata", {}),
+                tier="cold",
+                ltp_strength=rec.get("ltp_strength", 0.0),
+                previous_id=rec.get("previous_id"),
+            )
+            if "created_at" in rec:
+                node.created_at = datetime.fromisoformat(rec["created_at"])
+            return node
+        except Exception as e:
+            logger.error(f"Failed to reconstruct node {node_id} from COLD: {e}")
+            return None
+
+    async def search_cold(
+        self,
+        query_vec: BinaryHDV,
+        top_k: int = 5,
+        max_scan: int = 1000,
+    ) -> List[Tuple[str, float]]:
+        """
+        Linear similarity scan over COLD archive (Fix 1: COLD search path).
+
+        Bounded by max_scan records to keep latency predictable.
+        Returns results sorted by descending similarity.
+        """
+        config_dim = self.config.dimensionality
+
+        def _scan():
+            candidates: List[Tuple[str, float]] = []
+            scanned = 0
+            for archive_file in sorted(
+                self.cold_path.glob("archive_*.jsonl.gz"), reverse=True
+            ):
+                if scanned >= max_scan:
+                    break
+                try:
+                    with gzip.open(archive_file, "rt", encoding="utf-8") as f:
+                        for line in f:
+                            if scanned >= max_scan:
+                                break
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                rec = json.loads(line)
+                                raw_vec = rec.get("hdv_vector")
+                                if not raw_vec:
+                                    continue
+                                dim = rec.get("dimension", config_dim)
+                                hdv = BinaryHDV(
+                                    data=np.array(raw_vec, dtype=np.uint8),
+                                    dimension=dim,
+                                )
+                                sim = query_vec.similarity(hdv)
+                                candidates.append((rec["id"], sim))
+                                scanned += 1
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
+            return candidates
+
+        candidates = await self._run_in_thread(_scan)
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[:top_k]
 
     async def _write_to_cold(self, record: dict):
         """Write a record to the cold archive."""

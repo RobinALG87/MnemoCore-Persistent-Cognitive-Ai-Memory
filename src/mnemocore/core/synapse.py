@@ -20,6 +20,8 @@ class SynapticConnection:
         self.last_fired = datetime.now(timezone.utc)
         self.fire_count = 0
         self.success_count = 0  # For Hebbian learning
+        # Cache half_life at creation to avoid get_config() on every strength call.
+        self._half_life_days: float = get_config().ltp.half_life_days
 
     def fire(self, success: bool = True, weight: float = 1.0):
         """Activate synapse (strengthen if successful)"""
@@ -36,19 +38,18 @@ class SynapticConnection:
     def get_current_strength(self) -> float:
         """
         Ebbinghaus forgetting curve
-        Returns decayed strength based on age and config half-life.
+        Returns decayed strength based on age and cached half-life.
         """
-        config = get_config()
         age_seconds = (datetime.now(timezone.utc) - self.last_fired).total_seconds()
         age_days = age_seconds / 86400.0
 
         # Exponential decay: exp(-λ * t)
         # Half-life formula: N(t) = N0 * (1/2)^(t / t_half)
         # Which is equivalent to N0 * exp(-ln(2) * t / t_half)
-        half_life = config.ltp.half_life_days
-        
+        half_life = self._half_life_days
+
         if half_life <= 0:
-            return self.strength # No decay
+            return self.strength  # No decay
 
         decay = math.exp(-(math.log(2) / half_life) * age_days)
 
