@@ -228,9 +228,9 @@ class QdrantStore:
                 )
 
             return await qdrant_breaker.call(
-                self.client.search,
+                self.client.query_points,
                 collection_name=collection,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit,
                 score_threshold=score_threshold,
                 query_filter=query_filter,

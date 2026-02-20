@@ -413,15 +413,24 @@ class TextEncoder:
         if len(tokens) == 1:
             return self.get_token_vector(tokens[0])
 
-        # Build position-bound token vectors
-        bound_vectors = []
-        for i, token in enumerate(tokens):
-            token_hdv = self.get_token_vector(token)
-            # Permute by position index for order encoding
-            positioned = token_hdv.permute(shift=i)
-            bound_vectors.append(positioned)
+        # Build position-bound token vectors (#27)
+        # Optimized: Batch process data instead of multiple object instantiations
+        token_hdvs = [self.get_token_vector(t) for t in tokens]
+        packed_data = np.stack([v.data for v in token_hdvs], axis=0)
+        all_bits = np.unpackbits(packed_data, axis=1)
 
-        return majority_bundle(bound_vectors)
+        # Apply position-based permutations (roll)
+        for i in range(len(tokens)):
+            if i > 0:
+                all_bits[i] = np.roll(all_bits[i], i)
+
+        # Vectorized majority vote (equivalent to majority_bundle)
+        sums = all_bits.sum(axis=0)
+        threshold = len(tokens) / 2.0
+        result_bits = np.zeros(self.dimension, dtype=np.uint8)
+        result_bits[sums > threshold] = 1
+
+        return BinaryHDV(data=np.packbits(result_bits), dimension=self.dimension)
 
     def encode_with_context(
         self, text: str, context_hdv: BinaryHDV

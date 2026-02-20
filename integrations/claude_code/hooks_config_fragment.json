@@ -1,0 +1,28 @@
+{
+  "_comment": "Merge this fragment into ~/.claude/settings.json under the 'hooks' key.",
+  "_note": "Replace MNEMOCORE_INTEGRATIONS_PATH with the absolute path to integrations/claude_code/hooks/",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python MNEMOCORE_INTEGRATIONS_PATH/pre_session_inject.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python MNEMOCORE_INTEGRATIONS_PATH/post_tool_store.py"
+          }
+        ]
+      }
+    ]
+  }
+}

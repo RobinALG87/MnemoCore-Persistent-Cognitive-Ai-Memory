@@ -32,6 +32,7 @@ def test_engine(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cleanup_decay(test_engine):
+    await test_engine.initialize()
     # Add dummy synapses
     # Synapse 1: Weak (below threshold 0.1)
     syn1 = SynapticConnection("mem_1", "mem_2", initial_strength=0.05)
@@ -48,19 +49,20 @@ async def test_cleanup_decay(test_engine):
     await test_engine.cleanup_decay(threshold=0.1)
 
     # Verify results
-    assert len(test_engine.synapses) == 1
-    assert ("mem_3", "mem_4") in test_engine.synapses
-    assert ("mem_1", "mem_2") not in test_engine.synapses
+    assert len(test_engine._synapse_index) == 1
+    assert test_engine._synapse_index.get("mem_3", "mem_4") is not None
+    assert test_engine._synapse_index.get("mem_1", "mem_2") is None
 
     # Verify persistence
     assert os.path.exists(test_engine.synapse_path)
 
 @pytest.mark.asyncio
 async def test_cleanup_no_decay(test_engine):
+    await test_engine.initialize()
     # All strong
     syn1 = SynapticConnection("mem_1", "mem_2", initial_strength=0.5)
     test_engine.synapses[("mem_1", "mem_2")] = syn1
 
     await test_engine.cleanup_decay(threshold=0.1)
 
-    assert len(test_engine.synapses) == 1
+    assert len(test_engine._synapse_index) == 1

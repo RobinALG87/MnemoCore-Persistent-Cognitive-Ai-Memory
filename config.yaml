@@ -86,7 +86,7 @@ haim:
 
   # MCP (Model Context Protocol) bridge
   mcp:
-    enabled: false
+    enabled: true
     transport: "stdio"  # "stdio" recommended for local MCP clients
     host: "127.0.0.1"
     port: 8110

@@ -80,7 +80,7 @@ class TestLoadConfig:
         missing_path = tmp_path / "nonexistent.yaml"
         config = load_config(missing_path)
         assert config.dimensionality == 16384
-        assert config.version == "3.0"
+        assert config.version == "4.5"
 
     def test_dimensionality_must_be_multiple_of_64(self, tmp_path):
         bad_config = {"haim": {"dimensionality": 100}}

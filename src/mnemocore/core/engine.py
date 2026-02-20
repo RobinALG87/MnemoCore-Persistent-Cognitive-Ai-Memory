@@ -583,7 +583,7 @@ class HAIMEngine:
             if chrono_weight and score > 0:
                 mem = mem_map.get(nid)
                 if mem:
-                    time_delta = now_ts - mem.created_at.timestamp()  # seconds since creation
+                    time_delta = max(0.0, now_ts - mem.created_at.timestamp())  # seconds since creation
                     # Formula: Final = Semantic * (1 / (1 + lambda * time_delta))
                     decay_factor = 1.0 / (1.0 + chrono_lambda * time_delta)
                     score = score * decay_factor

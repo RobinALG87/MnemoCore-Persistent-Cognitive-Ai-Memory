@@ -50,7 +50,8 @@ def test_persistence_failure_logs_error(test_engine, capsys):
 
     with patch('builtins.open', side_effect=side_effect):
         # This should NOT raise an exception - error should be caught and logged
-        asyncio.run(test_engine.store("Test content"))
+        asyncio.run(test_engine.initialize())
+    asyncio.run(test_engine.store("Test content"))
 
     # The test passes if we reach here without an exception
     # The error is logged to stderr via loguru (verified by manual inspection)

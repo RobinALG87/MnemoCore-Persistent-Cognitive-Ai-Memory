@@ -59,6 +59,7 @@ class TestBinaryEngine:
         assert isinstance(binary_engine.tier_manager, object)
 
     async def test_store_memory_binary(self, binary_engine):
+        await binary_engine.initialize()
         mid = await binary_engine.store("Hello World", metadata={"test": True})
         
         # Verify stored in HOT
@@ -72,6 +73,7 @@ class TestBinaryEngine:
         assert os.path.exists(binary_engine.persist_path)
 
     async def test_query_memory_binary(self, binary_engine):
+        await binary_engine.initialize()
         # Store two distinct memories
         mid1 = await binary_engine.store("The quick brown fox jumps over the lazy dog")
         mid2 = await binary_engine.store("Quantum computing uses qubits and superposition")
@@ -85,6 +87,7 @@ class TestBinaryEngine:
         assert score > 0.5 # Should be high similarity
 
     async def test_context_vector_binary(self, binary_engine):
+        await binary_engine.initialize()
         await binary_engine.store("Context 1")
         await binary_engine.store("Context 2")
         
@@ -103,6 +106,7 @@ class TestBinaryEngine:
 
 class TestRouterBinary:
     async def test_router_reflex(self, binary_engine):
+        await binary_engine.initialize()
         router = CognitiveRouter(binary_engine)
         await binary_engine.store("What is HAIM?", metadata={"answer": "Holographic memory"})
         

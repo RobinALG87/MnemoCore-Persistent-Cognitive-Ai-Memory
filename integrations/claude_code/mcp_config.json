@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mnemocore": {
+      "command": "python",
+      "args": ["-m", "mnemocore.mcp.server"],
+      "cwd": "${MNEMOCORE_DIR}",
+      "env": {
+        "HAIM_API_KEY": "${HAIM_API_KEY}",
+        "PYTHONPATH": "${MNEMOCORE_DIR}/src"
+      }
+    }
+  }
+}
