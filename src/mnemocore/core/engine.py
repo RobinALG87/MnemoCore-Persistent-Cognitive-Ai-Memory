@@ -461,6 +461,7 @@ class HAIMEngine:
         chrono_weight: bool = True,
         chrono_lambda: float = 0.0001,
         include_neighbors: bool = False,
+        metadata_filter: Optional[Dict[str, Any]] = None,
     ) -> List[Tuple[str, float]]:
         """
         Query memories using Hamming distance.
@@ -494,6 +495,7 @@ class HAIMEngine:
             query_vec,
             top_k=top_k * 2,
             time_range=time_range,
+            metadata_filter=metadata_filter,
         )
 
         scores: Dict[str, float] = {}
@@ -540,6 +542,15 @@ class HAIMEngine:
                     if neighbor not in augmented_scores:
                         mem = await self.tier_manager.get_memory(neighbor)
                         if mem:
+                            if metadata_filter:
+                                match = True
+                                node_meta = mem.metadata or {}
+                                for k, v in metadata_filter.items():
+                                    if node_meta.get(k) != v:
+                                        match = False
+                                        break
+                                if not match:
+                                    continue
                             augmented_scores[neighbor] = query_vec.similarity(mem.hdv)
 
                     if neighbor in augmented_scores:
@@ -595,6 +606,15 @@ class HAIMEngine:
                 if mem.previous_id:
                     prev_mem = await self.tier_manager.get_memory(mem.previous_id)
                     if prev_mem and prev_mem.id not in scores:
+                        if metadata_filter:
+                            match = True
+                            p_meta = prev_mem.metadata or {}
+                            for k, v in metadata_filter.items():
+                                if p_meta.get(k) != v:
+                                    match = False
+                                    break
+                            if not match:
+                                continue
                         neighbor_ids.add(prev_mem.id)
 
                 # Try to find the memory that follows this one (has this as previous_id).

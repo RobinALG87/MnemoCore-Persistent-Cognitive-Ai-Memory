@@ -100,7 +100,7 @@ class QdrantStore:
                 collection_name=self.collection_hot,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.COSINE,
+                    distance=models.Distance.DOT,
                     on_disk=False
                 ),
                 quantization_config=quantization_config,
@@ -118,7 +118,7 @@ class QdrantStore:
                 collection_name=self.collection_warm,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.MANHATTAN,
+                    distance=models.Distance.DOT,
                     on_disk=True
                 ),
                 quantization_config=quantization_config,
@@ -169,6 +169,7 @@ class QdrantStore:
         limit: int = 5,
         score_threshold: float = 0.0,
         time_range: Optional[Tuple[datetime, datetime]] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
     ) -> List[models.ScoredPoint]:
         """
         Async semantic search.
@@ -189,21 +190,41 @@ class QdrantStore:
             as search failures should not crash the calling code.
         """
         try:
-            # Build time filter if provided (Phase 4.3)
-            query_filter = None
+            must_conditions = []
             if time_range:
                 start_ts = int(time_range[0].timestamp())
                 end_ts = int(time_range[1].timestamp())
-                query_filter = models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="unix_timestamp",
-                            range=models.Range(
-                                gte=start_ts,
-                                lte=end_ts,
-                            ),
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="unix_timestamp",
+                        range=models.Range(
+                            gte=start_ts,
+                            lte=end_ts,
                         ),
-                    ]
+                    )
+                )
+            
+            if metadata_filter:
+                for k, v in metadata_filter.items():
+                    must_conditions.append(
+                        models.FieldCondition(
+                            key=k,
+                            match=models.MatchValue(value=v)
+                        )
+                    )
+            
+            if must_conditions:
+                query_filter = models.Filter(must=must_conditions)
+
+            # Support for Binary Quantization rescoring (BUG-04)
+            search_params = None
+            if self.binary_quantization:
+                search_params = models.SearchParams(
+                    quantization=models.QuantizationSearchParams(
+                        ignore=False,
+                        rescore=True,
+                        oversampling=2.0
+                    )
                 )
 
             return await qdrant_breaker.call(
@@ -213,6 +234,7 @@ class QdrantStore:
                 limit=limit,
                 score_threshold=score_threshold,
                 query_filter=query_filter,
+                search_params=search_params,
             )
         except CircuitOpenError:
             logger.warning(f"Qdrant search blocked for {collection}: circuit breaker open")

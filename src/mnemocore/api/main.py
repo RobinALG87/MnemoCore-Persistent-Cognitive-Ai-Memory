@@ -377,7 +377,8 @@ async def query_memory(
     API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
 
     # CPU heavy vector search (offloaded inside engine)
-    results = await engine.query(req.query, top_k=req.top_k)
+    metadata_filter = {"agent_id": req.agent_id} if req.agent_id else None
+    results = await engine.query(req.query, top_k=req.top_k, metadata_filter=metadata_filter)
 
     formatted = []
     for mem_id, score in results:

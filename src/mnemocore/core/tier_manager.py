@@ -23,7 +23,7 @@ import json
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .qdrant_store import QdrantStore
@@ -834,6 +834,7 @@ class TierManager:
         query_vec: BinaryHDV,
         top_k: int = 5,
         time_range: Optional[Tuple[datetime, datetime]] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
     ) -> List[Tuple[str, float]]:
         """
         Global search across all tiers.
@@ -844,16 +845,33 @@ class TierManager:
         # 1. Search HOT via FAISS (time filtering done post-hoc for in-memory)
         hot_results = self.search_hot(query_vec, top_k)
 
-        # Apply time filter to HOT results if needed
-        if time_range:
-            start_ts = time_range[0].timestamp()
-            end_ts = time_range[1].timestamp()
+        # Apply time filter and metadata filter to HOT results if needed
+        if time_range or metadata_filter:
+            filtered_hot = []
             async with self.lock:
-                hot_results = [
-                    (nid, score) for nid, score in hot_results
-                    if nid in self.hot and
-                    start_ts <= self.hot[nid].created_at.timestamp() <= end_ts
-                ]
+                for nid, score in hot_results:
+                    node = self.hot.get(nid)
+                    if not node:
+                        continue
+                    
+                    if time_range:
+                        start_ts = time_range[0].timestamp()
+                        end_ts = time_range[1].timestamp()
+                        if not (start_ts <= node.created_at.timestamp() <= end_ts):
+                            continue
+                            
+                    if metadata_filter:
+                        match = True
+                        node_meta = node.metadata or {}
+                        for k, v in metadata_filter.items():
+                            if node_meta.get(k) != v:
+                                match = False
+                                break
+                        if not match:
+                            continue
+                            
+                    filtered_hot.append((nid, score))
+            hot_results = filtered_hot
 
         # 2. Search WARM via Qdrant
         warm_results = []
@@ -866,6 +884,7 @@ class TierManager:
                     query_vector=q_vec,
                     limit=top_k,
                     time_range=time_range,  # Phase 4.3: Pass time filter to Qdrant
+                    metadata_filter=metadata_filter, # BUG-09: Agent Isolation
                 )
                 warm_results = [(hit.id, hit.score) for hit in hits]
             except Exception as e:

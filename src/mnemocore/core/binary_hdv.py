@@ -22,6 +22,7 @@ import hashlib
 from typing import List, Optional, Tuple
 
 import numpy as np
+import re
 
 
 # Cached lookup table for popcount (bits set per byte value 0-255)
@@ -399,11 +400,13 @@ class TextEncoder:
         """
         Encode a text string to a binary HDV.
 
-        Tokenization: simple whitespace split + lowercasing.
+        Tokenization: simple whitespace split after normalization.
         Each token is bound with its position via XOR(token, permute(position_marker, i)).
         All position-bound tokens are bundled via majority vote.
         """
-        tokens = text.lower().split()
+        # BUG-02 Fix: strip punctuation and normalize spaces
+        normalized = re.sub(r'[^\w\s]', '', text).lower()
+        tokens = normalized.split()
         if not tokens:
             return BinaryHDV.random(self.dimension)
 

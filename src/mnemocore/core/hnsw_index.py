@@ -50,17 +50,31 @@ FLAT_THRESHOLD: int = 256          # use flat index below this hop count
 #  HNSW Index Manager                                                 #
 # ------------------------------------------------------------------ #
 
+import json
+from pathlib import Path
+from threading import Lock
+from .config import get_config
+
 class HNSWIndexManager:
     """
     Manages a FAISS HNSW binary ANN index for the HOT tier.
+    Thread-safe singleton with disk persistence.
 
     Automatically switches between:
      - IndexBinaryFlat  (N < FLAT_THRESHOLD — exact, faster for small N)
      - IndexBinaryHNSW  (N ≥ FLAT_THRESHOLD — approx, faster for large N)
-
-    The index is rebuilt from scratch when switching modes (rare operation).
-    All operations are synchronous (called from within asyncio.Lock context).
     """
+
+    _instance: "HNSWIndexManager | None" = None
+    _singleton_lock: Lock = Lock()
+
+    def __new__(cls, *args, **kwargs) -> "HNSWIndexManager":
+        with cls._singleton_lock:
+            if cls._instance is None:
+                obj = super().__new__(cls)
+                obj._initialized = False
+                cls._instance = obj
+        return cls._instance
 
     def __init__(
         self,
@@ -69,52 +83,70 @@ class HNSWIndexManager:
         ef_construction: int = DEFAULT_EF_CONSTRUCTION,
         ef_search: int = DEFAULT_EF_SEARCH,
     ):
+        if getattr(self, "_initialized", False):
+            return
+
         self.dimension = dimension
         self.m = m
         self.ef_construction = ef_construction
         self.ef_search = ef_search
 
-        # ID maps
-        self._id_map: Dict[int, str] = {}         # faiss_int_id → node_id
-        self._node_map: Dict[str, int] = {}        # node_id → faiss_int_id
-        self._next_id: int = 1
-        self._use_hnsw: bool = False
+        self._write_lock = Lock()
 
-        # FAISS index (initialised below)
+        self._id_map: List[Optional[str]] = []
+        self._vector_store: List[np.ndarray] = []
+        self._use_hnsw = False
+        self._stale_count = 0
         self._index = None
+        
+        config = get_config()
+        data_dir = Path(config.paths.data_dir if hasattr(config, 'paths') else "./data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.INDEX_PATH = data_dir / "mnemocore_hnsw.faiss"
+        self.IDMAP_PATH = data_dir / "mnemocore_hnsw_idmap.json"
+        self.VECTOR_PATH = data_dir / "mnemocore_hnsw_vectors.npy"
 
         if FAISS_AVAILABLE:
-            self._build_flat_index()
-        else:
-            logger.warning("HNSWIndexManager running WITHOUT faiss — linear fallback only.")
+            if self.INDEX_PATH.exists() and self.IDMAP_PATH.exists() and self.VECTOR_PATH.exists():
+                self._load()
+            else:
+                self._build_flat_index()
+
+        self._initialized = True
 
     # ---- Index construction -------------------------------------- #
 
     def _build_flat_index(self) -> None:
         """Create a fresh IndexBinaryFlat (exact Hamming ANN)."""
-        base = faiss.IndexBinaryFlat(self.dimension)
-        self._index = faiss.IndexBinaryIDMap(base)
+        self._index = faiss.IndexBinaryFlat(self.dimension)
         self._use_hnsw = False
         logger.debug(f"Built FAISS flat binary index (dim={self.dimension})")
 
-    def _build_hnsw_index(self, existing_nodes: Optional[List[Tuple[int, np.ndarray]]] = None) -> None:
+    def _build_hnsw_index(self) -> None:
         """
         Build an HNSW binary index and optionally re-populate with existing vectors.
-
-        Note: FAISS IndexBinaryHNSW does NOT support IDMap natively, so we use a
-        custom double-mapping approach: HNSW indices map 1-to-1 to our _id_map.
-        We rebuild as IndexBinaryHNSW and re-add all existing vectors.
         """
         hnsw = faiss.IndexBinaryHNSW(self.dimension, self.m)
         hnsw.hnsw.efConstruction = self.ef_construction
         hnsw.hnsw.efSearch = self.ef_search
 
-        if existing_nodes:
-            # Batch add in order of faiss_int_id so positions are deterministic
-            existing_nodes.sort(key=lambda x: x[0])
-            vecs = np.stack([v for _, v in existing_nodes])
-            hnsw.add(vecs)
-            logger.debug(f"HNSW index rebuilt with {len(existing_nodes)} existing vectors")
+        if self._vector_store:
+            # Compact the index to remove None entries
+            compact_ids = []
+            compact_vecs = []
+            for i, node_id in enumerate(self._id_map):
+                if node_id is not None:
+                    compact_ids.append(node_id)
+                    compact_vecs.append(self._vector_store[i])
+            
+            if compact_vecs:
+                vecs = np.stack(compact_vecs)
+                hnsw.add(vecs)
+                
+            self._id_map = compact_ids
+            self._vector_store = compact_vecs
+            self._stale_count = 0
 
         self._index = hnsw
         self._use_hnsw = True
@@ -125,43 +157,18 @@ class HNSWIndexManager:
 
     def _maybe_upgrade_to_hnsw(self) -> None:
         """Upgrade to HNSW index if HOT tier has grown large enough."""
-        if not FAISS_AVAILABLE:
+        if not FAISS_AVAILABLE or self._use_hnsw:
             return
-        if self._use_hnsw:
-            return
-        if len(self._id_map) < FLAT_THRESHOLD:
+        active_count = len(self._id_map) - self._stale_count
+        if active_count < FLAT_THRESHOLD:
             return
 
         logger.info(
-            f"HOT tier size ({len(self._id_map)}) ≥ threshold ({FLAT_THRESHOLD}) "
+            f"HOT tier size ({active_count}) ≥ threshold ({FLAT_THRESHOLD}) "
             "— upgrading to HNSW index."
         )
 
-        # NOTE: For HNSW without IDMap we maintain position-based mapping.
-        # We rebuild from the current flat index contents.
-        # Collect all existing (local_pos → node_vector) pairs.
-        #
-        # For simplicity in this transition we do a full rebuild from scratch:
-        # the upgrade happens at most once per process lifetime (HOT usually stays
-        # under threshold or once it crosses, it stays crossed).
-        existing: List[Tuple[int, np.ndarray]] = []
-        for fid, node_id in self._id_map.items():
-            # We can't reconstruct vectors from IndexBinaryIDMap cheaply,
-            # so we store them in a shadow cache while using the flat index.
-            if node_id in self._vector_cache:
-                existing.append((fid, self._vector_cache[node_id]))
-
-        self._build_hnsw_index(existing)
-
-    # ---- Vector shadow cache (needed for HNSW rebuild) ----------- #
-    # HNSW indices don't support IDMap; we cache raw vectors separately
-    # so we can rebuild on threshold-crossing.
-
-    @property
-    def _vector_cache(self) -> Dict[str, np.ndarray]:
-        if not hasattr(self, "_vcache"):
-            object.__setattr__(self, "_vcache", {})
-        return self._vcache  # type: ignore[attr-defined]
+        self._build_hnsw_index()
 
     # ---- Public API --------------------------------------------- #
 
@@ -176,76 +183,65 @@ class HNSWIndexManager:
         if not FAISS_AVAILABLE or self._index is None:
             return
 
-        fid = self._next_id
-        self._next_id += 1
-        self._id_map[fid] = node_id
-        self._node_map[node_id] = fid
-        self._vector_cache[node_id] = hdv_data.copy()
+        vec = np.ascontiguousarray(np.expand_dims(hdv_data, axis=0))
 
-        vec = np.expand_dims(hdv_data, axis=0)
-
-        try:
-            if self._use_hnsw:
-                # HNSW.add() — position is implicit (sequential)
+        with self._write_lock:
+            try:
                 self._index.add(vec)
-            else:
-                ids = np.array([fid], dtype="int64")
-                self._index.add_with_ids(vec, ids)
-        except Exception as exc:
-            logger.error(f"HNSW/FAISS add failed for {node_id}: {exc}")
-            return
+                self._id_map.append(node_id)
+                self._vector_store.append(hdv_data.copy())
+            except Exception as exc:
+                logger.error(f"HNSW/FAISS add failed for {node_id}: {repr(exc)}")
+                return
 
-        # Check if we should upgrade to HNSW
-        self._maybe_upgrade_to_hnsw()
+            self._maybe_upgrade_to_hnsw()
+            self._save()
 
     def remove(self, node_id: str) -> None:
         """
         Remove a node from the index.
-
-        For HNSW (no IDMap), we mark the node as deleted in our bookkeeping
-        and rebuild the index lazily when the deletion rate exceeds 20%.
+        Marks node as deleted and rebuilds index lazily when the deletion rate exceeds 20%.
         """
         if not FAISS_AVAILABLE or self._index is None:
             return
 
-        fid = self._node_map.pop(node_id, None)
-        if fid is None:
-            return
-
-        self._id_map.pop(fid, None)
-        self._vector_cache.pop(node_id, None)
-
-        if not self._use_hnsw:
+        with self._write_lock:
             try:
-                ids = np.array([fid], dtype="int64")
-                self._index.remove_ids(ids)
-            except Exception as exc:
-                logger.error(f"FAISS flat remove failed for {node_id}: {exc}")
-        else:
-            # HNSW doesn't support removal; track stale fraction and rebuild when needed
-            if not hasattr(self, "_stale_count"):
-                object.__setattr__(self, "_stale_count", 0)
-            self._stale_count += 1  # type: ignore[attr-defined]
+                fid = self._id_map.index(node_id)
+                self._id_map[fid] = None
+                self._stale_count += 1
+                
+                total = max(len(self._id_map), 1)
+                stale_fraction = self._stale_count / total
+                
+                if stale_fraction > 0.20 and len(self._id_map) > 0:
+                    logger.info(f"HNSW stale fraction {stale_fraction:.1%} — rebuilding index.")
+                    if self._use_hnsw:
+                        self._build_hnsw_index()
+                    else:
+                        self._build_flat_index()
+                        if self._vector_store:
+                            compact_ids = []
+                            compact_vecs = []
+                            for i, nid in enumerate(self._id_map):
+                                if nid is not None:
+                                    compact_ids.append(nid)
+                                    compact_vecs.append(self._vector_store[i])
+                            if compact_vecs:
+                                vecs = np.stack(compact_vecs)
+                                self._index.add(vecs)
+                            self._id_map = compact_ids
+                            self._vector_store = compact_vecs
+                            self._stale_count = 0
+                
+                self._save()
+            except ValueError:
+                pass
 
-            total = max(len(self._id_map) + self._stale_count, 1)
-            stale_fraction = self._stale_count / total
-            if stale_fraction > 0.20 and len(self._id_map) > 0:
-                logger.info(f"HNSW stale fraction {stale_fraction:.1%} — rebuilding index.")
-                existing = [
-                    (fid2, self._vector_cache[nid])
-                    for fid2, nid in self._id_map.items()
-                    if nid in self._vector_cache
-                ]
-                self._build_hnsw_index(existing)
-                self._stale_count = 0
 
     def search(self, query_data: np.ndarray, top_k: int = 10) -> List[Tuple[str, float]]:
         """
         Search for top-k nearest neighbours.
-
-        Args:
-            query_data: Packed uint8 query array (D/8 bytes).
-            top_k: Number of results to return.
 
         Returns:
             List of (node_id, similarity_score) sorted by descending similarity.
@@ -254,7 +250,11 @@ class HNSWIndexManager:
         if not FAISS_AVAILABLE or self._index is None or not self._id_map:
             return []
 
-        k = min(top_k, len(self._id_map))
+        # Fetch more to account for deleted (None) entries
+        k = min(top_k + self._stale_count, len(self._id_map))
+        if k <= 0:
+            return []
+
         q = np.expand_dims(query_data, axis=0)
 
         try:
@@ -265,43 +265,51 @@ class HNSWIndexManager:
 
         results: List[Tuple[str, float]] = []
         for dist, idx in zip(distances[0], ids[0]):
-            if idx == -1:
+            if idx < 0 or idx >= len(self._id_map):
                 continue
-
-            if self._use_hnsw:
-                # HNSW returns 0-based position indices; map back through insertion order
-                node_id = self._position_to_node_id(int(idx))
-            else:
-                node_id = self._id_map.get(int(idx))
-
-            if node_id:
+                
+            node_id = self._id_map[idx]
+            if node_id is not None:
                 sim = 1.0 - float(dist) / self.dimension
                 results.append((node_id, sim))
+                if len(results) >= top_k:
+                    break
 
         return results
 
-    def _position_to_node_id(self, position: int) -> Optional[str]:
-        """
-        Map HNSW sequential position back to node_id.
-        Positions correspond to insertion order; we track this via _position_map.
-        """
-        if not hasattr(self, "_position_map"):
-            object.__setattr__(self, "_position_map", {})
-        pm: Dict[int, str] = self._position_map  # type: ignore[attr-defined]
+    def _save(self):
+        try:
+            faiss.write_index_binary(self._index, str(self.INDEX_PATH))
+            with open(self.IDMAP_PATH, "w") as f:
+                json.dump({
+                    "id_map": self._id_map,
+                    "use_hnsw": self._use_hnsw,
+                    "stale_count": self._stale_count
+                }, f)
+            if self._vector_store:
+                np.save(str(self.VECTOR_PATH), np.stack(self._vector_store))
+        except Exception as e:
+            logger.error(f"Failed to save HNSW index state: {e}")
 
-        # Rebuild position map if needed (after index rebuild)
-        if len(pm) < len(self._id_map):
-            pm.clear()
-            for pos, (fid, nid) in enumerate(
-                sorted(self._id_map.items(), key=lambda x: x[0])
-            ):
-                pm[pos] = nid
-
-        return pm.get(position)
+    def _load(self):
+        try:
+            self._index = faiss.read_index_binary(str(self.INDEX_PATH))
+            with open(self.IDMAP_PATH, "r") as f:
+                state = json.load(f)
+                self._id_map = state.get("id_map", [])
+                self._use_hnsw = state.get("use_hnsw", False)
+                self._stale_count = state.get("stale_count", 0)
+                
+            vecs = np.load(str(self.VECTOR_PATH))
+            self._vector_store = list(vecs)
+            logger.info("Loaded HNSW persistent state from disk")
+        except Exception as e:
+            logger.error(f"Failed to load HNSW index state: {e}")
+            self._build_flat_index()
 
     @property
     def size(self) -> int:
-        return len(self._id_map)
+        return len([x for x in self._id_map if x is not None])
 
     @property
     def index_type(self) -> str:
@@ -318,4 +326,6 @@ class HNSWIndexManager:
             "ef_construction": self.ef_construction if self._use_hnsw else None,
             "ef_search": self.ef_search if self._use_hnsw else None,
             "faiss_available": FAISS_AVAILABLE,
+            "stale_count": self._stale_count
         }
+
