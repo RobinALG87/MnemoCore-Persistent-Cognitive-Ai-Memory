@@ -1,7 +1,7 @@
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-import math
+from typing import Any, Dict, Optional
 
 from .binary_hdv import BinaryHDV
 from .config import get_config
@@ -33,7 +33,9 @@ class MemoryNode:
     pragmatic_value: float = 0.0  # Helps achieve goals?
 
     # Phase 4.3: Episodic Chaining - links to temporally adjacent memories
-    previous_id: Optional[str] = None  # UUID of the memory created immediately before this one
+    previous_id: Optional[str] = (
+        None  # UUID of the memory created immediately before this one
+    )
 
     def access(self, update_weights: bool = True):
         """Retrieve memory (reconsolidation)"""
@@ -56,31 +58,31 @@ class MemoryNode:
         Formula: S = I * log(1 + A) * e^(-lambda * T)
         """
         config = get_config()
-        
+
         # I = Importance (derived from legacy values or default)
         importance = max(
             config.ltp.initial_importance,
-            (self.epistemic_value + self.pragmatic_value) / 2
+            (self.epistemic_value + self.pragmatic_value) / 2,
         )
-        
+
         # A = Access count
         access_factor = math.log1p(self.access_count)
-        
+
         # T = Time since creation (days)
         age = self.age_days()
-        
+
         # Decay
         decay = math.exp(-config.ltp.decay_lambda * age)
-        
+
         self.ltp_strength = importance * access_factor * decay
-        
+
         # Clamp? No, it can grow. But maybe clamp for meaningful comparison.
         # Check permanence threshold
         if self.ltp_strength > config.ltp.permanence_threshold:
             # Prevent decay below threshold if verified permanent?
             # For now just let it be high.
             pass
-            
+
         return self.ltp_strength
 
     def get_free_energy_score(self) -> float:

@@ -9,16 +9,18 @@ falls back to pure Python in-memory implementation.
 Implements all public methods from mnemocore.core.async_storage.AsyncRedisStorage
 """
 
-from typing import Dict, List, Optional, Any
+import asyncio
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-import asyncio
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
 # Try to import fakeredis for realistic Redis behavior
 try:
     import fakeredis.aioredis as fakeredis
+
     HAS_FAKEREDIS = True
 except ImportError:
     HAS_FAKEREDIS = False
@@ -28,6 +30,7 @@ except ImportError:
 @dataclass
 class StreamEntry:
     """Mock Redis Stream entry."""
+
     id: str
     data: Dict[str, str]
 
@@ -60,6 +63,7 @@ class InMemoryRedisClient:
         # Check TTL
         if key in self._ttls:
             import time
+
             if time.time() > self._ttls[key]:
                 del self._data[key]
                 del self._ttls[key]
@@ -72,6 +76,7 @@ class InMemoryRedisClient:
 
     async def setex(self, key: str, ttl: int, value: str) -> bool:
         import time
+
         self._data[key] = value
         self._ttls[key] = int(time.time()) + ttl
         return True
@@ -85,6 +90,7 @@ class InMemoryRedisClient:
 
     async def mget(self, keys: List[str]) -> List[Optional[str]]:
         import time
+
         results = []
         for key in keys:
             # Check TTL
@@ -131,6 +137,7 @@ class InMemoryRedisClient:
 
         # Generate unique ID
         import time
+
         timestamp = int(time.time() * 1000)
         self._id_counter += 1
         entry_id = f"{timestamp}-{self._id_counter}"
@@ -156,22 +163,23 @@ class MockPipeline:
         return None
 
     def incr(self, key: str):
-        self._commands.append(('incr', key))
+        self._commands.append(("incr", key))
 
     def expire(self, key: str, seconds: int):
-        self._commands.append(('expire', key, seconds))
+        self._commands.append(("expire", key, seconds))
 
     async def execute(self) -> List[Any]:
         results = []
         for cmd in self._commands:
-            if cmd[0] == 'incr':
+            if cmd[0] == "incr":
                 key = cmd[1]
-                current = self._client._data.get(key, '0')
+                current = self._client._data.get(key, "0")
                 new_val = int(current) + 1
                 self._client._data[key] = str(new_val)
                 results.append(new_val)
-            elif cmd[0] == 'expire':
+            elif cmd[0] == "expire":
                 import time
+
                 key, seconds = cmd[1], cmd[2]
                 self._client._ttls[key] = int(time.time()) + seconds
                 results.append(1)
@@ -221,14 +229,16 @@ class MockAsyncRedisStorage:
 
     async def close(self):
         """Close the client connection."""
-        if hasattr(self.redis_client, 'aclose'):
+        if hasattr(self.redis_client, "aclose"):
             await self.redis_client.aclose()
-        elif hasattr(self.redis_client, 'close'):
+        elif hasattr(self.redis_client, "close"):
             await self.redis_client.close()
 
     # --- CRUD Operations ---
 
-    async def store_memory(self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None):
+    async def store_memory(
+        self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None
+    ):
         """
         Store memory metadata in Redis (Key-Value) + Update LTP Index.
         """
@@ -258,7 +268,9 @@ class MockAsyncRedisStorage:
             return json.loads(data)
         return None
 
-    async def batch_retrieve(self, node_ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+    async def batch_retrieve(
+        self, node_ids: List[str]
+    ) -> List[Optional[Dict[str, Any]]]:
         """
         Batch retrieve multiple memories using MGET.
 
@@ -337,7 +349,11 @@ class MockAsyncRedisStorage:
     def _get_stored_keys(self) -> List[str]:
         """Get all stored memory keys (for testing assertions)."""
         if isinstance(self.redis_client, InMemoryRedisClient):
-            return [k for k in self.redis_client._data.keys() if k.startswith("haim:memory:")]
+            return [
+                k
+                for k in self.redis_client._data.keys()
+                if k.startswith("haim:memory:")
+            ]
         return []
 
     def _get_ltp_index(self) -> Dict[str, float]:
@@ -366,7 +382,7 @@ class MockAsyncRedisStorage:
 def create_mock_redis_storage(
     url: str = "redis://localhost:6379/0",
     stream_key: str = "haim:subconscious",
-    **kwargs
+    **kwargs,
 ) -> MockAsyncRedisStorage:
     """
     Create a mock Redis storage instance.
@@ -377,16 +393,11 @@ def create_mock_redis_storage(
         try:
             fake_client = fakeredis.FakeRedis(decode_responses=True)
             return MockAsyncRedisStorage(
-                url=url,
-                stream_key=stream_key,
-                client=fake_client,
-                **kwargs
+                url=url, stream_key=stream_key, client=fake_client, **kwargs
             )
         except Exception as e:
-            logger.warning(f"[MockRedis] Failed to create fakeredis client: {e}, using in-memory")
+            logger.warning(
+                f"[MockRedis] Failed to create fakeredis client: {e}, using in-memory"
+            )
 
-    return MockAsyncRedisStorage(
-        url=url,
-        stream_key=stream_key,
-        **kwargs
-    )
+    return MockAsyncRedisStorage(url=url, stream_key=stream_key, **kwargs)

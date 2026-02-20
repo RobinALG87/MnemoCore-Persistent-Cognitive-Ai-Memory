@@ -1,11 +1,13 @@
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch, AsyncMock
 import os
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 @pytest.fixture
 def mock_deps():
@@ -30,10 +32,13 @@ def mock_deps():
     mock_config.security = mock_security
     mock_config.dimensionality = 1024
 
-    with patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine), \
-         patch("mnemocore.api.main.build_container", return_value=mock_container), \
-         patch("mnemocore.api.main.get_config", return_value=mock_config):
+    with (
+        patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine),
+        patch("mnemocore.api.main.build_container", return_value=mock_container),
+        patch("mnemocore.api.main.get_config", return_value=mock_config),
+    ):
         yield mock_engine, mock_redis
+
 
 def test_engine_lifecycle(mock_deps):
     """Test that engine is initialized and closed via lifespan."""
@@ -50,6 +55,7 @@ def test_engine_lifecycle(mock_deps):
     # Check if close was called on exit
     mock_engine.close.assert_called_once()
 
+
 def test_delete_endpoint_stability(mock_deps):
     """Test that DELETE endpoint uses the new engine.delete_memory method."""
     mock_engine, mock_redis = mock_deps
@@ -57,8 +63,7 @@ def test_delete_endpoint_stability(mock_deps):
 
     with TestClient(app) as client:
         response = client.delete(
-            "/memory/test_mem_123",
-            headers={"X-API-Key": "test-api-key"}
+            "/memory/test_mem_123", headers={"X-API-Key": "test-api-key"}
         )
 
         assert response.status_code == 200
@@ -66,6 +71,7 @@ def test_delete_endpoint_stability(mock_deps):
 
         # Verify engine.delete_memory was called
         mock_engine.delete_memory.assert_called_with("test_mem_123")
+
 
 def test_security_middleware_fallback(mock_deps):
     """Test security middleware with environment variable fallback."""
@@ -87,18 +93,24 @@ def test_security_middleware_fallback(mock_deps):
     # but get_api_key() will fall back to env var when security.api_key is falsy.
     mock_conf_no_sec = MagicMock()
     mock_security_no_key = MagicMock()
-    mock_security_no_key.api_key = ""   # falsy → triggers env-var fallback in get_api_key
+    mock_security_no_key.api_key = (
+        ""  # falsy → triggers env-var fallback in get_api_key
+    )
     mock_conf_no_sec.security = mock_security_no_key
     mock_conf_no_sec.dimensionality = 1024
 
-    with patch("mnemocore.api.main.get_config", return_value=mock_conf_no_sec), \
-         patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine2), \
-         patch("mnemocore.api.main.build_container", return_value=mock_container2), \
-         patch.dict(os.environ, {"HAIM_API_KEY": "env-secret-key"}, clear=False):
+    with (
+        patch("mnemocore.api.main.get_config", return_value=mock_conf_no_sec),
+        patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine2),
+        patch("mnemocore.api.main.build_container", return_value=mock_container2),
+        patch.dict(os.environ, {"HAIM_API_KEY": "env-secret-key"}, clear=False),
+    ):
 
         # Re-import to get fresh app with new patches applied
         import importlib
+
         import mnemocore.api.main as main_module
+
         importlib.reload(main_module)
 
         with TestClient(main_module.app) as client:
@@ -107,5 +119,7 @@ def test_security_middleware_fallback(mock_deps):
             assert response.status_code == 403
 
             # Correct env key -> not 403 (could be 404 for missing memory)
-            response = client.get("/memory/123", headers={"X-API-Key": "env-secret-key"})
+            response = client.get(
+                "/memory/123", headers={"X-API-Key": "env-secret-key"}
+            )
             assert response.status_code != 403

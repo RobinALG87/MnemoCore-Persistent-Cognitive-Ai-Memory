@@ -3,10 +3,11 @@ Conceptual/Structural Memory Layer for HAIM.
 Implements VSA-based knowledge graphs using Binary HDV.
 """
 
-import numpy as np
 import json
 import os
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 
 from .binary_hdv import BinaryHDV, majority_bundle
 from .config import get_config
@@ -87,7 +88,9 @@ class ConceptualMemory:
         self.concepts[name] = concept_hdv
         self.save()
 
-    def query(self, query_hdv: BinaryHDV, threshold: float = 0.5) -> List[Tuple[str, float]]:
+    def query(
+        self, query_hdv: BinaryHDV, threshold: float = 0.5
+    ) -> List[Tuple[str, float]]:
         """
         Query for similar concepts.
 
@@ -105,7 +108,9 @@ class ConceptualMemory:
                 results.append((name, float(sim)))
         return sorted(results, key=lambda x: x[1], reverse=True)
 
-    def solve_analogy(self, A_name: str, B_val: str, C_name: str) -> List[Tuple[str, float]]:
+    def solve_analogy(
+        self, A_name: str, B_val: str, C_name: str
+    ) -> List[Tuple[str, float]]:
         """
         Solves A:B :: C:?
         A_name: source concept (e.g. 'arbitrage')
@@ -136,7 +141,9 @@ class ConceptualMemory:
 
         return sorted(matches, key=lambda x: x[1], reverse=True)
 
-    def extract_attribute(self, concept_name: str, attribute_name: str) -> List[Tuple[str, float]]:
+    def extract_attribute(
+        self, concept_name: str, attribute_name: str
+    ) -> List[Tuple[str, float]]:
         """
         What is the value of [attribute] for [concept]?
 
@@ -168,19 +175,16 @@ class ConceptualMemory:
         for k, v in self.symbols.items():
             codebook_data[k] = {
                 "data": list(v.data),  # Store as list of uint8
-                "dimension": v.dimension
+                "dimension": v.dimension,
             }
-        with open(self.codebook_path, 'w') as f:
+        with open(self.codebook_path, "w") as f:
             json.dump(codebook_data, f)
 
         # Save Concepts
         concepts_data = {}
         for k, v in self.concepts.items():
-            concepts_data[k] = {
-                "data": list(v.data),
-                "dimension": v.dimension
-            }
-        with open(self.concepts_path, 'w') as f:
+            concepts_data[k] = {"data": list(v.data), "dimension": v.dimension}
+        with open(self.concepts_path, "w") as f:
             json.dump(concepts_data, f)
 
     def load(self):
@@ -192,7 +196,7 @@ class ConceptualMemory:
         This prevents hard failures when running tests with reduced dimensions.
         """
         if os.path.exists(self.codebook_path):
-            with open(self.codebook_path, 'r') as f:
+            with open(self.codebook_path, "r") as f:
                 data = json.load(f)
                 loaded_symbols: Dict[str, BinaryHDV] = {}
                 for k, v in data.items():
@@ -209,7 +213,7 @@ class ConceptualMemory:
                 self.symbols = loaded_symbols
 
         if os.path.exists(self.concepts_path):
-            with open(self.concepts_path, 'r') as f:
+            with open(self.concepts_path, "r") as f:
                 data = json.load(f)
                 loaded_concepts: Dict[str, BinaryHDV] = {}
                 for k, v in data.items():

@@ -16,7 +16,6 @@ from mnemocore.core.binary_hdv import (
     top_k_nearest,
 )
 
-
 # Default test dimension (smaller for speed)
 D = 1024
 
@@ -222,18 +221,14 @@ class TestBatchOperations:
         np.random.seed(42)
         query = BinaryHDV.random(D)
         n = 100
-        db = np.stack(
-            [BinaryHDV.random(D).data for _ in range(n)], axis=0
-        )
+        db = np.stack([BinaryHDV.random(D).data for _ in range(n)], axis=0)
 
         batch_distances = batch_hamming_distance(query, db)
         assert batch_distances.shape == (n,)
 
         # Verify against individual computations
         for i in range(n):
-            individual = query.hamming_distance(
-                BinaryHDV(data=db[i], dimension=D)
-            )
+            individual = query.hamming_distance(BinaryHDV(data=db[i], dimension=D))
             assert batch_distances[i] == individual
 
     def test_top_k_nearest(self):
@@ -334,9 +329,7 @@ class TestFullDimension:
         np.random.seed(42)
         query = BinaryHDV.random(16384)
         n = 1000
-        db = np.stack(
-            [BinaryHDV.random(16384).data for _ in range(n)], axis=0
-        )
+        db = np.stack([BinaryHDV.random(16384).data for _ in range(n)], axis=0)
         results = top_k_nearest(query, db, k=10)
         assert len(results) == 10
         # Verify sorted

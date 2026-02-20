@@ -6,25 +6,28 @@ Tests integration of HAIMEngine with BinaryHDV and TierManager.
 
 import os
 import shutil
+from datetime import datetime, timezone
+
+import numpy as np
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
-import numpy as np
 
+from mnemocore.core.binary_hdv import BinaryHDV
 from mnemocore.core.config import get_config, reset_config
 from mnemocore.core.engine import HAIMEngine
-from mnemocore.core.router import CognitiveRouter
-from mnemocore.core.binary_hdv import BinaryHDV
 from mnemocore.core.node import MemoryNode
+from mnemocore.core.router import CognitiveRouter
+
 
 @pytest.fixture
 def binary_engine(tmp_path):
     from mnemocore.core.hnsw_index import HNSWIndexManager
+
     HNSWIndexManager._instance = None
     reset_config()
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    
+
     os.environ["HAIM_DATA_DIR"] = str(data_dir)
     os.environ["HAIM_MEMORY_FILE"] = str(data_dir / "memory.jsonl")
     os.environ["HAIM_CODEBOOK_FILE"] = str(data_dir / "codebook.json")
@@ -32,14 +35,14 @@ def binary_engine(tmp_path):
     os.environ["HAIM_WARM_MMAP_DIR"] = str(data_dir / "warm")
     os.environ["HAIM_COLD_ARCHIVE_DIR"] = str(data_dir / "cold")
     os.environ["HAIM_ENCODING_MODE"] = "binary"
-    os.environ["HAIM_DIMENSIONALITY"] = "1024" # Small for tests
-    os.environ["HAIM_TIERS_HOT_LTP_THRESHOLD_MIN"] = "0.01" # Prevent demotion
-    os.environ["HAIM_LTP_INITIAL_IMPORTANCE"] = "0.8" # Higher start
-    
+    os.environ["HAIM_DIMENSIONALITY"] = "1024"  # Small for tests
+    os.environ["HAIM_TIERS_HOT_LTP_THRESHOLD_MIN"] = "0.01"  # Prevent demotion
+    os.environ["HAIM_LTP_INITIAL_IMPORTANCE"] = "0.8"  # Higher start
+
     reset_config()
     engine = HAIMEngine()
     yield engine
-    
+
     # Cleanup
     del os.environ["HAIM_DATA_DIR"]
     del os.environ["HAIM_MEMORY_FILE"]
@@ -51,6 +54,7 @@ def binary_engine(tmp_path):
     del os.environ["HAIM_DIMENSIONALITY"]
     reset_config()
 
+
 @pytest.mark.asyncio
 class TestBinaryEngine:
     def test_initialization(self, binary_engine):
@@ -61,14 +65,14 @@ class TestBinaryEngine:
     async def test_store_memory_binary(self, binary_engine):
         await binary_engine.initialize()
         mid = await binary_engine.store("Hello World", metadata={"test": True})
-        
+
         # Verify stored in HOT
         node = await binary_engine.get_memory(mid)
         assert node is not None
         assert node.tier == "hot"
         assert isinstance(node.hdv, BinaryHDV)
         assert node.content == "Hello World"
-        
+
         # Verify persistence log
         assert os.path.exists(binary_engine.persist_path)
 
@@ -76,21 +80,23 @@ class TestBinaryEngine:
         await binary_engine.initialize()
         # Store two distinct memories
         mid1 = await binary_engine.store("The quick brown fox jumps over the lazy dog")
-        mid2 = await binary_engine.store("Quantum computing uses qubits and superposition")
-        
+        mid2 = await binary_engine.store(
+            "Quantum computing uses qubits and superposition"
+        )
+
         # Query for the first one
         results = await binary_engine.query("quick brown fox", top_k=1)
-        
+
         assert len(results) == 1
         top_id, score = results[0]
         assert top_id == mid1
-        assert score > 0.5 # Should be high similarity
+        assert score > 0.5  # Should be high similarity
 
     async def test_context_vector_binary(self, binary_engine):
         await binary_engine.initialize()
         await binary_engine.store("Context 1")
         await binary_engine.store("Context 2")
-        
+
         ctx = await binary_engine._current_context_vector()
         assert isinstance(ctx, BinaryHDV)
         assert ctx.dimension == 1024
@@ -98,7 +104,7 @@ class TestBinaryEngine:
     def test_calculate_eig_binary(self, binary_engine):
         v1 = BinaryHDV.random(1024)
         v2 = BinaryHDV.random(1024)
-        
+
         eig = binary_engine.calculate_eig(v1, v2)
         # EIG = normalized distance. Random vectors ~0.5 distance.
         assert 0.4 < eig < 0.6
@@ -108,8 +114,10 @@ class TestRouterBinary:
     async def test_router_reflex(self, binary_engine):
         await binary_engine.initialize()
         router = CognitiveRouter(binary_engine)
-        await binary_engine.store("What is HAIM?", metadata={"answer": "Holographic memory"})
-        
+        await binary_engine.store(
+            "What is HAIM?", metadata={"answer": "Holographic memory"}
+        )
+
         response, debug = await router.route("What is HAIM?")
         assert "Reflex" in response
         assert debug["system"] == "Sys1 (Fast)"
@@ -118,7 +126,7 @@ class TestRouterBinary:
         router = CognitiveRouter(binary_engine)
         # Force complexity high
         prompt = "Analyze the structural integrity of the quantum bridge design"
-        
+
         response, debug = await router.route(prompt)
         assert "Reasoning" in response
         assert debug["system"] == "Sys2 (Slow)"

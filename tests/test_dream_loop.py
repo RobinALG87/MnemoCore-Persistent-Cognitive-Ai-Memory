@@ -5,19 +5,21 @@ Tests configurability, graceful shutdown, non-blocking behavior, and metrics.
 """
 
 import asyncio
-import time
-import sys
 import importlib
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+import sys
+import time
 from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
-pytest_plugins = ['pytest_asyncio']
+import pytest
+
+pytest_plugins = ["pytest_asyncio"]
 
 
 @dataclass(frozen=True)
 class MockDreamLoopConfig:
     """Mock dream loop configuration."""
+
     enabled: bool = True
     frequency_seconds: int = 1  # Short for testing
     batch_size: int = 10
@@ -29,6 +31,7 @@ class MockDreamLoopConfig:
 @dataclass(frozen=True)
 class MockRedisConfig:
     """Mock Redis configuration."""
+
     url: str = "redis://localhost:6379/0"
     stream_key: str = "haim:subconscious"
     max_connections: int = 10
@@ -39,14 +42,15 @@ class MockRedisConfig:
 @dataclass(frozen=True)
 class MockConfig:
     """Mock configuration for testing."""
+
     dream_loop: MockDreamLoopConfig = None
     redis: MockRedisConfig = None
 
     def __post_init__(self):
         if self.dream_loop is None:
-            object.__setattr__(self, 'dream_loop', MockDreamLoopConfig())
+            object.__setattr__(self, "dream_loop", MockDreamLoopConfig())
         if self.redis is None:
-            object.__setattr__(self, 'redis', MockRedisConfig())
+            object.__setattr__(self, "redis", MockRedisConfig())
 
 
 @pytest.fixture
@@ -59,7 +63,7 @@ def mock_config():
             batch_size=10,
             max_iterations=0,
         ),
-        redis=MockRedisConfig()
+        redis=MockRedisConfig(),
     )
 
 
@@ -71,7 +75,7 @@ def mock_config_disabled():
             enabled=False,
             frequency_seconds=1,
         ),
-        redis=MockRedisConfig()
+        redis=MockRedisConfig(),
     )
 
 
@@ -84,7 +88,7 @@ def mock_config_limited_iterations():
             frequency_seconds=1,
             max_iterations=2,
         ),
-        redis=MockRedisConfig()
+        redis=MockRedisConfig(),
     )
 
 
@@ -118,12 +122,12 @@ def daemon_module():
 
     # Patch sys.modules to inject mocks before import
     patches = {
-        'aiohttp': mock_aiohttp,
-        'mnemocore.subconscious.daemon.aiohttp': mock_aiohttp,
-        'mnemocore.subconscious.daemon.DREAM_LOOP_TOTAL': mock_dream_loop_total,
-        'mnemocore.subconscious.daemon.DREAM_LOOP_ITERATION_SECONDS': mock_dream_loop_iteration_seconds,
-        'mnemocore.subconscious.daemon.DREAM_LOOP_INSIGHTS_GENERATED': mock_dream_loop_insights,
-        'mnemocore.subconscious.daemon.DREAM_LOOP_ACTIVE': mock_dream_loop_active,
+        "aiohttp": mock_aiohttp,
+        "mnemocore.subconscious.daemon.aiohttp": mock_aiohttp,
+        "mnemocore.subconscious.daemon.DREAM_LOOP_TOTAL": mock_dream_loop_total,
+        "mnemocore.subconscious.daemon.DREAM_LOOP_ITERATION_SECONDS": mock_dream_loop_iteration_seconds,
+        "mnemocore.subconscious.daemon.DREAM_LOOP_INSIGHTS_GENERATED": mock_dream_loop_insights,
+        "mnemocore.subconscious.daemon.DREAM_LOOP_ACTIVE": mock_dream_loop_active,
     }
 
     # Apply patches to sys.modules
@@ -134,11 +138,12 @@ def daemon_module():
         sys.modules[key] = value
 
     # Remove daemon from sys.modules if it exists to force reload
-    if 'mnemocore.subconscious.daemon' in sys.modules:
-        del sys.modules['mnemocore.subconscious.daemon']
+    if "mnemocore.subconscious.daemon" in sys.modules:
+        del sys.modules["mnemocore.subconscious.daemon"]
 
     try:
         import mnemocore.subconscious.daemon as dm
+
         yield dm
     finally:
         # Restore original sys.modules
@@ -148,15 +153,17 @@ def daemon_module():
             elif key in sys.modules:
                 del sys.modules[key]
         # Clean up daemon module
-        if 'mnemocore.subconscious.daemon' in sys.modules:
-            del sys.modules['mnemocore.subconscious.daemon']
+        if "mnemocore.subconscious.daemon" in sys.modules:
+            del sys.modules["mnemocore.subconscious.daemon"]
 
 
 class TestDreamLoopStartsAndStops:
     """Test that dream loop can start and stop properly."""
 
     @pytest.mark.asyncio
-    async def test_dream_loop_starts_and_stops(self, mock_config, mock_storage, daemon_module):
+    async def test_dream_loop_starts_and_stops(
+        self, mock_config, mock_storage, daemon_module
+    ):
         """Test that the dream loop starts and stops correctly."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -186,7 +193,9 @@ class TestDreamLoopStartsAndStops:
         assert daemon._should_stop() is True
 
     @pytest.mark.asyncio
-    async def test_dream_loop_respects_disabled_config(self, mock_config_disabled, mock_storage, daemon_module):
+    async def test_dream_loop_respects_disabled_config(
+        self, mock_config_disabled, mock_storage, daemon_module
+    ):
         """Test that the dream loop exits immediately when disabled."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -203,7 +212,9 @@ class TestDreamLoopFrequency:
     """Test that dream loop respects frequency configuration."""
 
     @pytest.mark.asyncio
-    async def test_dream_respects_frequency(self, mock_config, mock_storage, daemon_module):
+    async def test_dream_respects_frequency(
+        self, mock_config, mock_storage, daemon_module
+    ):
         """Test that dream cycles respect the configured frequency."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -236,7 +247,9 @@ class TestDreamLoopNonBlocking:
     """Test that dream loop does not block other operations."""
 
     @pytest.mark.asyncio
-    async def test_dream_does_not_block_queries(self, mock_config, mock_storage, daemon_module):
+    async def test_dream_does_not_block_queries(
+        self, mock_config, mock_storage, daemon_module
+    ):
         """Test that dream loop iterations don't block other async operations."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -269,7 +282,9 @@ class TestDreamLoopIdempotentRestart:
     """Test that dream loop can be restarted idempotently."""
 
     @pytest.mark.asyncio
-    async def test_dream_loop_idempotent_restart(self, mock_config, mock_storage, daemon_module):
+    async def test_dream_loop_idempotent_restart(
+        self, mock_config, mock_storage, daemon_module
+    ):
         """Test that the dream loop can be stopped and restarted multiple times."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -295,7 +310,9 @@ class TestDreamLoopIdempotentRestart:
         assert daemon.running is False
 
     @pytest.mark.asyncio
-    async def test_dream_loop_multiple_stop_calls(self, mock_config, mock_storage, daemon_module):
+    async def test_dream_loop_multiple_stop_calls(
+        self, mock_config, mock_storage, daemon_module
+    ):
         """Test that multiple stop calls don't cause issues."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -314,7 +331,9 @@ class TestDreamLoopMetrics:
     """Test that dream loop emits proper metrics."""
 
     @pytest.mark.asyncio
-    async def test_dream_loop_metrics_recorded(self, mock_config, mock_storage, daemon_module):
+    async def test_dream_loop_metrics_recorded(
+        self, mock_config, mock_storage, daemon_module
+    ):
         """Test that metrics are recorded during dream loop execution."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
@@ -335,11 +354,15 @@ class TestDreamLoopMaxIterations:
     """Test that dream loop respects max_iterations configuration."""
 
     @pytest.mark.asyncio
-    async def test_dream_loop_respects_max_iterations(self, mock_config_limited_iterations, mock_storage, daemon_module):
+    async def test_dream_loop_respects_max_iterations(
+        self, mock_config_limited_iterations, mock_storage, daemon_module
+    ):
         """Test that the dream loop stops after max_iterations."""
         SubconsciousDaemon = daemon_module.SubconsciousDaemon
 
-        daemon = SubconsciousDaemon(storage=mock_storage, config=mock_config_limited_iterations)
+        daemon = SubconsciousDaemon(
+            storage=mock_storage, config=mock_config_limited_iterations
+        )
 
         # Start daemon
         start_time = time.time()
@@ -360,19 +383,19 @@ class TestDreamLoopConfiguration:
 
     def test_dream_loop_config_from_yaml(self):
         """Test that dream loop configuration is loaded from config.yaml."""
-        from mnemocore.core.config import load_config, DreamLoopConfig
+        from mnemocore.core.config import DreamLoopConfig, load_config
 
         config = load_config()
 
         # Verify dream_loop config exists and has correct attributes
-        assert hasattr(config, 'dream_loop')
+        assert hasattr(config, "dream_loop")
         assert isinstance(config.dream_loop, DreamLoopConfig)
-        assert hasattr(config.dream_loop, 'enabled')
-        assert hasattr(config.dream_loop, 'frequency_seconds')
-        assert hasattr(config.dream_loop, 'batch_size')
-        assert hasattr(config.dream_loop, 'max_iterations')
-        assert hasattr(config.dream_loop, 'ollama_url')
-        assert hasattr(config.dream_loop, 'model')
+        assert hasattr(config.dream_loop, "enabled")
+        assert hasattr(config.dream_loop, "frequency_seconds")
+        assert hasattr(config.dream_loop, "batch_size")
+        assert hasattr(config.dream_loop, "max_iterations")
+        assert hasattr(config.dream_loop, "ollama_url")
+        assert hasattr(config.dream_loop, "model")
 
     def test_dream_loop_config_defaults(self):
         """Test that dream loop config has sensible defaults."""

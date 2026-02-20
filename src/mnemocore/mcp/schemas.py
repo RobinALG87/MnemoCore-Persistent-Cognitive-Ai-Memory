@@ -32,8 +32,6 @@ class ToolResult(BaseModel):
     def validate_error(cls, value: Optional[str], info):
         if info.data.get("ok") and value:
             raise ValidationError(
-                field="error",
-                reason="error must be empty when ok is true",
-                value=value
+                field="error", reason="error must be empty when ok is true", value=value
             )
         return value

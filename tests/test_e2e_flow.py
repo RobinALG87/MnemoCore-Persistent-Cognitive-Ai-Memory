@@ -11,17 +11,18 @@ SEGMENT 3.4 – End-to-end tests (AGENT_MASTER_PLAN)
 """
 
 import os
+
 import pytest
 import pytest_asyncio
 
+from mnemocore.core.binary_hdv import BinaryHDV
 from mnemocore.core.config import get_config, reset_config
 from mnemocore.core.engine import HAIMEngine
-from mnemocore.core.binary_hdv import BinaryHDV
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def isolated_engine(tmp_path):
@@ -35,6 +36,7 @@ def isolated_engine(tmp_path):
     - HAIM_HOT_MAX_MEMORIES=10000     → prevents eviction during tests
     """
     from mnemocore.core.hnsw_index import HNSWIndexManager
+
     HNSWIndexManager._instance = None
     reset_config()
     data_dir = tmp_path / "data"
@@ -60,10 +62,16 @@ def isolated_engine(tmp_path):
 
     # Cleanup env
     for key in [
-        "HAIM_DATA_DIR", "HAIM_MEMORY_FILE", "HAIM_CODEBOOK_FILE",
-        "HAIM_SYNAPSES_FILE", "HAIM_WARM_MMAP_DIR", "HAIM_COLD_ARCHIVE_DIR",
-        "HAIM_ENCODING_MODE", "HAIM_DIMENSIONALITY",
-        "HAIM_TIERS_HOT_LTP_THRESHOLD_MIN", "HAIM_TIERS_HOT_MAX_MEMORIES",
+        "HAIM_DATA_DIR",
+        "HAIM_MEMORY_FILE",
+        "HAIM_CODEBOOK_FILE",
+        "HAIM_SYNAPSES_FILE",
+        "HAIM_WARM_MMAP_DIR",
+        "HAIM_COLD_ARCHIVE_DIR",
+        "HAIM_ENCODING_MODE",
+        "HAIM_DIMENSIONALITY",
+        "HAIM_TIERS_HOT_LTP_THRESHOLD_MIN",
+        "HAIM_TIERS_HOT_MAX_MEMORIES",
     ]:
         os.environ.pop(key, None)
     reset_config()
@@ -72,6 +80,7 @@ def isolated_engine(tmp_path):
 # =============================================================================
 # Test 1: Complete Store → Query Cycle
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_complete_store_query_cycle(isolated_engine):
@@ -106,19 +115,29 @@ async def test_store_multiple_query_returns_most_relevant(isolated_engine):
     await isolated_engine.initialize()
 
     # Store memories on different topics
-    id_biology = await isolated_engine.store("Photosynthesis converts sunlight into glucose in plants")
-    id_physics = await isolated_engine.store("Newton's second law: force equals mass times acceleration")
-    id_chemistry = await isolated_engine.store("Water molecule consists of two hydrogen and one oxygen atom")
+    id_biology = await isolated_engine.store(
+        "Photosynthesis converts sunlight into glucose in plants"
+    )
+    id_physics = await isolated_engine.store(
+        "Newton's second law: force equals mass times acceleration"
+    )
+    id_chemistry = await isolated_engine.store(
+        "Water molecule consists of two hydrogen and one oxygen atom"
+    )
 
     # Query for biology topic
-    results = await isolated_engine.query("How do plants make food from sunlight?", top_k=5)
+    results = await isolated_engine.query(
+        "How do plants make food from sunlight?", top_k=5
+    )
 
     assert len(results) > 0
     # All stored memories should be retrievable via query
     result_ids = [r[0] for r in results]
     # At least one of our stored memories should appear in results
     stored_ids = {id_biology, id_physics, id_chemistry}
-    assert len(stored_ids & set(result_ids)) > 0, "At least one stored memory should appear in query results"
+    assert (
+        len(stored_ids & set(result_ids)) > 0
+    ), "At least one stored memory should appear in query results"
     # Note: HDV uses hash-based token encoding, not semantic embeddings,
     # so cross-topic ranking order is not deterministic.
 
@@ -126,6 +145,7 @@ async def test_store_multiple_query_returns_most_relevant(isolated_engine):
 # =============================================================================
 # Test 2: LTP Strength Decay
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_ltp_strength_is_positive_after_store(isolated_engine):
@@ -154,7 +174,9 @@ async def test_retrieval_feedback_updates_node(isolated_engine):
     memory_id = await isolated_engine.store("Memory to receive positive feedback")
 
     # Record positive feedback — should not raise
-    await isolated_engine.record_retrieval_feedback(memory_id, helpful=True, eig_signal=0.8)
+    await isolated_engine.record_retrieval_feedback(
+        memory_id, helpful=True, eig_signal=0.8
+    )
 
     # Node should still be retrievable
     node = await isolated_engine.get_memory(memory_id)
@@ -170,7 +192,9 @@ async def test_negative_feedback_does_not_delete_memory(isolated_engine):
 
     memory_id = await isolated_engine.store("Memory to receive negative feedback")
 
-    await isolated_engine.record_retrieval_feedback(memory_id, helpful=False, eig_signal=0.5)
+    await isolated_engine.record_retrieval_feedback(
+        memory_id, helpful=False, eig_signal=0.5
+    )
 
     # Memory should still exist
     node = await isolated_engine.get_memory(memory_id)
@@ -180,6 +204,7 @@ async def test_negative_feedback_does_not_delete_memory(isolated_engine):
 # =============================================================================
 # Test 3: XOR Project Isolation
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_xor_project_isolation(isolated_engine):
@@ -192,17 +217,10 @@ async def test_xor_project_isolation(isolated_engine):
     content = "Secret project Alpha data: classified information"
 
     # Store with project A
-    id_project_a = await isolated_engine.store(
-        content,
-        project_id="project_alpha"
-    )
+    id_project_a = await isolated_engine.store(content, project_id="project_alpha")
 
     # Query with project B — should NOT find project A's memory as top result
-    results_b = await isolated_engine.query(
-        content,
-        top_k=5,
-        project_id="project_beta"
-    )
+    results_b = await isolated_engine.query(content, top_k=5, project_id="project_beta")
 
     # Project A's memory should either not appear, or appear with low score
     result_ids = [r[0] for r in results_b]
@@ -234,6 +252,7 @@ async def test_same_project_query_finds_memory(isolated_engine):
 # =============================================================================
 # Test 4: Episodic Chaining
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_episodic_chain_links_memories(isolated_engine):
@@ -284,6 +303,7 @@ async def test_temporal_neighbors_via_include_neighbors(isolated_engine):
 # Test 5: Redis Fallback (engine works without Redis)
 # =============================================================================
 
+
 @pytest.mark.asyncio
 async def test_engine_works_without_redis(isolated_engine):
     """
@@ -305,6 +325,7 @@ async def test_engine_works_without_redis(isolated_engine):
 # Test 6: Qdrant Fallback (engine works without Qdrant)
 # =============================================================================
 
+
 @pytest.mark.asyncio
 async def test_engine_works_without_qdrant(isolated_engine):
     """
@@ -325,6 +346,7 @@ async def test_engine_works_without_qdrant(isolated_engine):
 # =============================================================================
 # Test 7: Delete Memory
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_delete_removes_memory_from_results(isolated_engine):
@@ -352,6 +374,7 @@ async def test_delete_removes_memory_from_results(isolated_engine):
 # Test 8: Stats Endpoint
 # =============================================================================
 
+
 @pytest.mark.asyncio
 async def test_get_stats_returns_valid_structure(isolated_engine):
     """
@@ -374,6 +397,7 @@ async def test_get_stats_returns_valid_structure(isolated_engine):
 # =============================================================================
 # Test 9: Synapse Binding
 # =============================================================================
+
 
 @pytest.mark.asyncio
 async def test_bind_memories_creates_synapse(isolated_engine):

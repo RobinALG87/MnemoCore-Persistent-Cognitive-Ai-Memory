@@ -8,8 +8,8 @@ Replaces singleton pattern with explicit dependency injection.
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .config import HAIMConfig
 from .async_storage import AsyncRedisStorage
+from .config import HAIMConfig
 from .qdrant_store import QdrantStore
 
 
@@ -18,6 +18,7 @@ class Container:
     """
     Container holding all wired application dependencies.
     """
+
     config: HAIMConfig
     redis_storage: Optional[AsyncRedisStorage] = None
     qdrant_store: Optional[QdrantStore] = None
@@ -72,6 +73,7 @@ def build_test_container(config: Optional[HAIMConfig] = None) -> Container:
     """
     if config is None:
         from .config import load_config
+
         config = load_config()
 
     return build_container(config)

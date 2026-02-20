@@ -28,19 +28,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 import os
+import time
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
 
 if TYPE_CHECKING:
-    from .engine import HAIMEngine
     from .config import SubconsciousAIConfig
+    from .engine import HAIMEngine
     from .node import MemoryNode
 
 
@@ -48,9 +48,11 @@ if TYPE_CHECKING:
 # Data Structures
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class SubconsciousCycleResult:
     """Result from a single subconscious AI cycle."""
+
     timestamp: str
     operation: str  # "sorting" | "dreaming" | "improvement"
     input_count: int
@@ -64,6 +66,7 @@ class SubconsciousCycleResult:
 @dataclass
 class Suggestion:
     """A suggestion from micro self-improvement."""
+
     suggestion_id: str
     category: str  # "config" | "metadata" | "consolidation" | "query"
     confidence: float
@@ -77,6 +80,7 @@ class Suggestion:
 # Model Clients
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class ModelClient:
     """Base class for LLM model clients."""
 
@@ -84,7 +88,9 @@ class ModelClient:
         self.model_name = model_name
         self.model_url = model_url
 
-    async def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> str:
+    async def generate(
+        self, prompt: str, max_tokens: int = 256, temperature: float = 0.7
+    ) -> str:
         raise NotImplementedError
 
 
@@ -96,7 +102,9 @@ class OllamaClient(ModelClient):
         self.timeout = timeout
         self._generate_url = f"{model_url.rstrip('/')}/api/generate"
 
-    async def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> str:
+    async def generate(
+        self, prompt: str, max_tokens: int = 256, temperature: float = 0.7
+    ) -> str:
         """Generate text using Ollama API."""
         try:
             import aiohttp
@@ -108,14 +116,14 @@ class OllamaClient(ModelClient):
                 "options": {
                     "num_predict": max_tokens,
                     "temperature": temperature,
-                }
+                },
             }
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self._generate_url,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -141,7 +149,9 @@ class LMStudioClient(ModelClient):
         self.timeout = timeout
         self._chat_url = f"{model_url.rstrip('/')}/v1/chat/completions"
 
-    async def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> str:
+    async def generate(
+        self, prompt: str, max_tokens: int = 256, temperature: float = 0.7
+    ) -> str:
         """Generate text using LM Studio's OpenAI-compatible API."""
         try:
             import aiohttp
@@ -157,13 +167,15 @@ class LMStudioClient(ModelClient):
                 async with session.post(
                     self._chat_url,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         choices = data.get("choices", [])
                         if choices:
-                            return choices[0].get("message", {}).get("content", "").strip()
+                            return (
+                                choices[0].get("message", {}).get("content", "").strip()
+                            )
                         return ""
                     else:
                         error_text = await resp.text()
@@ -194,7 +206,9 @@ class APIClient(ModelClient):
         self.provider = provider
         self.timeout = timeout
 
-    async def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> str:
+    async def generate(
+        self, prompt: str, max_tokens: int = 256, temperature: float = 0.7
+    ) -> str:
         """Generate text using external API."""
         try:
             import aiohttp
@@ -229,7 +243,7 @@ class APIClient(ModelClient):
                     endpoint,
                     json=payload,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -256,6 +270,7 @@ class APIClient(ModelClient):
 # Resource Guard
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class ResourceGuard:
     """Monitor and throttle resource usage."""
 
@@ -269,6 +284,7 @@ class ResourceGuard:
         """Check if CPU usage is below threshold."""
         try:
             import psutil
+
             cpu = psutil.cpu_percent(interval=0.1)
             if cpu > self.max_cpu_percent:
                 logger.debug(f"CPU {cpu:.1f}% > threshold {self.max_cpu_percent}%")
@@ -286,7 +302,9 @@ class ResourceGuard:
         while self._call_history and self._call_history[0] < cutoff:
             self._call_history.popleft()
         if len(self._call_history) >= self.rate_limit_per_hour:
-            logger.debug(f"Rate limit reached: {len(self._call_history)}/{self.rate_limit_per_hour}")
+            logger.debug(
+                f"Rate limit reached: {len(self._call_history)}/{self.rate_limit_per_hour}"
+            )
             return False
         return True
 
@@ -307,7 +325,7 @@ class ResourceGuard:
         if self._consecutive_errors <= 0:
             return base_interval
         # Exponential backoff
-        backoff = min(base_interval * (2 ** self._consecutive_errors), max_backoff)
+        backoff = min(base_interval * (2**self._consecutive_errors), max_backoff)
         return backoff
 
     @property
@@ -319,6 +337,7 @@ class ResourceGuard:
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Worker
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class SubconsciousAIWorker:
     """
@@ -544,10 +563,9 @@ class SubconsciousAIWorker:
             )
 
         # Build prompt for categorization
-        memories_text = "\n".join([
-            f"[{i+1}] {m.content[:200]}"
-            for i, m in enumerate(unsorted[:5])
-        ])
+        memories_text = "\n".join(
+            [f"[{i + 1}] {m.content[:200]}" for i, m in enumerate(unsorted[:5])]
+        )
 
         prompt = f"""Categorize these memories into 2-3 broad categories and suggest tags for each.
 
@@ -577,7 +595,9 @@ Return JSON format:
                         if 0 <= idx < len(unsorted):
                             mem = unsorted[idx]
                             mem.metadata["tags"] = tags
-                            mem.metadata["category"] = parsed.get("categories", ["unknown"])[0]
+                            mem.metadata["category"] = parsed.get(
+                                "categories", ["unknown"]
+                            )[0]
                             updated_nodes.append(mem)
                             output["applied"] = output.get("applied", 0) + 1
 
@@ -596,7 +616,9 @@ Return JSON format:
                         output["persisted"] = persisted
                         for r in persist_results:
                             if isinstance(r, Exception):
-                                logger.warning(f"Failed to persist sorting metadata update: {r}")
+                                logger.warning(
+                                    f"Failed to persist sorting metadata update: {r}"
+                                )
         except json.JSONDecodeError:
             output["parse_error"] = "Could not parse JSON response"
 
@@ -621,9 +643,10 @@ Return JSON format:
         # Find memories with low LTP (weak connections)
         recent = await self.engine.tier_manager.get_hot_recent(20)
         weak_memories = [
-            m for m in recent
+            m
+            for m in recent
             if m.ltp_strength < 0.5 and not m.metadata.get("dream_analyzed")
-        ][:self.cfg.max_memories_per_cycle]
+        ][: self.cfg.max_memories_per_cycle]
 
         if not weak_memories:
             return SubconsciousCycleResult(
@@ -637,10 +660,12 @@ Return JSON format:
             )
 
         # Build prompt for semantic bridging
-        memories_text = "\n".join([
-            f"[{i+1}] {m.content[:150]} (LTP: {m.ltp_strength:.2f})"
-            for i, m in enumerate(weak_memories[:5])
-        ])
+        memories_text = "\n".join(
+            [
+                f"[{i + 1}] {m.content[:150]} (LTP: {m.ltp_strength:.2f})"
+                for i, m in enumerate(weak_memories[:5])
+            ]
+        )
 
         prompt = f"""Analyze these memories and suggest semantic connections or bridging concepts.
 
@@ -669,23 +694,31 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
                             idx = int(idx_str) - 1
                             if 0 <= idx < len(weak_memories):
                                 weak_mem = weak_memories[idx]
-                                for concept in concepts[:2]:  # Limit to 2 concepts per memory
+                                for concept in concepts[
+                                    :2
+                                ]:  # Limit to 2 concepts per memory
                                     # Encode the bridging concept and search for related memories
-                                    concept_vec = self.engine.binary_encoder.encode(concept)
-                                    hits = await self.engine.tier_manager.search(concept_vec, top_k=3)
+                                    concept_vec = self.engine.binary_encoder.encode(
+                                        concept
+                                    )
+                                    hits = await self.engine.tier_manager.search(
+                                        concept_vec, top_k=3
+                                    )
                             for hit_id, score in hits:
-                                        if hit_id != weak_mem.id and score > 0.2:
-                                            await self.engine.bind_memories(
-                                                weak_mem.id, hit_id, success=True
-                                            )
-                                            bindings_created += 1
-                                            logger.info(
-                                                f"[Subconscious Dreaming] Bridge created: "
-                                                f"'{weak_mem.content[:30]}...' <-> '{concept}' <-> {hit_id[:8]}"
-                                            )
+                                if hit_id != weak_mem.id and score > 0.2:
+                                    await self.engine.bind_memories(
+                                        weak_mem.id, hit_id, success=True
+                                    )
+                                    bindings_created += 1
+                                    logger.info(
+                                        f"[Subconscious Dreaming] Bridge created: "
+                                        f"'{weak_mem.content[:30]}...' <-> '{concept}' <-> {hit_id[:8]}"
+                                    )
                         except (ValueError, IndexError) as e:
-                            logger.debug(f"Skipping invalid bridge index {idx_str}: {e}")
-                            
+                            logger.debug(
+                                f"Skipping invalid bridge index {idx_str}: {e}"
+                            )
+
                     if bindings_created == 0:
                         logger.warning(
                             f"[Subconscious Dreaming] Generated {len(parsed.get('bridges', {}))} bridges "
@@ -712,7 +745,9 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
                     output["persisted"] = persisted
                     for r in persist_results:
                         if isinstance(r, Exception):
-                            logger.warning(f"Failed to persist dreaming metadata update: {r}")
+                            logger.warning(
+                                f"Failed to persist dreaming metadata update: {r}"
+                            )
 
                 output["bridges_found"] = len(parsed.get("bridges", {}))
         except json.JSONDecodeError:
@@ -747,13 +782,18 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
 
         # Check for knowledge gaps
         if gap_stats.get("total_gaps", 0) > 5:
-            suggestions.append(Suggestion(
-                suggestion_id=f"gap_{int(time.time())}",
-                category="query",
-                confidence=0.7,
-                rationale=f"High knowledge gap count: {gap_stats['total_gaps']}",
-                proposed_change={"action": "review_gaps", "count": gap_stats["total_gaps"]},
-            ))
+            suggestions.append(
+                Suggestion(
+                    suggestion_id=f"gap_{int(time.time())}",
+                    category="query",
+                    confidence=0.7,
+                    rationale=f"High knowledge gap count: {gap_stats['total_gaps']}",
+                    proposed_change={
+                        "action": "review_gaps",
+                        "count": gap_stats["total_gaps"],
+                    },
+                )
+            )
 
         # Check tier balance
         tiers = stats.get("tiers", {})
@@ -761,13 +801,18 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
         max_hot = self.engine.config.tiers_hot.max_memories
 
         if hot_count > max_hot * 0.9:
-            suggestions.append(Suggestion(
-                suggestion_id=f"tier_{int(time.time())}",
-                category="config",
-                confidence=0.6,
-                rationale=f"HOT tier near capacity: {hot_count}/{max_hot}",
-                proposed_change={"action": "consider_tier_expansion", "utilization": hot_count / max_hot},
-            ))
+            suggestions.append(
+                Suggestion(
+                    suggestion_id=f"tier_{int(time.time())}",
+                    category="config",
+                    confidence=0.6,
+                    rationale=f"HOT tier near capacity: {hot_count}/{max_hot}",
+                    proposed_change={
+                        "action": "consider_tier_expansion",
+                        "utilization": hot_count / max_hot,
+                    },
+                )
+            )
 
         self._suggestions_generated += len(suggestions)
         output = {
@@ -799,11 +844,7 @@ Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}
 
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                self._write_audit,
-                asdict(result)
-            )
+            await loop.run_in_executor(None, self._write_audit, asdict(result))
         except Exception as e:
             logger.warning(f"Failed to write audit trail: {e}")
 

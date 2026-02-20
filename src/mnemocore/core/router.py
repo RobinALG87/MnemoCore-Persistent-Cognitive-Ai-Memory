@@ -3,11 +3,12 @@ Cognitive Router - Orchestrates System 1 (Fast) and System 2 (Slow) thinking.
 """
 
 import time
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
+
 from loguru import logger
 
+from .binary_hdv import BinaryHDV, majority_bundle
 from .engine import HAIMEngine
-from .binary_hdv import majority_bundle, BinaryHDV
 from .exceptions import MnemoCoreError
 
 
@@ -23,7 +24,9 @@ class CognitiveRouter:
         self.engine = engine
         self.complexity_threshold = 0.6  # Threshold for switching to Sys2
 
-    async def route(self, impulse: str, context: dict = None) -> Tuple[str, Dict[str, Any]]:
+    async def route(
+        self, impulse: str, context: dict = None
+    ) -> Tuple[str, Dict[str, Any]]:
         """
         Route the impulse to the appropriate system.
         Returns: (response, debug_info)
@@ -34,7 +37,7 @@ class CognitiveRouter:
         debug_info = {
             "impulse": impulse,
             "complexity_score": complexity,
-            "timestamp": start_time
+            "timestamp": start_time,
         }
 
         if complexity < self.complexity_threshold:
@@ -60,7 +63,15 @@ class CognitiveRouter:
             score += 0.3
 
         # Complexity markers
-        complex_markers = ["analyze", "compare", "why", "how", "plan", "design", "evaluate"]
+        complex_markers = [
+            "analyze",
+            "compare",
+            "why",
+            "how",
+            "plan",
+            "design",
+            "evaluate",
+        ]
         if any(marker in text.lower() for marker in complex_markers):
             score += 0.4
 
@@ -103,7 +114,7 @@ class CognitiveRouter:
         top_mem_id, score = results[0]
         node = await self.engine.get_memory(top_mem_id)
 
-        content = node.content if node else 'Unknown'
+        content = node.content if node else "Unknown"
         return f"[Reflex] Based on memory ({score:.2f}): {content}"
 
     async def _system_2_reasoning(self, impulse: str, context: Optional[dict]) -> str:
@@ -117,7 +128,11 @@ class CognitiveRouter:
             # Build context vector from working memory or sample from engine
             ctx_vec: BinaryHDV
 
-            if context and isinstance(context.get("working_memory"), list) and context["working_memory"]:
+            if (
+                context
+                and isinstance(context.get("working_memory"), list)
+                and context["working_memory"]
+            ):
                 vectors = []
                 for item in context["working_memory"]:
                     vectors.append(self.engine.encode_content(str(item)))

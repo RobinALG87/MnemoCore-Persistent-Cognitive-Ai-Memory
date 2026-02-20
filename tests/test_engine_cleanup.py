@@ -1,11 +1,15 @@
 """
 Test HAIMEngine Synapse Cleanup
 """
+
 import os
+
 import pytest
+
+from mnemocore.core.config import reset_config
 from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.synapse import SynapticConnection
-from mnemocore.core.config import reset_config
+
 
 @pytest.fixture
 def test_engine(tmp_path):
@@ -29,6 +33,7 @@ def test_engine(tmp_path):
     if "HAIM_SYNAPSES_FILE" in os.environ:
         del os.environ["HAIM_SYNAPSES_FILE"]
     reset_config()
+
 
 @pytest.mark.asyncio
 async def test_cleanup_decay(test_engine):
@@ -55,6 +60,7 @@ async def test_cleanup_decay(test_engine):
 
     # Verify persistence
     assert os.path.exists(test_engine.synapse_path)
+
 
 @pytest.mark.asyncio
 async def test_cleanup_no_decay(test_engine):

@@ -30,20 +30,23 @@ from loguru import logger
 
 try:
     import faiss
+
     FAISS_AVAILABLE = True
 except ImportError:
     FAISS_AVAILABLE = False
-    logger.warning("faiss not installed — HNSW index unavailable, falling back to linear scan.")
+    logger.warning(
+        "faiss not installed — HNSW index unavailable, falling back to linear scan."
+    )
 
 
 # ------------------------------------------------------------------ #
 #  Defaults                                                           #
 # ------------------------------------------------------------------ #
 
-DEFAULT_HNSW_M: int = 32           # number of bi-directional links per node
+DEFAULT_HNSW_M: int = 32  # number of bi-directional links per node
 DEFAULT_EF_CONSTRUCTION: int = 200  # build-time ef (accuracy vs build time)
-DEFAULT_EF_SEARCH: int = 64        # query-time ef (accuracy vs query time)
-FLAT_THRESHOLD: int = 256          # use flat index below this hop count
+DEFAULT_EF_SEARCH: int = 64  # query-time ef (accuracy vs query time)
+FLAT_THRESHOLD: int = 256  # use flat index below this hop count
 
 
 # ------------------------------------------------------------------ #
@@ -53,7 +56,9 @@ FLAT_THRESHOLD: int = 256          # use flat index below this hop count
 import json
 from pathlib import Path
 from threading import Lock
+
 from .config import get_config
+
 
 class HNSWIndexManager:
     """
@@ -98,17 +103,21 @@ class HNSWIndexManager:
         self._use_hnsw = False
         self._stale_count = 0
         self._index = None
-        
+
         config = get_config()
-        data_dir = Path(config.paths.data_dir if hasattr(config, 'paths') else "./data")
+        data_dir = Path(config.paths.data_dir if hasattr(config, "paths") else "./data")
         data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.INDEX_PATH = data_dir / "mnemocore_hnsw.faiss"
         self.IDMAP_PATH = data_dir / "mnemocore_hnsw_idmap.json"
         self.VECTOR_PATH = data_dir / "mnemocore_hnsw_vectors.npy"
 
         if FAISS_AVAILABLE:
-            if self.INDEX_PATH.exists() and self.IDMAP_PATH.exists() and self.VECTOR_PATH.exists():
+            if (
+                self.INDEX_PATH.exists()
+                and self.IDMAP_PATH.exists()
+                and self.VECTOR_PATH.exists()
+            ):
                 self._load()
             else:
                 self._build_flat_index()
@@ -139,11 +148,11 @@ class HNSWIndexManager:
                 if node_id is not None:
                     compact_ids.append(node_id)
                     compact_vecs.append(self._vector_store[i])
-            
+
             if compact_vecs:
                 vecs = np.stack(compact_vecs)
                 hnsw.add(vecs)
-                
+
             self._id_map = compact_ids
             self._vector_store = compact_vecs
             self._stale_count = 0
@@ -210,12 +219,14 @@ class HNSWIndexManager:
                 fid = self._id_map.index(node_id)
                 self._id_map[fid] = None
                 self._stale_count += 1
-                
+
                 total = max(len(self._id_map), 1)
                 stale_fraction = self._stale_count / total
-                
+
                 if stale_fraction > 0.20 and len(self._id_map) > 0:
-                    logger.info(f"HNSW stale fraction {stale_fraction:.1%} — rebuilding index.")
+                    logger.info(
+                        f"HNSW stale fraction {stale_fraction:.1%} — rebuilding index."
+                    )
                     if self._use_hnsw:
                         self._build_hnsw_index()
                     else:
@@ -233,13 +244,14 @@ class HNSWIndexManager:
                             self._id_map = compact_ids
                             self._vector_store = compact_vecs
                             self._stale_count = 0
-                
+
                 self._save()
             except ValueError:
                 pass
 
-
-    def search(self, query_data: np.ndarray, top_k: int = 10) -> List[Tuple[str, float]]:
+    def search(
+        self, query_data: np.ndarray, top_k: int = 10
+    ) -> List[Tuple[str, float]]:
         """
         Search for top-k nearest neighbours.
 
@@ -267,7 +279,7 @@ class HNSWIndexManager:
         for dist, idx in zip(distances[0], ids[0]):
             if idx < 0 or idx >= len(self._id_map):
                 continue
-                
+
             node_id = self._id_map[idx]
             if node_id is not None:
                 sim = 1.0 - float(dist) / self.dimension
@@ -281,11 +293,14 @@ class HNSWIndexManager:
         try:
             faiss.write_index_binary(self._index, str(self.INDEX_PATH))
             with open(self.IDMAP_PATH, "w") as f:
-                json.dump({
-                    "id_map": self._id_map,
-                    "use_hnsw": self._use_hnsw,
-                    "stale_count": self._stale_count
-                }, f)
+                json.dump(
+                    {
+                        "id_map": self._id_map,
+                        "use_hnsw": self._use_hnsw,
+                        "stale_count": self._stale_count,
+                    },
+                    f,
+                )
             if self._vector_store:
                 np.save(str(self.VECTOR_PATH), np.stack(self._vector_store))
         except Exception as e:
@@ -299,7 +314,7 @@ class HNSWIndexManager:
                 self._id_map = state.get("id_map", [])
                 self._use_hnsw = state.get("use_hnsw", False)
                 self._stale_count = state.get("stale_count", 0)
-                
+
             vecs = np.load(str(self.VECTOR_PATH))
             self._vector_store = list(vecs)
             logger.info("Loaded HNSW persistent state from disk")
@@ -326,6 +341,5 @@ class HNSWIndexManager:
             "ef_construction": self.ef_construction if self._use_hnsw else None,
             "ef_search": self.ef_search if self._use_hnsw else None,
             "faiss_available": FAISS_AVAILABLE,
-            "stale_count": self._stale_count
+            "stale_count": self._stale_count,
         }
-

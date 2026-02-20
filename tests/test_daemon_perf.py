@@ -3,22 +3,26 @@ import json
 import os
 import sys
 import time
-from unittest.mock import MagicMock, patch
-import pytest
 
 # --- Mocking Infrastructure ---
 import types
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
 def mock_module(name):
     m = types.ModuleType(name)
     sys.modules[name] = m
     return m
 
+
 # Try to import real modules first
 try:
+    import mnemocore.core.async_storage
     import mnemocore.core.engine
     import mnemocore.core.node
     import mnemocore.core.qdrant_store
-    import mnemocore.core.async_storage
     import mnemocore.meta.learning_journal
 except ImportError:
     pass
@@ -50,6 +54,7 @@ if "aiohttp" not in sys.modules:
 sys.path.insert(0, os.path.abspath("."))
 from mnemocore.subconscious.daemon import SubconsciousDaemon
 
+
 async def _async_test_save_evolution_state_non_blocking():
     """
     Async test logic that verifies _save_evolution_state does not block the event loop.
@@ -60,7 +65,10 @@ async def _async_test_save_evolution_state_non_blocking():
     daemon = SubconsciousDaemon()
 
     # Use a temp path for the state file to avoid permission issues
-    with patch("mnemocore.subconscious.daemon.EVOLUTION_STATE_PATH", "/tmp/test_evolution_perf.json"):
+    with patch(
+        "mnemocore.subconscious.daemon.EVOLUTION_STATE_PATH",
+        "/tmp/test_evolution_perf.json",
+    ):
 
         # 2. Patch json.dump to be slow (simulate blocking I/O)
         # We need to patch it where it is used. daemon.py imports json.
@@ -68,7 +76,7 @@ async def _async_test_save_evolution_state_non_blocking():
         original_dump = json.dump
 
         def slow_dump(*args, **kwargs):
-            time.sleep(0.2) # Block for 200ms
+            time.sleep(0.2)  # Block for 200ms
             return original_dump(*args, **kwargs)
 
         with patch("json.dump", side_effect=slow_dump):
@@ -83,7 +91,7 @@ async def _async_test_save_evolution_state_non_blocking():
                 nonlocal loop_blocked_duration
                 while ticker_running:
                     start = time.time()
-                    await asyncio.sleep(0.01) # Yield control
+                    await asyncio.sleep(0.01)  # Yield control
                     diff = time.time() - start
                     # If sleep(0.01) took significantly longer, the loop was blocked
                     if diff > 0.05:
@@ -122,10 +130,14 @@ async def _async_test_save_evolution_state_non_blocking():
 
             # We fail if loop was blocked for more than 100ms
             if loop_blocked_duration >= 0.1:
-                raise AssertionError(f"Event loop was blocked for {loop_blocked_duration:.4f}s")
+                raise AssertionError(
+                    f"Event loop was blocked for {loop_blocked_duration:.4f}s"
+                )
+
 
 def test_save_evolution_state_non_blocking():
     asyncio.run(_async_test_save_evolution_state_non_blocking())
+
 
 if __name__ == "__main__":
     test_save_evolution_state_non_blocking()

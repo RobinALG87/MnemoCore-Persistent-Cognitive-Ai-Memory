@@ -1,26 +1,32 @@
 """
 Tests for Phase 4.5: RippleContext and RecursiveSynthesizer
 """
+
 import asyncio
 import math
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from mnemocore.core.ripple_context import RippleChunk, RippleContext
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RippleContext Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
-from mnemocore.core.ripple_context import RippleContext, RippleChunk
-
 
 class TestRippleChunk:
     def test_term_freq_built_on_init(self):
-        chunk = RippleChunk(index=0, text="hello world hello", start_char=0, end_char=17)
+        chunk = RippleChunk(
+            index=0, text="hello world hello", start_char=0, end_char=17
+        )
         assert chunk.term_freq.get("hello") == 2
         assert chunk.term_freq.get("world") == 1
 
     def test_score_query_exact_match(self):
-        chunk = RippleChunk(index=0, text="quantum computing is amazing", start_char=0, end_char=28)
+        chunk = RippleChunk(
+            index=0, text="quantum computing is amazing", start_char=0, end_char=28
+        )
         score = chunk.score_query(["quantum", "computing"])
         assert score > 0
 
@@ -93,10 +99,13 @@ class TestRippleContext:
 
     def test_from_memory_jsonl_valid(self, tmp_path):
         import json
+
         jsonl = tmp_path / "memory.jsonl"
         jsonl.write_text(
-            json.dumps({"id": "abc123", "content": "Test memory content"}) + "\n" +
-            json.dumps({"id": "def456", "content": "Another memory"}) + "\n"
+            json.dumps({"id": "abc123", "content": "Test memory content"})
+            + "\n"
+            + json.dumps({"id": "def456", "content": "Another memory"})
+            + "\n"
         )
         ctx = RippleContext.from_memory_jsonl(str(jsonl))
         assert len(ctx) > 0
@@ -148,7 +157,9 @@ class TestHeuristicDecompose:
 # ─────────────────────────────────────────────────────────────────────────────
 
 from mnemocore.core.recursive_synthesizer import (
-    RecursiveSynthesizer, SynthesizerConfig, SynthesisResult
+    RecursiveSynthesizer,
+    SynthesisResult,
+    SynthesizerConfig,
 )
 
 
@@ -157,7 +168,11 @@ def _make_mock_engine(memories=None):
     if memories is None:
         memories = [
             {"id": "mem1", "content": "Quantum computing uses qubits", "score": 0.85},
-            {"id": "mem2", "content": "Machine learning is a subset of AI", "score": 0.72},
+            {
+                "id": "mem2",
+                "content": "Machine learning is a subset of AI",
+                "score": 0.72,
+            },
         ]
 
     engine = MagicMock()
@@ -191,7 +206,9 @@ def _make_mock_engine(memories=None):
 class TestRecursiveSynthesizer:
     async def test_basic_synthesis(self):
         engine = _make_mock_engine()
-        synth = RecursiveSynthesizer(engine=engine, config=SynthesizerConfig(max_depth=1))
+        synth = RecursiveSynthesizer(
+            engine=engine, config=SynthesizerConfig(max_depth=1)
+        )
         result = await synth.synthesize("What is quantum computing?")
 
         assert isinstance(result, SynthesisResult)
@@ -202,7 +219,9 @@ class TestRecursiveSynthesizer:
 
     async def test_returns_results(self):
         engine = _make_mock_engine()
-        synth = RecursiveSynthesizer(engine=engine, config=SynthesizerConfig(max_depth=0))
+        synth = RecursiveSynthesizer(
+            engine=engine, config=SynthesizerConfig(max_depth=0)
+        )
         result = await synth.synthesize("quantum computing")
 
         assert len(result.results) > 0
@@ -250,7 +269,9 @@ class TestRecursiveSynthesizer:
             "Quantum computers use qubits. They are very powerful.",
             chunk_size=100,
         )
-        synth = RecursiveSynthesizer(engine=engine, config=SynthesizerConfig(max_depth=0))
+        synth = RecursiveSynthesizer(
+            engine=engine, config=SynthesizerConfig(max_depth=0)
+        )
         result = await synth.synthesize("quantum computing", ripple_context=ctx)
 
         assert isinstance(result.ripple_snippets, list)
@@ -260,7 +281,9 @@ class TestRecursiveSynthesizer:
     async def test_empty_memory_store(self):
         """Should handle empty memory store gracefully."""
         engine = _make_mock_engine(memories=[])
-        synth = RecursiveSynthesizer(engine=engine, config=SynthesizerConfig(max_depth=0))
+        synth = RecursiveSynthesizer(
+            engine=engine, config=SynthesizerConfig(max_depth=0)
+        )
         result = await synth.synthesize("anything")
 
         assert isinstance(result, SynthesisResult)
@@ -269,6 +292,7 @@ class TestRecursiveSynthesizer:
 
     async def test_llm_decompose_fallback_on_error(self):
         """If LLM decomposition fails, should fall back to heuristic."""
+
         def bad_llm(prompt):
             raise RuntimeError("LLM unavailable")
 
@@ -285,9 +309,11 @@ class TestRecursiveSynthesizer:
     async def test_multi_hit_boost(self):
         """Memories appearing in multiple sub-queries should get a score boost."""
         # Both sub-queries return the same memory
-        engine = _make_mock_engine([
-            {"id": "shared_mem", "content": "Shared content", "score": 0.6},
-        ])
+        engine = _make_mock_engine(
+            [
+                {"id": "shared_mem", "content": "Shared content", "score": 0.6},
+            ]
+        )
         config = SynthesizerConfig(max_depth=0, max_sub_queries=3)
         synth = RecursiveSynthesizer(engine=engine, config=config)
         result = await synth.synthesize("A and B and C")
@@ -300,7 +326,9 @@ class TestRecursiveSynthesizer:
 
     async def test_stats_populated(self):
         engine = _make_mock_engine()
-        synth = RecursiveSynthesizer(engine=engine, config=SynthesizerConfig(max_depth=0))
+        synth = RecursiveSynthesizer(
+            engine=engine, config=SynthesizerConfig(max_depth=0)
+        )
         result = await synth.synthesize("test")
 
         assert "sub_query_count" in result.stats
@@ -310,6 +338,8 @@ class TestRecursiveSynthesizer:
 
     async def test_elapsed_ms_positive(self):
         engine = _make_mock_engine()
-        synth = RecursiveSynthesizer(engine=engine, config=SynthesizerConfig(max_depth=0))
+        synth = RecursiveSynthesizer(
+            engine=engine, config=SynthesizerConfig(max_depth=0)
+        )
         result = await synth.synthesize("test")
         assert result.total_elapsed_ms >= 0

@@ -4,11 +4,12 @@ API Security Limits Tests
 Comprehensive tests for input validation and rate limiting.
 """
 
+import os
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch, AsyncMock
-import sys
-import os
 
 # Ensure path is set
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -78,14 +79,13 @@ def setup_env(monkeypatch):
 # INPUT VALIDATION TESTS - Store Endpoint
 # ============================================================================
 
+
 def test_store_content_too_large():
     """Verify that content larger than 100,000 chars is rejected."""
     with TestClient(app) as client:
         large_content = "a" * 100001
         response = client.post(
-            "/store",
-            json={"content": large_content},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": large_content}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
         assert "String should have at most 100000 characters" in response.text
@@ -94,8 +94,11 @@ def test_store_content_too_large():
 def test_store_content_valid():
     """Verify that content within limit is accepted."""
     mock_memory = MagicMock(
-        id="mem_1", content="a" * 1000, metadata={}, ltp_strength=0.5,
-        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+        id="mem_1",
+        content="a" * 1000,
+        metadata={},
+        ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.store.return_value = "mem_1"
@@ -103,9 +106,7 @@ def test_store_content_valid():
     with TestClient(app) as client:
         valid_content = "a" * 1000
         response = client.post(
-            "/store",
-            json={"content": valid_content},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": valid_content}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 200
 
@@ -114,9 +115,7 @@ def test_store_content_empty():
     """Verify that empty content is rejected."""
     with TestClient(app) as client:
         response = client.post(
-            "/store",
-            json={"content": ""},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": ""}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
 
@@ -125,9 +124,7 @@ def test_store_content_whitespace_only():
     """Verify that whitespace-only content is rejected."""
     with TestClient(app) as client:
         response = client.post(
-            "/store",
-            json={"content": "   \n\t   "},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": "   \n\t   "}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
 
@@ -139,7 +136,7 @@ def test_store_metadata_too_many_keys():
         response = client.post(
             "/store",
             json={"content": "foo", "metadata": many_metadata},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "Too many metadata keys" in response.text
@@ -152,7 +149,7 @@ def test_store_metadata_key_too_long():
         response = client.post(
             "/store",
             json={"content": "foo", "metadata": {long_key: "val"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "too long" in response.text
@@ -165,7 +162,7 @@ def test_store_metadata_value_too_long():
         response = client.post(
             "/store",
             json={"content": "foo", "metadata": {"key": long_value}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "too long" in response.text
@@ -177,7 +174,7 @@ def test_store_metadata_invalid_key_characters():
         response = client.post(
             "/store",
             json={"content": "foo", "metadata": {"key$invalid": "val"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "invalid characters" in response.text
@@ -189,7 +186,7 @@ def test_store_metadata_nested_structure():
         response = client.post(
             "/store",
             json={"content": "foo", "metadata": {"nested": {"key": "value"}}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "primitive type" in response.text
@@ -202,7 +199,7 @@ def test_store_agent_id_too_long():
         response = client.post(
             "/store",
             json={"content": "foo", "agent_id": long_agent_id},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -213,7 +210,7 @@ def test_store_agent_id_invalid_characters():
         response = client.post(
             "/store",
             json={"content": "foo", "agent_id": "agent$invalid"},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -223,9 +220,7 @@ def test_store_ttl_out_of_range():
     with TestClient(app) as client:
         # TTL too small
         response = client.post(
-            "/store",
-            json={"content": "foo", "ttl": 0},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": "foo", "ttl": 0}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
 
@@ -233,7 +228,7 @@ def test_store_ttl_out_of_range():
         response = client.post(
             "/store",
             json={"content": "foo", "ttl": 86400 * 365 + 1},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -242,14 +237,13 @@ def test_store_ttl_out_of_range():
 # INPUT VALIDATION TESTS - Query Endpoint
 # ============================================================================
 
+
 def test_query_too_large():
     """Verify query string limits."""
     with TestClient(app) as client:
         large_query = "q" * 20000
         response = client.post(
-            "/query",
-            json={"query": large_query},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": large_query}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
         assert "String should have at most 10000 characters" in response.text
@@ -259,9 +253,12 @@ def test_query_valid():
     """Verify query within limit is accepted."""
     # Setup mock memory with tier attribute
     mock_memory = MagicMock(
-        id="mem_1", content="test result", metadata={}, ltp_strength=0.5,
+        id="mem_1",
+        content="test result",
+        metadata={},
+        ltp_strength=0.5,
         created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
-        tier="hot"
+        tier="hot",
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.query.return_value = [("mem_1", 0.9)]
@@ -269,9 +266,7 @@ def test_query_valid():
     with TestClient(app) as client:
         valid_query = "hello world"
         response = client.post(
-            "/query",
-            json={"query": valid_query},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": valid_query}, headers={"X-API-Key": API_KEY}
         )
         # It might return 200 or 500 depending on engine state, but NOT 422
         assert response.status_code != 422
@@ -281,9 +276,7 @@ def test_query_empty():
     """Verify that empty query is rejected."""
     with TestClient(app) as client:
         response = client.post(
-            "/query",
-            json={"query": ""},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": ""}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
 
@@ -292,9 +285,7 @@ def test_query_whitespace_only():
     """Verify that whitespace-only query is rejected."""
     with TestClient(app) as client:
         response = client.post(
-            "/query",
-            json={"query": "   \n\t   "},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": "   \n\t   "}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
 
@@ -304,9 +295,7 @@ def test_query_top_k_out_of_range():
     with TestClient(app) as client:
         # top_k too small
         response = client.post(
-            "/query",
-            json={"query": "test", "top_k": 0},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": "test", "top_k": 0}, headers={"X-API-Key": API_KEY}
         )
         assert response.status_code == 422
 
@@ -314,7 +303,7 @@ def test_query_top_k_out_of_range():
         response = client.post(
             "/query",
             json={"query": "test", "top_k": 101},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -323,6 +312,7 @@ def test_query_top_k_out_of_range():
 # INPUT VALIDATION TESTS - Concept Endpoint
 # ============================================================================
 
+
 def test_concept_name_too_large():
     """Verify concept name limit."""
     with TestClient(app) as client:
@@ -330,7 +320,7 @@ def test_concept_name_too_large():
         response = client.post(
             "/concept",
             json={"name": large_name, "attributes": {"key": "value"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "String should have at most 256 characters" in response.text
@@ -342,7 +332,7 @@ def test_concept_name_empty():
         response = client.post(
             "/concept",
             json={"name": "", "attributes": {"key": "value"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -353,7 +343,7 @@ def test_concept_name_invalid_characters():
         response = client.post(
             "/concept",
             json={"name": "concept$invalid", "attributes": {"key": "value"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -365,7 +355,7 @@ def test_concept_attributes_too_many():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": many_attributes},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "Too many attributes" in response.text
@@ -377,7 +367,7 @@ def test_concept_attributes_empty():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": {}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -389,7 +379,7 @@ def test_concept_attribute_key_too_long():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": {long_key: "val"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "too long" in response.text
@@ -401,7 +391,7 @@ def test_concept_attribute_key_invalid_characters():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": {"key$invalid": "val"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -413,7 +403,7 @@ def test_concept_attribute_value_too_long():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": {"key": long_value}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -421,6 +411,7 @@ def test_concept_attribute_value_too_long():
 # ============================================================================
 # INPUT VALIDATION TESTS - Analogy Endpoint
 # ============================================================================
+
 
 def test_analogy_source_concept_too_large():
     """Verify analogy source concept limit."""
@@ -431,9 +422,9 @@ def test_analogy_source_concept_too_large():
             json={
                 "source_concept": large_str,
                 "source_value": "val",
-                "target_concept": "target"
+                "target_concept": "target",
             },
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
         assert "String should have at most 256 characters" in response.text
@@ -447,9 +438,9 @@ def test_analogy_empty_concept():
             json={
                 "source_concept": "",
                 "source_value": "val",
-                "target_concept": "target"
+                "target_concept": "target",
             },
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -462,9 +453,9 @@ def test_analogy_empty_value():
             json={
                 "source_concept": "source",
                 "source_value": "",
-                "target_concept": "target"
+                "target_concept": "target",
             },
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -478,9 +469,9 @@ def test_analogy_target_concept_too_large():
             json={
                 "source_concept": "source",
                 "source_value": "val",
-                "target_concept": large_str
+                "target_concept": large_str,
             },
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
         assert response.status_code == 422
 
@@ -489,23 +480,25 @@ def test_analogy_target_concept_too_large():
 # RATE LIMITING TESTS - Store (100/minute)
 # ============================================================================
 
+
 def test_store_rate_limiter_within_limit():
     """Verify store requests within limit succeed."""
     # Ensure pipeline execute returns count < limit (100 for store)
     mock_pipeline.execute.return_value = [1, True]
 
     mock_memory = MagicMock(
-        id="mem_1", content="test", metadata={}, ltp_strength=0.5,
-        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+        id="mem_1",
+        content="test",
+        metadata={},
+        ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.store.return_value = "mem_1"
 
     with TestClient(app) as client:
         response = client.post(
-            "/store",
-            json={"content": "test"},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": "test"}, headers={"X-API-Key": API_KEY}
         )
 
         assert response.status_code == 200
@@ -519,9 +512,7 @@ def test_store_rate_limiter_exceeded():
 
     with TestClient(app) as client:
         response = client.post(
-            "/store",
-            json={"content": "test"},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": "test"}, headers={"X-API-Key": API_KEY}
         )
 
         assert response.status_code == 429
@@ -535,9 +526,7 @@ def test_store_rate_limiter_retry_after_value():
 
     with TestClient(app) as client:
         response = client.post(
-            "/store",
-            json={"content": "test"},
-            headers={"X-API-Key": API_KEY}
+            "/store", json={"content": "test"}, headers={"X-API-Key": API_KEY}
         )
 
         assert response.status_code == 429
@@ -552,6 +541,7 @@ def test_store_rate_limiter_retry_after_value():
 # RATE LIMITING TESTS - Query (500/minute)
 # ============================================================================
 
+
 def test_query_rate_limiter_within_limit():
     """Verify query requests within limit succeed."""
     # Ensure pipeline execute returns count < limit (500 for query)
@@ -559,18 +549,19 @@ def test_query_rate_limiter_within_limit():
 
     # Setup mock memory with tier attribute
     mock_memory = MagicMock(
-        id="mem_1", content="test result", metadata={}, ltp_strength=0.5,
+        id="mem_1",
+        content="test result",
+        metadata={},
+        ltp_strength=0.5,
         created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
-        tier="hot"
+        tier="hot",
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.query.return_value = [("mem_1", 0.9)]
 
     with TestClient(app) as client:
         response = client.post(
-            "/query",
-            json={"query": "test"},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": "test"}, headers={"X-API-Key": API_KEY}
         )
 
         # Should not be 429
@@ -584,9 +575,7 @@ def test_query_rate_limiter_exceeded():
 
     with TestClient(app) as client:
         response = client.post(
-            "/query",
-            json={"query": "test"},
-            headers={"X-API-Key": API_KEY}
+            "/query", json={"query": "test"}, headers={"X-API-Key": API_KEY}
         )
 
         assert response.status_code == 429
@@ -598,6 +587,7 @@ def test_query_rate_limiter_exceeded():
 # RATE LIMITING TESTS - Concept (100/minute)
 # ============================================================================
 
+
 def test_concept_rate_limiter_within_limit():
     """Verify concept requests within limit succeed."""
     mock_pipeline.execute.return_value = [50, True]
@@ -606,7 +596,7 @@ def test_concept_rate_limiter_within_limit():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": {"key": "value"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
 
         assert response.status_code != 429
@@ -620,7 +610,7 @@ def test_concept_rate_limiter_exceeded():
         response = client.post(
             "/concept",
             json={"name": "test", "attributes": {"key": "value"}},
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
 
         assert response.status_code == 429
@@ -629,6 +619,7 @@ def test_concept_rate_limiter_exceeded():
 # ============================================================================
 # RATE LIMITING TESTS - Analogy (100/minute)
 # ============================================================================
+
 
 def test_analogy_rate_limiter_within_limit():
     """Verify analogy requests within limit succeed."""
@@ -640,9 +631,9 @@ def test_analogy_rate_limiter_within_limit():
             json={
                 "source_concept": "source",
                 "source_value": "val",
-                "target_concept": "target"
+                "target_concept": "target",
             },
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
 
         assert response.status_code != 429
@@ -658,9 +649,9 @@ def test_analogy_rate_limiter_exceeded():
             json={
                 "source_concept": "source",
                 "source_value": "val",
-                "target_concept": "target"
+                "target_concept": "target",
             },
-            headers={"X-API-Key": API_KEY}
+            headers={"X-API-Key": API_KEY},
         )
 
         assert response.status_code == 429
@@ -669,6 +660,7 @@ def test_analogy_rate_limiter_exceeded():
 # ============================================================================
 # RATE LIMITING - Differentiated Limits Per Category
 # ============================================================================
+
 
 def test_rate_limit_different_categories():
     """Verify that different endpoints have different rate limits."""
@@ -701,8 +693,11 @@ def test_rate_limit_x_forwarded_for():
     mock_pipeline.execute.return_value = [1, True]
 
     mock_memory = MagicMock(
-        id="mem_1", content="test", metadata={}, ltp_strength=0.5,
-        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+        id="mem_1",
+        content="test",
+        metadata={},
+        ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.store.return_value = "mem_1"
@@ -711,10 +706,7 @@ def test_rate_limit_x_forwarded_for():
         response = client.post(
             "/store",
             json={"content": "test"},
-            headers={
-                "X-API-Key": API_KEY,
-                "X-Forwarded-For": "10.0.0.1, 192.168.1.1"
-            }
+            headers={"X-API-Key": API_KEY, "X-Forwarded-For": "10.0.0.1, 192.168.1.1"},
         )
 
         # Should succeed (rate limit check should pass)
@@ -725,13 +717,11 @@ def test_rate_limit_x_forwarded_for():
 # EDGE CASES - Memory ID Validation
 # ============================================================================
 
+
 def test_get_memory_invalid_id_empty():
     """Verify that empty memory_id is rejected."""
     with TestClient(app) as client:
-        response = client.get(
-            "/memory/",
-            headers={"X-API-Key": API_KEY}
-        )
+        response = client.get("/memory/", headers={"X-API-Key": API_KEY})
         # Should return 404 or 405, not 500
         assert response.status_code in [404, 405]
 
@@ -740,10 +730,7 @@ def test_get_memory_invalid_id_too_long():
     """Verify that memory_id longer than 256 chars is rejected."""
     with TestClient(app) as client:
         long_id = "a" * 300
-        response = client.get(
-            f"/memory/{long_id}",
-            headers={"X-API-Key": API_KEY}
-        )
+        response = client.get(f"/memory/{long_id}", headers={"X-API-Key": API_KEY})
         assert response.status_code == 400
 
 
@@ -751,8 +738,5 @@ def test_delete_memory_invalid_id_too_long():
     """Verify that memory_id longer than 256 chars is rejected for delete."""
     with TestClient(app) as client:
         long_id = "a" * 300
-        response = client.delete(
-            f"/memory/{long_id}",
-            headers={"X-API-Key": API_KEY}
-        )
+        response = client.delete(f"/memory/{long_id}", headers={"X-API-Key": API_KEY})
         assert response.status_code == 400

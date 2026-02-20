@@ -10,13 +10,14 @@ Unit tests for the refactored private helper methods in HAIMEngine:
 
 import os
 from collections import deque
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
 
+from mnemocore.core.binary_hdv import BinaryHDV
 from mnemocore.core.config import get_config, reset_config
 from mnemocore.core.engine import HAIMEngine
-from mnemocore.core.binary_hdv import BinaryHDV
 from mnemocore.core.node import MemoryNode
 
 
@@ -59,6 +60,7 @@ def test_engine(tmp_path):
 # =============================================================================
 # Tests for _encode_input()
 # =============================================================================
+
 
 @pytest.mark.asyncio
 class TestEncodeInput:
@@ -126,7 +128,9 @@ class TestEncodeInput:
         await test_engine.initialize()
 
         encoded_vec1, _ = await test_engine._encode_input("content A")
-        encoded_vec2, _ = await test_engine._encode_input("completely different content B")
+        encoded_vec2, _ = await test_engine._encode_input(
+            "completely different content B"
+        )
 
         # Different content should produce different vectors
         similarity = encoded_vec1.similarity(encoded_vec2)
@@ -137,6 +141,7 @@ class TestEncodeInput:
 # =============================================================================
 # Tests for _evaluate_tier()
 # =============================================================================
+
 
 @pytest.mark.asyncio
 class TestEvaluateTier:
@@ -211,12 +216,16 @@ class TestEvaluateTier:
 
         updated_metadata = await test_engine._evaluate_tier(encoded_vec, metadata)
 
-        assert "tags" not in updated_metadata or "epistemic_high" not in updated_metadata.get("tags", [])
+        assert (
+            "tags" not in updated_metadata
+            or "epistemic_high" not in updated_metadata.get("tags", [])
+        )
 
 
 # =============================================================================
 # Tests for _persist_memory()
 # =============================================================================
+
 
 @pytest.mark.asyncio
 class TestPersistMemory:
@@ -291,6 +300,7 @@ class TestPersistMemory:
 # Tests for _trigger_post_store()
 # =============================================================================
 
+
 @pytest.mark.asyncio
 class TestTriggerPostStore:
     """Test suite for _trigger_post_store method."""
@@ -336,7 +346,9 @@ class TestTriggerPostStore:
         # For gap fill, node should remain in queue since dream is skipped
         assert "gap-fill-node" in test_engine.subconscious_queue
 
-    async def test_trigger_post_store_triggers_dream_for_normal_memory(self, test_engine):
+    async def test_trigger_post_store_triggers_dream_for_normal_memory(
+        self, test_engine
+    ):
         """Test that background dream is triggered for normal memories."""
         await test_engine.initialize()
 
@@ -462,6 +474,7 @@ class TestTriggerPostStore:
 # =============================================================================
 # Integration Tests for store() orchestration
 # =============================================================================
+
 
 @pytest.mark.asyncio
 class TestStoreOrchestration:

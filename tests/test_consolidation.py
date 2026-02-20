@@ -8,13 +8,14 @@ Tests for SemanticConsolidator class verifying:
 - Highest strength is preserved during consolidation
 """
 
-import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-import numpy as np
 
-from mnemocore.core.consolidation import SemanticConsolidator
+import numpy as np
+import pytest
+
 from mnemocore.core.binary_hdv import BinaryHDV, majority_bundle
+from mnemocore.core.consolidation import SemanticConsolidator
 from mnemocore.core.node import MemoryNode
 
 
@@ -78,7 +79,9 @@ class TestSemanticConsolidator:
         base_vec = BinaryHDV.random(16384)
 
         # Create similar vectors (flip ~200 bits = ~1.2% different = ~98.8% similar)
-        similar_vecs = [create_similar_vector(base_vec, flip_bits=200) for _ in range(3)]
+        similar_vecs = [
+            create_similar_vector(base_vec, flip_bits=200) for _ in range(3)
+        ]
 
         # Create nodes
         nodes = [
@@ -122,10 +125,14 @@ class TestSemanticConsolidator:
 
         # Create nodes
         nodes = [
-            *[MemoryNode(id=f"group1_{i}", hdv=vec, content=f"group1 {i}")
-              for i, vec in enumerate(group1)],
-            *[MemoryNode(id=f"group2_{i}", hdv=vec, content=f"group2 {i}")
-              for i, vec in enumerate(group2)],
+            *[
+                MemoryNode(id=f"group1_{i}", hdv=vec, content=f"group1 {i}")
+                for i, vec in enumerate(group1)
+            ],
+            *[
+                MemoryNode(id=f"group2_{i}", hdv=vec, content=f"group2 {i}")
+                for i, vec in enumerate(group2)
+            ],
         ]
 
         # Find clusters
@@ -217,7 +224,12 @@ class TestSemanticConsolidator:
         similar_vecs = [create_similar_vector(base_vec, 150) for _ in range(3)]
 
         nodes = [
-            MemoryNode(id=f"hot_{i}", hdv=vec, content=f"hot content {i}", ltp_strength=0.5 + i * 0.1)
+            MemoryNode(
+                id=f"hot_{i}",
+                hdv=vec,
+                content=f"hot content {i}",
+                ltp_strength=0.5 + i * 0.1,
+            )
             for i, vec in enumerate(similar_vecs)
         ]
 
@@ -240,7 +252,9 @@ class TestSemanticConsolidator:
         """Test consolidate_tier with WARM tier."""
         # Create distinct nodes (no clustering expected)
         nodes = [
-            MemoryNode(id=f"warm_{i}", hdv=BinaryHDV.random(16384), content=f"warm content {i}")
+            MemoryNode(
+                id=f"warm_{i}", hdv=BinaryHDV.random(16384), content=f"warm content {i}"
+            )
             for i in range(4)
         ]
 
@@ -289,7 +303,9 @@ class TestConsolidationIntegration:
         )
 
     @pytest.mark.asyncio
-    async def test_query_finds_consolidated_memory(self, consolidator, mock_tier_manager):
+    async def test_query_finds_consolidated_memory(
+        self, consolidator, mock_tier_manager
+    ):
         """Test that a query can find a consolidated/merged memory."""
         # Create a cluster of similar memories about "machine learning"
         base_vec = BinaryHDV.random(16384)
@@ -328,7 +344,9 @@ class TestConsolidationIntegration:
         assert similarity >= 0.90, f"Expected similarity >= 0.90, got {similarity}"
 
     @pytest.mark.asyncio
-    async def test_consolidation_preserves_highest_strength(self, consolidator, mock_tier_manager):
+    async def test_consolidation_preserves_highest_strength(
+        self, consolidator, mock_tier_manager
+    ):
         """Test that consolidation preserves and boosts the highest LTP strength."""
         base_vec = BinaryHDV.random(16384)
         similar_vecs = [create_similar_vector(base_vec, 100) for _ in range(4)]
@@ -357,8 +375,9 @@ class TestConsolidationIntegration:
         representative = next(n for n in nodes if n.id == original_highest_id)
 
         # Verify LTP was boosted
-        assert representative.ltp_strength > original_highest_ltp, \
-            f"LTP should be boosted from {original_highest_ltp} to {representative.ltp_strength}"
+        assert (
+            representative.ltp_strength > original_highest_ltp
+        ), f"LTP should be boosted from {original_highest_ltp} to {representative.ltp_strength}"
 
         # Verify other nodes would be pruned
         assert representative.id == original_highest_id
@@ -399,7 +418,9 @@ class TestConsolidationThreshold:
         """Test that 0.85 threshold keeps distinct memories separate."""
         # Create truly random vectors (expected ~0.5 similarity)
         nodes = [
-            MemoryNode(id=f"rand_{i}", hdv=BinaryHDV.random(16384), content=f"random {i}")
+            MemoryNode(
+                id=f"rand_{i}", hdv=BinaryHDV.random(16384), content=f"random {i}"
+            )
             for i in range(3)
         ]
 
@@ -430,8 +451,9 @@ class TestConsolidationThreshold:
         avg_random_similarity = np.mean(random_pairs_similarities)
 
         # Random vectors should be ~0.5 similar
-        assert 0.45 <= avg_random_similarity <= 0.55, \
-            f"Random vectors should be ~0.5 similar, got {avg_random_similarity}"
+        assert (
+            0.45 <= avg_random_similarity <= 0.55
+        ), f"Random vectors should be ~0.5 similar, got {avg_random_similarity}"
 
         # Create semantically similar vectors (flip 10% of bits)
         base = BinaryHDV.random(16384)
@@ -439,8 +461,9 @@ class TestConsolidationThreshold:
         similar_similarity = base.similarity(similar)
 
         # Should be ~0.90 similar (10% flipped)
-        assert similar_similarity >= 0.85, \
-            f"Similar vectors should be >= 0.85 similar, got {similar_similarity}"
+        assert (
+            similar_similarity >= 0.85
+        ), f"Similar vectors should be >= 0.85 similar, got {similar_similarity}"
 
 
 if __name__ == "__main__":

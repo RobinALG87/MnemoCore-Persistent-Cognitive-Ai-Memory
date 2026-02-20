@@ -42,7 +42,7 @@ import asyncio
 import re
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -56,14 +56,16 @@ if TYPE_CHECKING:
 # Data structures
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class SubQueryResult:
     """Result from a single sub-query search."""
+
     sub_query: str
-    memories: List[Dict[str, Any]]   # [{id, content, score, metadata}]
+    memories: List[Dict[str, Any]]  # [{id, content, score, metadata}]
     depth: int
     elapsed_ms: float
-    confidence: float                 # best score in this result set
+    confidence: float  # best score in this result set
 
 
 @dataclass
@@ -81,6 +83,7 @@ class SynthesisResult:
         ripple_snippets: Relevant snippets from RippleContext (if provided).
         stats:          Internal stats for debugging.
     """
+
     query: str
     sub_queries: List[str]
     results: List[Dict[str, Any]]
@@ -109,6 +112,7 @@ class SynthesizerConfig:
         enable_ripple:      Whether to search RippleContext if provided.
         ripple_top_k:       Snippets to fetch from RippleContext per sub-query.
     """
+
     max_depth: int = 3
     max_sub_queries: int = 5
     sub_query_top_k: int = 8
@@ -125,14 +129,14 @@ class SynthesizerConfig:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _CONJUNCTION_PATTERN = re.compile(
-    r'\b(och|and|samt|eller|or|men|but|också|also|dessutom|furthermore|'
-    r'relaterat till|related to|kopplat till|connected to)\b',
-    re.IGNORECASE
+    r"\b(och|and|samt|eller|or|men|but|också|also|dessutom|furthermore|"
+    r"relaterat till|related to|kopplat till|connected to)\b",
+    re.IGNORECASE,
 )
 
 _QUESTION_WORDS = re.compile(
-    r'\b(vad|vem|när|var|hur|varför|vilket|vilka|what|who|when|where|how|why|which)\b',
-    re.IGNORECASE
+    r"\b(vad|vem|när|var|hur|varför|vilket|vilka|what|who|when|where|how|why|which)\b",
+    re.IGNORECASE,
 )
 
 
@@ -150,9 +154,21 @@ def _heuristic_decompose(query: str, max_sub: int = 5) -> List[str]:
     parts = _CONJUNCTION_PATTERN.split(query)
     # Filter out the conjunction words themselves and whitespace
     conjunction_words = {
-        'och', 'and', 'samt', 'eller', 'or', 'men', 'but', 'också', 'also',
-        'dessutom', 'furthermore', 'relaterat till', 'related to',
-        'kopplat till', 'connected to'
+        "och",
+        "and",
+        "samt",
+        "eller",
+        "or",
+        "men",
+        "but",
+        "också",
+        "also",
+        "dessutom",
+        "furthermore",
+        "relaterat till",
+        "related to",
+        "kopplat till",
+        "connected to",
     }
     parts = [p.strip() for p in parts if p.strip().lower() not in conjunction_words]
     parts = [p for p in parts if len(p) > 10]  # filter very short fragments
@@ -162,16 +178,15 @@ def _heuristic_decompose(query: str, max_sub: int = 5) -> List[str]:
         # Try splitting on question words that appear after the first word
         words = query.split()
         split_indices = [
-            i for i, w in enumerate(words)
-            if i > 0 and _QUESTION_WORDS.match(w)
+            i for i, w in enumerate(words) if i > 0 and _QUESTION_WORDS.match(w)
         ]
         if split_indices:
             sub_parts = []
             prev = 0
             for idx in split_indices:
-                sub_parts.append(' '.join(words[prev:idx]))
+                sub_parts.append(" ".join(words[prev:idx]))
                 prev = idx
-            sub_parts.append(' '.join(words[prev:]))
+            sub_parts.append(" ".join(words[prev:]))
             parts = [p.strip() for p in sub_parts if len(p.strip()) > 10]
 
     # Deduplicate and limit
@@ -193,6 +208,7 @@ def _heuristic_decompose(query: str, max_sub: int = 5) -> List[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Main RecursiveSynthesizer
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class RecursiveSynthesizer:
     """
@@ -263,7 +279,9 @@ class RecursiveSynthesizer:
 
         # 1. Decompose query into sub-queries
         sub_queries = await self._decompose(query)
-        logger.info(f"[Phase 4.5] Decomposed into {len(sub_queries)} sub-queries: {sub_queries}")
+        logger.info(
+            f"[Phase 4.5] Decomposed into {len(sub_queries)} sub-queries: {sub_queries}"
+        )
 
         # 2. Parallel sub-search (with optional recursion)
         sub_results = await self._parallel_sub_search(
@@ -302,7 +320,7 @@ class RecursiveSynthesizer:
         return SynthesisResult(
             query=query,
             sub_queries=sub_queries,
-            results=merged[:self.config.final_top_k],
+            results=merged[: self.config.final_top_k],
             synthesis=synthesis_text,
             max_depth_hit=max_depth,
             total_elapsed_ms=elapsed_ms,
@@ -330,7 +348,9 @@ class RecursiveSynthesizer:
             try:
                 return await self._llm_decompose(query)
             except Exception as e:
-                logger.warning(f"[Phase 4.5] LLM decomposition failed ({e}), using heuristic")
+                logger.warning(
+                    f"[Phase 4.5] LLM decomposition failed ({e}), using heuristic"
+                )
 
         return _heuristic_decompose(query, max_sub=self.config.max_sub_queries)
 
@@ -355,7 +375,7 @@ class RecursiveSynthesizer:
         if query not in sub_queries:
             sub_queries.insert(0, query)
 
-        return sub_queries[:self.config.max_sub_queries]
+        return sub_queries[: self.config.max_sub_queries]
 
     def _build_decomposition_prompt(self, query: str) -> str:
         return f"""You are a memory retrieval assistant. Break down the following complex query into {self.config.max_sub_queries - 1} focused sub-queries that together cover all aspects of the original question.
@@ -369,10 +389,10 @@ Sub-queries:"""
     def _parse_sub_queries(self, response: str) -> List[str]:
         """Parse LLM response into a list of sub-queries."""
         lines = [
-            line.strip().lstrip('•-*123456789. ')
+            line.strip().lstrip("•-*123456789. ")
             for line in response.strip().splitlines()
         ]
-        return [l for l in lines if len(l) > 5]
+        return [line for line in lines if len(line) > 5]
 
     # ─────────────────────────────────────────────────────────────────────
     # Step 2: Parallel Sub-Search
@@ -391,10 +411,7 @@ Sub-queries:"""
         This is the key performance advantage: instead of sequential searches,
         all sub-queries fire simultaneously.
         """
-        tasks = [
-            self._single_sub_search(sq, depth, project_id)
-            for sq in sub_queries
-        ]
+        tasks = [self._single_sub_search(sq, depth, project_id) for sq in sub_queries]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter out exceptions
@@ -435,13 +452,15 @@ Sub-queries:"""
             for mem_id, score in raw_results:
                 node = await self.engine.tier_manager.get_memory(mem_id)
                 if node:
-                    memories.append({
-                        "id": mem_id,
-                        "content": node.content,
-                        "score": float(score),
-                        "metadata": node.metadata or {},
-                        "tier": getattr(node, "tier", "unknown"),
-                    })
+                    memories.append(
+                        {
+                            "id": mem_id,
+                            "content": node.content,
+                            "score": float(score),
+                            "metadata": node.metadata or {},
+                            "tier": getattr(node, "tier", "unknown"),
+                        }
+                    )
 
             confidence = max((m["score"] for m in memories), default=0.0)
             elapsed_ms = (time.monotonic() - t_start) * 1000
@@ -491,7 +510,9 @@ Sub-queries:"""
         The depth counter prevents infinite recursion.
         """
         if depth > self.config.max_depth:
-            logger.debug(f"[Phase 4.5] Max depth {self.config.max_depth} reached, stopping recursion")
+            logger.debug(
+                f"[Phase 4.5] Max depth {self.config.max_depth} reached, stopping recursion"
+            )
             return parent_result
 
         # Extract key terms from the top memories to form micro-queries
@@ -600,7 +621,9 @@ Sub-queries:"""
                     seen.add(key)
                     all_snippets.append(snippet)
 
-        logger.debug(f"[Phase 4.5] RippleContext returned {len(all_snippets)} unique snippets")
+        logger.debug(
+            f"[Phase 4.5] RippleContext returned {len(all_snippets)} unique snippets"
+        )
         return all_snippets
 
     # ─────────────────────────────────────────────────────────────────────
@@ -639,6 +662,7 @@ Sub-queries:"""
             hits = hit_count[mem_id]
             # Multi-hit boost: log scale so it doesn't dominate
             import math
+
             mem["score"] = base_score * (1.0 + 0.15 * math.log1p(hits - 1))
             mem["sub_query_hits"] = hits
             merged.append(mem)
@@ -662,9 +686,13 @@ Sub-queries:"""
 
         if self.llm_call is not None:
             try:
-                return await self._llm_synthesize(query, merged_results, ripple_snippets)
+                return await self._llm_synthesize(
+                    query, merged_results, ripple_snippets
+                )
             except Exception as e:
-                logger.warning(f"[Phase 4.5] LLM synthesis failed ({e}), using heuristic")
+                logger.warning(
+                    f"[Phase 4.5] LLM synthesis failed ({e}), using heuristic"
+                )
 
         return self._heuristic_synthesis(query, merged_results, ripple_snippets)
 

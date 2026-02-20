@@ -1,7 +1,7 @@
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Optional
 from unittest.mock import AsyncMock
@@ -15,6 +15,7 @@ from mnemocore.core.node import MemoryNode
 
 try:
     from mnemocore.core.engine import HAIMEngine
+
     _ENGINE_IMPORT_ERROR = None
 except (ModuleNotFoundError, ImportError) as exc:
     HAIMEngine = None
@@ -60,13 +61,19 @@ async def test_query_chrono_uses_batch_lookup(isolated_engine):
     engine = isolated_engine
     now = datetime.now(timezone.utc)
 
-    node1 = MemoryNode(id="n1", hdv=BinaryHDV.random(engine.dimension), content="c1", created_at=now)
-    node2 = MemoryNode(id="n2", hdv=BinaryHDV.random(engine.dimension), content="c2", created_at=now)
+    node1 = MemoryNode(
+        id="n1", hdv=BinaryHDV.random(engine.dimension), content="c1", created_at=now
+    )
+    node2 = MemoryNode(
+        id="n2", hdv=BinaryHDV.random(engine.dimension), content="c2", created_at=now
+    )
 
     engine.tier_manager.search = AsyncMock(return_value=[("n1", 0.9), ("n2", 0.8)])
     engine.tier_manager.get_memories_batch = AsyncMock(return_value=[node1, node2])
     engine.tier_manager.get_memory = AsyncMock(
-        side_effect=AssertionError("Per-node get_memory() should not be used in chrono loop")
+        side_effect=AssertionError(
+            "Per-node get_memory() should not be used in chrono loop"
+        )
     )
     engine.tier_manager.get_hot_recent = AsyncMock(return_value=[])
 
@@ -103,15 +110,21 @@ async def test_query_include_neighbors_preserves_top_k_contract(isolated_engine)
         created_at=now,
         previous_id="p2",
     )
-    p1 = MemoryNode(id="p1", hdv=BinaryHDV.random(engine.dimension), content="p1", created_at=now)
-    p2 = MemoryNode(id="p2", hdv=BinaryHDV.random(engine.dimension), content="p2", created_at=now)
+    p1 = MemoryNode(
+        id="p1", hdv=BinaryHDV.random(engine.dimension), content="p1", created_at=now
+    )
+    p2 = MemoryNode(
+        id="p2", hdv=BinaryHDV.random(engine.dimension), content="p2", created_at=now
+    )
 
     by_id: Dict[str, Optional[MemoryNode]] = {"n1": n1, "n2": n2, "p1": p1, "p2": p2}
 
     async def _get_memory(node_id: str):
         return by_id.get(node_id)
 
-    engine.tier_manager.search = AsyncMock(return_value=[("n1", 0.9), ("n2", 0.8), ("n3", 0.7)])
+    engine.tier_manager.search = AsyncMock(
+        return_value=[("n1", 0.9), ("n2", 0.8), ("n3", 0.7)]
+    )
     engine.tier_manager.get_hot_recent = AsyncMock(return_value=[])
     engine.tier_manager.get_memory = AsyncMock(side_effect=_get_memory)
     engine.tier_manager.use_qdrant = False
@@ -166,7 +179,9 @@ def _assert_linear_chain(nodes):
 
 
 @pytest.mark.asyncio
-async def test_persist_memory_concurrent_stores_keep_linear_previous_chain(isolated_engine):
+async def test_persist_memory_concurrent_stores_keep_linear_previous_chain(
+    isolated_engine,
+):
     engine = isolated_engine
     engine.tier_manager.add_memory = AsyncMock(return_value=None)
     engine._append_persisted = AsyncMock(return_value=None)
@@ -187,7 +202,9 @@ async def test_persist_memory_concurrent_stores_keep_linear_previous_chain(isola
 @pytest.mark.asyncio
 async def test_get_stats_reports_engine_version_45(isolated_engine):
     engine = isolated_engine
-    engine.tier_manager.get_stats = AsyncMock(return_value={"hot_count": 0, "warm_count": 0})
+    engine.tier_manager.get_stats = AsyncMock(
+        return_value={"hot_count": 0, "warm_count": 0}
+    )
     stats = await engine.get_stats()
     assert stats["engine_version"] == "4.5.0"
 

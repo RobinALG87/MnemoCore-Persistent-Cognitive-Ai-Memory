@@ -26,26 +26,32 @@ SynapticConnection + BayesianLTPUpdater from this package.
 from __future__ import annotations
 
 import json
-import os
 import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Iterator, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Set, Tuple
+
 from loguru import logger
 
+if TYPE_CHECKING:
+    from .synapse import SynapticConnection
 
 # ------------------------------------------------------------------ #
 #  Deferred import to avoid circular deps at module level             #
 # ------------------------------------------------------------------ #
 
+
 def _get_bayesian_updater():
     from .bayesian_ltp import get_bayesian_updater
+
     return get_bayesian_updater()
 
 
 # ------------------------------------------------------------------ #
 #  Adjacency index                                                    #
 # ------------------------------------------------------------------ #
+
 
 class SynapseIndex:
     """
@@ -61,6 +67,7 @@ class SynapseIndex:
 
     def __init__(self):
         from .synapse import SynapticConnection  # local import
+
         self._SynapticConnection = SynapticConnection
         self._edges: Dict[Tuple[str, str], "SynapticConnection"] = {}
         self._adj: Dict[str, Set[str]] = {}
@@ -84,7 +91,9 @@ class SynapseIndex:
             self._adj.setdefault(key[0], set()).add(key[1])
             self._adj.setdefault(key[1], set()).add(key[0])
 
-    def add_or_fire(self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0) -> "SynapticConnection":
+    def add_or_fire(
+        self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0
+    ) -> "SynapticConnection":
         """
         Create a synapse if it doesn't exist, then fire it.
 
@@ -134,26 +143,33 @@ class SynapseIndex:
         """
         visited = {node_id: 1.0}
         current_layer = {node_id: 1.0}
-        
+
         for _ in range(depth):
             next_layer = {}
             for curr_node, cum_weight in current_layer.items():
                 for syn in self.neighbours(curr_node):
-                    neighbor_id = syn.neuron_b_id if syn.neuron_a_id == curr_node else syn.neuron_a_id
+                    neighbor_id = (
+                        syn.neuron_b_id
+                        if syn.neuron_a_id == curr_node
+                        else syn.neuron_a_id
+                    )
                     if neighbor_id == node_id:
                         continue
-                    
+
                     edge_weight = syn.get_current_strength()
                     new_weight = cum_weight * edge_weight
-                    
+
                     # Store the strongest path to the node
                     if neighbor_id not in visited or new_weight > visited[neighbor_id]:
                         visited[neighbor_id] = new_weight
-                    
-                    if neighbor_id not in next_layer or new_weight > next_layer[neighbor_id]:
+
+                    if (
+                        neighbor_id not in next_layer
+                        or new_weight > next_layer[neighbor_id]
+                    ):
                         next_layer[neighbor_id] = new_weight
             current_layer = next_layer
-            
+
         visited.pop(node_id, None)
         return visited
 
@@ -210,8 +226,7 @@ class SynapseIndex:
         Returns number of edges removed.
         """
         dead_keys = [
-            k for k, s in self._edges.items()
-            if s.get_current_strength() < threshold
+            k for k, s in self._edges.items() if s.get_current_strength() < threshold
         ]
         for key in dead_keys:
             syn = self._edges.pop(key)
@@ -243,7 +258,9 @@ class SynapseIndex:
         # Phase 4.5 Hotfix (Robin's Score Bug e+195):
         # Instead of exponential product scaling which explodes for hub nodes,
         # we aggregate the strengths and bound the multiplier logarithmically.
-        total_strength = sum(syn.get_current_strength() for syn in self.neighbours(node_id))
+        total_strength = sum(
+            syn.get_current_strength() for syn in self.neighbours(node_id)
+        )
         return 1.0 + math.log1p(total_strength)
 
     def __len__(self) -> int:
@@ -330,9 +347,7 @@ class SynapseIndex:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             self.load_jsonl(lines)
-            logger.info(
-                f"SynapseIndex loaded {len(self._edges)} edges from {path}"
-            )
+            logger.info(f"SynapseIndex loaded {len(self._edges)} edges from {path}")
         except Exception as exc:
             logger.error(f"SynapseIndex.load_from_file failed: {exc}")
 
@@ -343,7 +358,8 @@ class SynapseIndex:
             "node_count": len(self._adj),
             "avg_degree": (
                 sum(len(v) for v in self._adj.values()) / len(self._adj)
-                if self._adj else 0.0
+                if self._adj
+                else 0.0
             ),
         }
 
@@ -351,6 +367,7 @@ class SynapseIndex:
 # ------------------------------------------------------------------ #
 #  Helper                                                             #
 # ------------------------------------------------------------------ #
+
 
 def _key(a: str, b: str) -> Tuple[str, str]:
     """Canonical, order-independent edge key."""

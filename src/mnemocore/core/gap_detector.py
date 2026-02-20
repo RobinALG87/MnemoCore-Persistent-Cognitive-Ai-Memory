@@ -38,24 +38,26 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
+
 from loguru import logger
 
 from .binary_hdv import BinaryHDV
-
 
 # ------------------------------------------------------------------ #
 #  Configuration                                                      #
 # ------------------------------------------------------------------ #
 
+
 @dataclass
 class GapDetectorConfig:
     """Tuning knobs for gap detection sensitivity."""
-    min_confidence_threshold: float = 0.45   # avg top-k similarity below this → gap
-    min_results_required: int = 2            # fewer results than this → sparse gap
-    mask_entropy_threshold: float = 0.46     # XOR mask entropy above this → coverage gap
-    negative_feedback_weight: float = 2.0    # multiplier for explicit negative signals
-    gap_ttl_seconds: float = 86400 * 7       # auto-expire gaps after 7 days
-    max_gap_registry_size: int = 500         # cap registry to prevent unbounded growth
+
+    min_confidence_threshold: float = 0.45  # avg top-k similarity below this → gap
+    min_results_required: int = 2  # fewer results than this → sparse gap
+    mask_entropy_threshold: float = 0.46  # XOR mask entropy above this → coverage gap
+    negative_feedback_weight: float = 2.0  # multiplier for explicit negative signals
+    gap_ttl_seconds: float = 86400 * 7  # auto-expire gaps after 7 days
+    max_gap_registry_size: int = 500  # cap registry to prevent unbounded growth
     enabled: bool = True
 
 
@@ -63,15 +65,17 @@ class GapDetectorConfig:
 #  Gap record                                                         #
 # ------------------------------------------------------------------ #
 
+
 @dataclass
 class GapRecord:
     """A single detected knowledge gap."""
+
     gap_id: str
     query_text: str
     detected_at: datetime
     last_seen: datetime
-    signal: str            # "low_confidence" | "sparse" | "coverage" | "negative"
-    confidence: float      # retrieval confidence at detection time
+    signal: str  # "low_confidence" | "sparse" | "coverage" | "negative"
+    confidence: float  # retrieval confidence at detection time
     seen_count: int = 1
     filled: bool = False
     filled_at: Optional[datetime] = None
@@ -79,13 +83,13 @@ class GapRecord:
 
     def update_priority(self) -> None:
         """Recompute priority from recency + frequency."""
-        age_hours = (datetime.now(timezone.utc) - self.detected_at).total_seconds() / 3600.0
-        recency = 1.0 / (1.0 + age_hours / 24.0)   # decays over days
+        age_hours = (
+            datetime.now(timezone.utc) - self.detected_at
+        ).total_seconds() / 3600.0
+        recency = 1.0 / (1.0 + age_hours / 24.0)  # decays over days
         frequency = min(1.0, self.seen_count / 10.0)
         self.priority_score = (
-            0.5 * recency
-            + 0.3 * frequency
-            + 0.2 * (1.0 - self.confidence)
+            0.5 * recency + 0.3 * frequency + 0.2 * (1.0 - self.confidence)
         )
 
 
@@ -97,6 +101,7 @@ def _query_id(query_text: str) -> str:
 def _bit_entropy_packed(hdv: BinaryHDV) -> float:
     """Shannon entropy of bit distribution in [0, 1] (1 = perfectly balanced)."""
     import numpy as np
+
     bits = __import__("numpy").unpackbits(hdv.data)
     p = float(bits.sum()) / len(bits)
     if p <= 0.0 or p >= 1.0:
@@ -108,6 +113,7 @@ def _bit_entropy_packed(hdv: BinaryHDV) -> float:
 #  Detector                                                           #
 # ------------------------------------------------------------------ #
 
+
 class GapDetector:
     """
     Detects and tracks knowledge gaps from query telemetry.
@@ -115,7 +121,7 @@ class GapDetector:
 
     def __init__(self, config: Optional[GapDetectorConfig] = None):
         self.cfg = config or GapDetectorConfig()
-        self._registry: Dict[str, GapRecord] = {}   # gap_id → GapRecord
+        self._registry: Dict[str, GapRecord] = {}  # gap_id → GapRecord
 
     # ---- Main assessment ----------------------------------------- #
 
@@ -209,7 +215,9 @@ class GapDetector:
             self._registry[gap_id] = rec
 
         rec.update_priority()
-        rec.priority_score = min(1.0, rec.priority_score * self.cfg.negative_feedback_weight)
+        rec.priority_score = min(
+            1.0, rec.priority_score * self.cfg.negative_feedback_weight
+        )
         logger.info(f"Negative feedback registered for gap '{query_text[:60]}'")
         return rec
 
@@ -246,9 +254,7 @@ class GapDetector:
 
     # ---- Internal helpers ---------------------------------------- #
 
-    def _upsert_gap(
-        self, query_text: str, signal: str, confidence: float
-    ) -> GapRecord:
+    def _upsert_gap(self, query_text: str, signal: str, confidence: float) -> GapRecord:
         gap_id = _query_id(query_text)
         now = datetime.now(timezone.utc)
 
@@ -293,5 +299,7 @@ class GapDetector:
             sorted_gaps = sorted(
                 self._registry.items(), key=lambda x: x[1].priority_score
             )
-            for gid, _ in sorted_gaps[: len(sorted_gaps) - self.cfg.max_gap_registry_size]:
+            for gid, _ in sorted_gaps[
+                : len(sorted_gaps) - self.cfg.max_gap_registry_size
+            ]:
                 del self._registry[gid]

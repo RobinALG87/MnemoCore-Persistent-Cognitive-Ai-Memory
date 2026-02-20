@@ -5,23 +5,24 @@ Multi-provider LLM support: OpenAI, OpenRouter, Anthropic, Google Gemini, and Lo
 
 import json
 import os
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
 from mnemocore.core.engine import HAIMEngine
-from mnemocore.core.node import MemoryNode
 from mnemocore.core.exceptions import (
-    UnsupportedProviderError,
     AgentNotFoundError,
+    UnsupportedProviderError,
 )
+from mnemocore.core.node import MemoryNode
 
 
 class LLMProvider(Enum):
     """Supported LLM providers"""
+
     OPENAI = "openai"
     OPENROUTER = "openrouter"
     ANTHROPIC = "anthropic"
@@ -35,6 +36,7 @@ class LLMProvider(Enum):
 @dataclass
 class LLMConfig:
     """Configuration for LLM provider"""
+
     provider: LLMProvider = LLMProvider.MOCK
     model: str = "gpt-4"
     api_key: Optional[str] = None
@@ -46,42 +48,82 @@ class LLMConfig:
 
     # Provider-specific defaults
     @classmethod
-    def openai(cls, model: str = "gpt-4", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+    def openai(
+        cls, model: str = "gpt-4", api_key: Optional[str] = None, **kwargs
+    ) -> "LLMConfig":
         return cls(provider=LLMProvider.OPENAI, model=model, api_key=api_key, **kwargs)
 
     @classmethod
-    def openrouter(cls, model: str = "anthropic/claude-3.5-sonnet", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
+    def openrouter(
+        cls,
+        model: str = "anthropic/claude-3.5-sonnet",
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> "LLMConfig":
         return cls(
             provider=LLMProvider.OPENROUTER,
             model=model,
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
-            extra_headers={"HTTP-Referer": "https://mnemocore.ai", "X-Title": "MnemoCore"},
-            **kwargs
+            extra_headers={
+                "HTTP-Referer": "https://mnemocore.ai",
+                "X-Title": "MnemoCore",
+            },
+            **kwargs,
         )
 
     @classmethod
-    def anthropic(cls, model: str = "claude-3-5-sonnet-20241022", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
-        return cls(provider=LLMProvider.ANTHROPIC, model=model, api_key=api_key, **kwargs)
+    def anthropic(
+        cls,
+        model: str = "claude-3-5-sonnet-20241022",
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> "LLMConfig":
+        return cls(
+            provider=LLMProvider.ANTHROPIC, model=model, api_key=api_key, **kwargs
+        )
 
     @classmethod
-    def google_gemini(cls, model: str = "gemini-1.5-pro", api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
-        return cls(provider=LLMProvider.GOOGLE_GEMINI, model=model, api_key=api_key, **kwargs)
+    def google_gemini(
+        cls, model: str = "gemini-1.5-pro", api_key: Optional[str] = None, **kwargs
+    ) -> "LLMConfig":
+        return cls(
+            provider=LLMProvider.GOOGLE_GEMINI, model=model, api_key=api_key, **kwargs
+        )
 
     @classmethod
-    def ollama(cls, model: str = "llama3.1", base_url: str = "http://localhost:11434", **kwargs) -> 'LLMConfig':
-        return cls(provider=LLMProvider.OLLAMA, model=model, base_url=base_url, **kwargs)
+    def ollama(
+        cls, model: str = "llama3.1", base_url: str = "http://localhost:11434", **kwargs
+    ) -> "LLMConfig":
+        return cls(
+            provider=LLMProvider.OLLAMA, model=model, base_url=base_url, **kwargs
+        )
 
     @classmethod
-    def lm_studio(cls, model: str = "local-model", base_url: str = "http://localhost:1234/v1", **kwargs) -> 'LLMConfig':
-        return cls(provider=LLMProvider.LM_STUDIO, model=model, base_url=base_url, **kwargs)
+    def lm_studio(
+        cls,
+        model: str = "local-model",
+        base_url: str = "http://localhost:1234/v1",
+        **kwargs,
+    ) -> "LLMConfig":
+        return cls(
+            provider=LLMProvider.LM_STUDIO, model=model, base_url=base_url, **kwargs
+        )
 
     @classmethod
-    def custom(cls, model: str, base_url: str, api_key: Optional[str] = None, **kwargs) -> 'LLMConfig':
-        return cls(provider=LLMProvider.CUSTOM, model=model, base_url=base_url, api_key=api_key, **kwargs)
+    def custom(
+        cls, model: str, base_url: str, api_key: Optional[str] = None, **kwargs
+    ) -> "LLMConfig":
+        return cls(
+            provider=LLMProvider.CUSTOM,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            **kwargs,
+        )
 
     @classmethod
-    def mock(cls, **kwargs) -> 'LLMConfig':
+    def mock(cls, **kwargs) -> "LLMConfig":
         return cls(provider=LLMProvider.MOCK, **kwargs)
 
 
@@ -118,17 +160,22 @@ class LLMClientFactory:
             return LLMClientFactory._create_custom_client(config)
 
         supported = [p.value for p in LLMProvider]
-        raise UnsupportedProviderError(str(provider.value), supported_providers=supported)
+        raise UnsupportedProviderError(
+            str(provider.value), supported_providers=supported
+        )
 
     @staticmethod
     def _create_openai_client(config: LLMConfig) -> Any:
         """Create OpenAI client"""
         try:
             from openai import OpenAI
+
             api_key = config.api_key or os.environ.get("OPENAI_API_KEY")
             return OpenAI(api_key=api_key)
         except ImportError:
-            logger.warning("openai package not installed. Install with: pip install openai")
+            logger.warning(
+                "openai package not installed. Install with: pip install openai"
+            )
             return None
 
     @staticmethod
@@ -136,14 +183,17 @@ class LLMClientFactory:
         """Create OpenRouter client (OpenAI-compatible)"""
         try:
             from openai import OpenAI
+
             api_key = config.api_key or os.environ.get("OPENROUTER_API_KEY")
             return OpenAI(
                 base_url=config.base_url,
                 api_key=api_key,
-                default_headers=config.extra_headers
+                default_headers=config.extra_headers,
             )
         except ImportError:
-            logger.warning("openai package not installed. Install with: pip install openai")
+            logger.warning(
+                "openai package not installed. Install with: pip install openai"
+            )
             return None
 
     @staticmethod
@@ -151,10 +201,13 @@ class LLMClientFactory:
         """Create Anthropic client"""
         try:
             import anthropic
+
             api_key = config.api_key or os.environ.get("ANTHROPIC_API_KEY")
             return anthropic.Anthropic(api_key=api_key)
         except ImportError:
-            logger.warning("anthropic package not installed. Install with: pip install anthropic")
+            logger.warning(
+                "anthropic package not installed. Install with: pip install anthropic"
+            )
             return None
 
     @staticmethod
@@ -162,11 +215,14 @@ class LLMClientFactory:
         """Create Google Gemini client"""
         try:
             import google.generativeai as genai
+
             api_key = config.api_key or os.environ.get("GOOGLE_API_KEY")
             genai.configure(api_key=api_key)
             return genai.GenerativeModel(config.model)
         except ImportError:
-            logger.warning("google-generativeai package not installed. Install with: pip install google-generativeai")
+            logger.warning(
+                "google-generativeai package not installed. Install with: pip install google-generativeai"
+            )
             return None
 
     @staticmethod
@@ -174,6 +230,7 @@ class LLMClientFactory:
         """Create Ollama client for local models"""
         try:
             from openai import OpenAI
+
             return OpenAI(base_url=config.base_url, api_key="ollama")
         except ImportError:
             # Fallback to direct HTTP calls
@@ -184,9 +241,12 @@ class LLMClientFactory:
         """Create LM Studio client (OpenAI-compatible)"""
         try:
             from openai import OpenAI
+
             return OpenAI(base_url=config.base_url, api_key="lm-studio")
         except ImportError:
-            logger.warning("openai package not installed. Install with: pip install openai")
+            logger.warning(
+                "openai package not installed. Install with: pip install openai"
+            )
             return None
 
     @staticmethod
@@ -194,40 +254,42 @@ class LLMClientFactory:
         """Create custom OpenAI-compatible client"""
         try:
             from openai import OpenAI
-            return OpenAI(
-                base_url=config.base_url,
-                api_key=config.api_key or "custom"
-            )
+
+            return OpenAI(base_url=config.base_url, api_key=config.api_key or "custom")
         except ImportError:
-            logger.warning("openai package not installed. Install with: pip install openai")
+            logger.warning(
+                "openai package not installed. Install with: pip install openai"
+            )
             return None
 
 
 class OllamaClient:
     """Fallback Ollama client using direct HTTP calls"""
 
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.1"):
+    def __init__(
+        self, base_url: str = "http://localhost:11434", model: str = "llama3.1"
+    ):
         self.base_url = base_url.rstrip("/")
         self.model = model
 
     def generate(self, prompt: str, max_tokens: int = 1024) -> str:
         """Generate response using Ollama API"""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         url = f"{self.base_url}/api/generate"
         data = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {"num_predict": max_tokens}
+            "options": {"num_predict": max_tokens},
         }
 
         try:
             req = urllib.request.Request(
                 url,
                 data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=120) as response:
                 result = json.loads(response.read().decode("utf-8"))
@@ -243,7 +305,7 @@ class HAIMLLMIntegrator:
         self,
         haim_engine: HAIMEngine,
         llm_client=None,
-        llm_config: Optional[LLMConfig] = None
+        llm_config: Optional[LLMConfig] = None,
     ):
         self.haim = haim_engine
 
@@ -259,7 +321,9 @@ class HAIMLLMIntegrator:
             self.config = LLMConfig.mock()
 
     @classmethod
-    def from_config(cls, haim_engine: HAIMEngine, config: LLMConfig) -> 'HAIMLLMIntegrator':
+    def from_config(
+        cls, haim_engine: HAIMEngine, config: LLMConfig
+    ) -> "HAIMLLMIntegrator":
         """Create integrator from LLM configuration"""
         client = LLMClientFactory.create_client(config)
         return cls(haim_engine=haim_engine, llm_client=client, llm_config=config)
@@ -278,7 +342,12 @@ class HAIMLLMIntegrator:
             provider = self.config.provider
 
             # OpenAI / OpenRouter / LM Studio (all use OpenAI SDK)
-            if provider in (LLMProvider.OPENAI, LLMProvider.OPENROUTER, LLMProvider.LM_STUDIO, LLMProvider.CUSTOM):
+            if provider in (
+                LLMProvider.OPENAI,
+                LLMProvider.OPENROUTER,
+                LLMProvider.LM_STUDIO,
+                LLMProvider.CUSTOM,
+            ):
                 return self._call_openai_compatible(prompt, max_tokens)
 
             # Anthropic
@@ -307,7 +376,7 @@ class HAIMLLMIntegrator:
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
             temperature=self.config.temperature,
-            **self.config.extra_params
+            **self.config.extra_params,
         )
         return response.choices[0].message.content
 
@@ -318,7 +387,7 @@ class HAIMLLMIntegrator:
             max_tokens=max_tokens,
             temperature=self.config.temperature,
             messages=[{"role": "user", "content": prompt}],
-            **self.config.extra_params
+            **self.config.extra_params,
         )
         return response.content[0].text
 
@@ -327,17 +396,16 @@ class HAIMLLMIntegrator:
         generation_config = {
             "max_output_tokens": max_tokens,
             "temperature": self.config.temperature,
-            **self.config.extra_params
+            **self.config.extra_params,
         }
         response = self.llm_client.generate_content(
-            prompt,
-            generation_config=generation_config
+            prompt, generation_config=generation_config
         )
         return response.text
 
     def _call_ollama(self, prompt: str, max_tokens: int) -> str:
         """Call Ollama local model"""
-        if hasattr(self.llm_client, 'generate'):
+        if hasattr(self.llm_client, "generate"):
             # Using our fallback OllamaClient
             return self.llm_client.generate(prompt, max_tokens)
         else:
@@ -349,11 +417,11 @@ class HAIMLLMIntegrator:
         client = self.llm_client
 
         # OpenAI-style
-        if hasattr(client, 'chat') and hasattr(client.chat, 'completions'):
+        if hasattr(client, "chat") and hasattr(client.chat, "completions"):
             return self._call_openai_compatible(prompt, max_tokens)
 
         # Anthropic-style
-        if hasattr(client, 'messages') and hasattr(client.messages, 'create'):
+        if hasattr(client, "messages") and hasattr(client.messages, "create"):
             return self._call_anthropic(prompt, max_tokens)
 
         # Simple callable
@@ -361,7 +429,7 @@ class HAIMLLMIntegrator:
             return client(prompt)
 
         # Generate method
-        if hasattr(client, 'generate'):
+        if hasattr(client, "generate"):
             return client.generate(prompt, max_tokens=max_tokens)
 
         return self._mock_llm_response(prompt)
@@ -375,10 +443,7 @@ class HAIMLLMIntegrator:
         return "[MOCK RESPONSE] Please configure an LLM client for actual responses."
 
     def reconstructive_recall(
-        self,
-        cue: str,
-        top_memories: int = 5,
-        enable_reasoning: bool = True
+        self, cue: str, top_memories: int = 5, enable_reasoning: bool = True
     ) -> Dict:
         """
         Reconstruct memory from partial cue
@@ -392,23 +457,24 @@ class HAIMLLMIntegrator:
         for node_id, similarity in results:
             node = self.haim.tier_manager.get_memory(node_id)
             if node:
-                memory_fragments.append({
-                    "content": node.content,
-                    "metadata": node.metadata,
-                    "similarity": similarity
-                })
+                memory_fragments.append(
+                    {
+                        "content": node.content,
+                        "metadata": node.metadata,
+                        "similarity": similarity,
+                    }
+                )
 
         if not enable_reasoning:
             return {
                 "cue": cue,
                 "fragments": memory_fragments,
-                "reconstruction": "LLM reasoning disabled"
+                "reconstruction": "LLM reasoning disabled",
             }
 
         # Use LLM to reconstruct from fragments
         reconstruction_prompt = self._build_reconstruction_prompt(
-            cue=cue,
-            fragments=memory_fragments
+            cue=cue, fragments=memory_fragments
         )
 
         # Call LLM for reconstruction
@@ -417,14 +483,10 @@ class HAIMLLMIntegrator:
         return {
             "cue": cue,
             "fragments": memory_fragments,
-            "reconstruction": reconstruction
+            "reconstruction": reconstruction,
         }
 
-    def _build_reconstruction_prompt(
-        self,
-        cue: str,
-        fragments: List[Dict]
-    ) -> str:
+    def _build_reconstruction_prompt(self, cue: str, fragments: List[Dict]) -> str:
         """Build prompt for LLM reconstructive recall"""
         prompt = f"""You are an AI with holographic memory. A user asks a question, and you have retrieved partial memory fragments from your holographic memory.
 
@@ -449,11 +511,7 @@ Reconstruction:"""
 
         return prompt
 
-    def multi_hypothesis_query(
-        self,
-        query: str,
-        hypotheses: List[str]
-    ) -> Dict:
+    def multi_hypothesis_query(self, query: str, hypotheses: List[str]) -> Dict:
         """
         Query with multiple active hypotheses (superposition)
         Returns LLM evaluation of which hypothesis is most likely
@@ -466,16 +524,13 @@ Reconstruction:"""
         for node_id, similarity in results:
             node = self.haim.tier_manager.get_memory(node_id)
             if node:
-                relevant_memories.append({
-                    "content": node.content,
-                    "similarity": similarity
-                })
+                relevant_memories.append(
+                    {"content": node.content, "similarity": similarity}
+                )
 
         # Build evaluation prompt
         evaluation_prompt = self._build_hypothesis_evaluation_prompt(
-            query=query,
-            hypotheses=hypotheses,
-            relevant_memories=relevant_memories
+            query=query, hypotheses=hypotheses, relevant_memories=relevant_memories
         )
 
         # Call LLM for evaluation
@@ -485,14 +540,11 @@ Reconstruction:"""
             "query": query,
             "hypotheses": hypotheses,
             "relevant_memories": relevant_memories,
-            "evaluation": evaluation
+            "evaluation": evaluation,
         }
 
     def _superposition_query(
-        self,
-        query: str,
-        hypotheses: List[str],
-        top_k: int = 10
+        self, query: str, hypotheses: List[str], top_k: int = 10
     ) -> List[Tuple[str, float]]:
         """
         Perform a superposition query by combining query and hypotheses.
@@ -506,6 +558,7 @@ Reconstruction:"""
 
         # Bundle all vectors together (superposition)
         from mnemocore.core.binary_hdv import majority_bundle
+
         all_vectors = [query_vec] + hypothesis_vectors
         superposition_vec = majority_bundle(all_vectors)
 
@@ -532,10 +585,7 @@ Reconstruction:"""
         return sorted_results[:top_k]
 
     def _build_hypothesis_evaluation_prompt(
-        self,
-        query: str,
-        hypotheses: List[str],
-        relevant_memories: List[Dict]
+        self, query: str, hypotheses: List[str], relevant_memories: List[Dict]
     ) -> str:
         """Build prompt for multi-hypothesis evaluation"""
         prompt = f"""You are an AI with holographic memory. You have multiple hypotheses about a question, and you've retrieved relevant memories to evaluate them.
@@ -564,12 +614,7 @@ Evaluation:"""
 
         return prompt
 
-    def consolidate_memory(
-        self,
-        node_id: str,
-        new_context: str,
-        success: bool = True
-    ):
+    def consolidate_memory(self, node_id: str, new_context: str, success: bool = True):
         """
         Reconsolidate memory with new context
         Similar to how human memories are rewritten when recalled
@@ -607,7 +652,7 @@ class MultiAgentHAIM:
             agent_id = f"agent_{i}"
             self.agents[agent_id] = {
                 "haim": self.shared_memory,  # All share same memory
-                "role": self._get_agent_role(agent_id)
+                "role": self._get_agent_role(agent_id),
             }
 
     def _get_agent_role(self, agent_id: str) -> str:
@@ -615,16 +660,11 @@ class MultiAgentHAIM:
         roles = {
             "agent_0": "Research Agent",
             "agent_1": "Coding Agent",
-            "agent_2": "Writing Agent"
+            "agent_2": "Writing Agent",
         }
         return roles.get(agent_id, "General Agent")
 
-    def agent_learn(
-        self,
-        agent_id: str,
-        content: str,
-        metadata: dict = None
-    ) -> str:
+    def agent_learn(self, agent_id: str, content: str, metadata: dict = None) -> str:
         """
         Agent stores memory in shared HAIM
         All agents can access this memory
@@ -645,12 +685,7 @@ class MultiAgentHAIM:
 
         return node_id
 
-    def agent_recall(
-        self,
-        agent_id: str,
-        query: str,
-        top_k: int = 5
-    ) -> List[Dict]:
+    def agent_recall(self, agent_id: str, query: str, top_k: int = 5) -> List[Dict]:
         """
         Agent recalls memory from shared HAIM
         Can access memories learned by ANY agent
@@ -666,23 +701,21 @@ class MultiAgentHAIM:
         for node_id, similarity in results:
             node = self.shared_memory.tier_manager.get_memory(node_id)
             if node:
-                enriched.append({
-                    "node_id": node_id,
-                    "content": node.content,
-                    "similarity": similarity,
-                    "metadata": node.metadata,
-                    "learned_by": node.metadata.get("learned_by", "unknown"),
-                    "agent_role": node.metadata.get("agent_role", "unknown")
-                })
+                enriched.append(
+                    {
+                        "node_id": node_id,
+                        "content": node.content,
+                        "similarity": similarity,
+                        "metadata": node.metadata,
+                        "learned_by": node.metadata.get("learned_by", "unknown"),
+                        "agent_role": node.metadata.get("agent_role", "unknown"),
+                    }
+                )
 
         return enriched
 
     def cross_agent_learning(
-        self,
-        concept_a: str,
-        concept_b: str,
-        agent_id: str,
-        success: bool = True
+        self, concept_a: str, concept_b: str, agent_id: str, success: bool = True
     ):
         """
         Strengthen connection between concepts across agents
@@ -701,7 +734,9 @@ class MultiAgentHAIM:
                 self.shared_memory.bind_memories(mem_id_a, mem_id_b, success=success)
             )
 
-    def _concept_to_memory_id(self, concept: str, min_similarity: float = 0.3) -> Optional[str]:
+    def _concept_to_memory_id(
+        self, concept: str, min_similarity: float = 0.3
+    ) -> Optional[str]:
         """
         Map a concept string to the best matching memory ID.
         Uses holographic similarity to find the most relevant stored memory.
@@ -729,6 +764,7 @@ class MultiAgentHAIM:
     def _schedule_async_task(self, coro):
         """Schedule an async coroutine to run, handling the event loop appropriately."""
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
             # We're in an async context, create a task
@@ -741,10 +777,7 @@ class MultiAgentHAIM:
                 pass  # Silently fail in demo mode
 
     async def collective_orch_or(
-        self,
-        agent_id: str,
-        query: str,
-        max_collapse: int = 3
+        self, agent_id: str, query: str, max_collapse: int = 3
     ) -> List[Dict]:
         """
         Agent performs Orch OR on shared memories
@@ -753,18 +786,22 @@ class MultiAgentHAIM:
         if agent_id not in self.agents:
             raise AgentNotFoundError(agent_id)
 
-        collapsed = await self.shared_memory.orchestrate_orch_or(max_collapse=max_collapse)
+        collapsed = await self.shared_memory.orchestrate_orch_or(
+            max_collapse=max_collapse
+        )
 
         # Enrich with agent context
         result = []
         for node in collapsed:
-            result.append({
-                "content": node.content,
-                "free_energy_score": getattr(node, 'epistemic_value', 0.0),
-                "metadata": node.metadata,
-                "collapsed_by": agent_id,
-                "agent_role": self.agents[agent_id]["role"]
-            })
+            result.append(
+                {
+                    "content": node.content,
+                    "free_energy_score": getattr(node, "epistemic_value", 0.0),
+                    "metadata": node.metadata,
+                    "collapsed_by": agent_id,
+                    "agent_role": self.agents[agent_id]["role"],
+                }
+            )
 
         return result
 
@@ -777,27 +814,23 @@ class MultiAgentHAIM:
         mem_0 = self.agent_learn(
             agent_id="agent_0",
             content="MnemoCore Market Integrity Engine uses three signal groups: SURGE, FLOW, PATTERN",
-            metadata={"category": "research", "importance": "high"}
+            metadata={"category": "research", "importance": "high"},
         )
 
         # Agent 1 (Coding) learns something
         mem_1 = self.agent_learn(
             agent_id="agent_1",
             content="HAIM uses hyperdimensional vectors with 10,000 dimensions",
-            metadata={"category": "coding", "importance": "high"}
+            metadata={"category": "coding", "importance": "high"},
         )
 
         # Agent 2 (Writing) recalls BOTH memories
         recall_0 = self.agent_recall(
-            agent_id="agent_2",
-            query="MnemoCore Engine",
-            top_k=1
+            agent_id="agent_2", query="MnemoCore Engine", top_k=1
         )
 
         recall_1 = self.agent_recall(
-            agent_id="agent_2",
-            query="HAIM dimensions",
-            top_k=1
+            agent_id="agent_2", query="HAIM dimensions", top_k=1
         )
 
         # Cross-agent learning: strengthen connection
@@ -805,7 +838,7 @@ class MultiAgentHAIM:
             concept_a="MnemoCore Engine",
             concept_b="HAIM dimensions",
             agent_id="agent_2",
-            success=True
+            success=True,
         )
 
         return {
@@ -814,9 +847,8 @@ class MultiAgentHAIM:
             "agent_1_learned": mem_1,
             "agent_2_recalled_omega": recall_0,
             "agent_2_recalled_haim": recall_1,
-            "cross_agent_connection": "Strengthened between Omega Engine and HAIM dimensions"
+            "cross_agent_connection": "Strengthened between Omega Engine and HAIM dimensions",
         }
-
 
 
 class RLMIntegrator:
@@ -839,7 +871,11 @@ class RLMIntegrator:
     """
 
     def __init__(self, llm_integrator, config=None):
-        from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+        from mnemocore.core.recursive_synthesizer import (
+            RecursiveSynthesizer,
+            SynthesizerConfig,
+        )
+
         self.llm_integrator = llm_integrator
         self.haim = llm_integrator.haim
         llm_call = None
@@ -866,6 +902,7 @@ class RLMIntegrator:
                   max_depth_hit, elapsed_ms, ripple_snippets, stats
         """
         from mnemocore.core.ripple_context import RippleContext
+
         ripple_ctx = None
         if context_text and context_text.strip():
             ripple_ctx = RippleContext(text=context_text, source_label="api_context")

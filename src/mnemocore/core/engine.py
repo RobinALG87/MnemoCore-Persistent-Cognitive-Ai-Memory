@@ -3,52 +3,69 @@ Holographic Active Inference Memory Engine (HAIM) - Phase 4.3+
 Uses Binary HDV for efficient storage and computation.
 """
 
-from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING, Deque
+from typing import TYPE_CHECKING, Any, Deque, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from .container import Container
     from .qdrant_store import QdrantStore
-import heapq
-from collections import deque
-from itertools import islice
-import numpy as np
-import hashlib
-import os
-import json
+
 import asyncio
 import functools
-import uuid
+import hashlib
+import heapq
+import json
+import os
 import re
+import uuid
+from collections import deque
 from datetime import datetime, timezone
+from itertools import islice
+
+import numpy as np
 from loguru import logger
 
-from .config import get_config, HAIMConfig, SubconsciousAIConfig
-from .binary_hdv import BinaryHDV, TextEncoder, majority_bundle
-from .node import MemoryNode
-from .synapse import SynapticConnection
-from .holographic import ConceptualMemory
-from .tier_manager import TierManager
-
 # Phase 4.0 imports
-from .attention import XORAttentionMasker, AttentionConfig, XORIsolationMask, IsolationConfig
+from .attention import (
+    AttentionConfig,
+    IsolationConfig,
+    XORAttentionMasker,
+    XORIsolationMask,
+)
 from .bayesian_ltp import get_bayesian_updater
-from .semantic_consolidation import SemanticConsolidationWorker, SemanticConsolidationConfig
-from .immunology import ImmunologyLoop, ImmunologyConfig
+from .binary_hdv import BinaryHDV, TextEncoder, majority_bundle
+from .config import HAIMConfig, SubconsciousAIConfig, get_config
 from .gap_detector import GapDetector, GapDetectorConfig
 from .gap_filler import GapFiller, GapFillerConfig
-from .synapse_index import SynapseIndex
-from .subconscious_ai import SubconsciousAIWorker
-
-# Phase 4.5: Recursive Synthesis Engine
-from .recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+from .holographic import ConceptualMemory
+from .immunology import ImmunologyConfig, ImmunologyLoop
 
 # Observability imports (Phase 4.1)
 from .metrics import (
-    timer, traced, get_trace_id, set_trace_id,
-    STORE_DURATION_SECONDS, QUERY_DURATION_SECONDS,
-    MEMORY_COUNT_TOTAL, QUEUE_LENGTH, ERROR_TOTAL,
-    update_memory_count, update_queue_length, record_error
+    ERROR_TOTAL,
+    MEMORY_COUNT_TOTAL,
+    QUERY_DURATION_SECONDS,
+    QUEUE_LENGTH,
+    STORE_DURATION_SECONDS,
+    get_trace_id,
+    record_error,
+    set_trace_id,
+    timer,
+    traced,
+    update_memory_count,
+    update_queue_length,
 )
+from .node import MemoryNode
+
+# Phase 4.5: Recursive Synthesis Engine
+from .recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+from .semantic_consolidation import (
+    SemanticConsolidationConfig,
+    SemanticConsolidationWorker,
+)
+from .subconscious_ai import SubconsciousAIWorker
+from .synapse import SynapticConnection
+from .synapse_index import SynapseIndex
+from .tier_manager import TierManager
 
 
 class HAIMEngine:
@@ -62,7 +79,7 @@ class HAIMEngine:
     def _get_token_vector(token: str, dimension: int) -> np.ndarray:
         """Cached generation of deterministic token vectors (legacy compatibility)."""
         seed_bytes = hashlib.shake_256(token.encode()).digest(4)
-        seed = int.from_bytes(seed_bytes, 'little')
+        seed = int.from_bytes(seed_bytes, "little")
         return np.random.RandomState(seed).choice([-1, 1], size=dimension)
 
     def __init__(
@@ -110,12 +127,14 @@ class HAIMEngine:
         self.attention_masker = XORAttentionMasker(AttentionConfig())
 
         # ── Phase 4.1: XOR project isolation masker ───────────────────
-        isolation_enabled = getattr(self.config, 'attention_masking', None)
+        isolation_enabled = getattr(self.config, "attention_masking", None)
         isolation_enabled = isolation_enabled.enabled if isolation_enabled else True
-        self.isolation_masker = XORIsolationMask(IsolationConfig(
-            enabled=isolation_enabled,
-            dimension=self.dimension,
-        ))
+        self.isolation_masker = XORIsolationMask(
+            IsolationConfig(
+                enabled=isolation_enabled,
+                dimension=self.dimension,
+            )
+        )
 
         # ── Phase 4.0: gap detector & filler (wired in initialize()) ──
         self.gap_detector = GapDetector(GapDetectorConfig())
@@ -132,22 +151,25 @@ class HAIMEngine:
 
         # ── Phase 4.5: recursive synthesizer ───────────────────────────
         self._recursive_synthesizer: Optional[RecursiveSynthesizer] = None
-        
+
         # ── Phase 12.2: Contextual Topic Tracker ───────────────────────
         from .topic_tracker import TopicTracker
+
         self.topic_tracker = TopicTracker(self.config.context, self.dimension)
 
         # ── Phase 12.3: Preference Learning ────────────────────────────
         from .preference_store import PreferenceStore
+
         self.preference_store = PreferenceStore(self.config.preference, self.dimension)
 
         # ── Phase 13.2: Anticipatory Memory ────────────────────────────
         from .anticipatory import AnticipatoryEngine
+
         self.anticipatory_engine = AnticipatoryEngine(
-            self.config.anticipatory, 
-            self._synapse_index, 
-            self.tier_manager, 
-            self.topic_tracker
+            self.config.anticipatory,
+            self._synapse_index,
+            self.tier_manager,
+            self.topic_tracker,
         )
 
         # Conceptual Layer (VSA Soul)
@@ -186,16 +208,22 @@ class HAIMEngine:
 
         # ── Phase 4.4: start subconscious AI worker (if enabled) ──────
         if self.config.subconscious_ai.enabled:
-            self._subconscious_ai = SubconsciousAIWorker(self, self.config.subconscious_ai)
+            self._subconscious_ai = SubconsciousAIWorker(
+                self, self.config.subconscious_ai
+            )
             await self._subconscious_ai.start()
             logger.info("Phase 4.4 SubconsciousAI worker started (BETA).")
 
-        logger.info("Phase 4.0 background workers started (consolidation + immunology).")
+        logger.info(
+            "Phase 4.0 background workers started (consolidation + immunology)."
+        )
 
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run blocking function in thread pool."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+        return await loop.run_in_executor(
+            None, functools.partial(func, *args, **kwargs)
+        )
 
     def calculate_eig(self, candidate: BinaryHDV, context: BinaryHDV) -> float:
         """
@@ -257,7 +285,7 @@ class HAIMEngine:
                 self.binary_encoder.encode, f"GOAL_CONTEXT_{goal_id}"
             )
             final_vec = content_vec.xor_bind(goal_vec)
-            metadata['goal_context'] = goal_id
+            metadata["goal_context"] = goal_id
 
         return final_vec, metadata
 
@@ -356,7 +384,7 @@ class HAIMEngine:
 
         # Phase 12.1: Aggressive Synapse Formation (Auto-bind).
         # Fix 4: collect all bindings first, persist synapses only once at the end.
-        if hasattr(self.config, 'synapse') and self.config.synapse.auto_bind_on_store:
+        if hasattr(self.config, "synapse") and self.config.synapse.auto_bind_on_store:
             similar_nodes = await self.query(
                 node.content,
                 top_k=3,
@@ -430,12 +458,14 @@ class HAIMEngine:
             )
 
         # 1. Encode input and bind goal context
-        encoded_vec, updated_metadata = await self._encode_input(content, metadata, goal_id)
+        encoded_vec, updated_metadata = await self._encode_input(
+            content, metadata, goal_id
+        )
 
         # 1b. Apply project isolation mask (Phase 4.1)
         if project_id:
             encoded_vec = self.isolation_masker.apply_mask(encoded_vec, project_id)
-            updated_metadata['project_id'] = project_id
+            updated_metadata["project_id"] = project_id
 
         # 2. Calculate EIG and evaluate tier placement
         updated_metadata = await self._evaluate_tier(encoded_vec, updated_metadata)
@@ -449,7 +479,9 @@ class HAIMEngine:
         # 5. Update queue length metric
         update_queue_length(len(self.subconscious_queue))
 
-        logger.info(f"Stored memory {node.id} (EIG: {updated_metadata.get('eig', 0.0):.4f})")
+        logger.info(
+            f"Stored memory {node.id} (EIG: {updated_metadata.get('eig', 0.0):.4f})"
+        )
         return node.id
 
     async def delete_memory(self, node_id: str) -> bool:
@@ -583,13 +615,18 @@ class HAIMEngine:
             if chrono_weight and score > 0:
                 mem = mem_map.get(nid)
                 if mem:
-                    time_delta = max(0.0, now_ts - mem.created_at.timestamp())  # seconds since creation
+                    time_delta = max(
+                        0.0, now_ts - mem.created_at.timestamp()
+                    )  # seconds since creation
                     # Formula: Final = Semantic * (1 / (1 + lambda * time_delta))
                     decay_factor = 1.0 / (1.0 + chrono_lambda * time_delta)
                     score = score * decay_factor
 
             # Phase 12.3: Preference Learning Bias
-            if self.preference_store.config.enabled and self.preference_store.preference_vector is not None:
+            if (
+                self.preference_store.config.enabled
+                and self.preference_store.preference_vector is not None
+            ):
                 mem = mem_map.get(nid)
                 if not mem:
                     mem = await self.tier_manager.get_memory(nid)
@@ -613,7 +650,9 @@ class HAIMEngine:
 
                 for syn in neighbour_synapses:
                     neighbor = (
-                        syn.neuron_b_id if syn.neuron_a_id == seed_id else syn.neuron_a_id
+                        syn.neuron_b_id
+                        if syn.neuron_a_id == seed_id
+                        else syn.neuron_a_id
                     )
                     if neighbor not in augmented_scores:
                         mem = await self.tier_manager.get_memory(neighbor)
@@ -649,7 +688,9 @@ class HAIMEngine:
             if recent_nodes:
                 ctx_vecs = [n.hdv for n in recent_nodes]
                 ctx_key = self.attention_masker.build_context_key(ctx_vecs)
-                attention_mask = self.attention_masker.build_attention_mask(query_vec, ctx_key)
+                attention_mask = self.attention_masker.build_attention_mask(
+                    query_vec, ctx_key
+                )
 
                 # Collect HDVs for re-ranking (only HOT nodes available synchronously)
                 mem_vecs: Dict[str, BinaryHDV] = {}
@@ -705,7 +746,9 @@ class HAIMEngine:
                 mem = await self.tier_manager.get_memory(neighbor_id)
                 if mem:
                     neighbor_score = query_vec.similarity(mem.hdv)
-                    top_results.append((neighbor_id, neighbor_score * 0.8))  # Slightly discounted
+                    top_results.append(
+                        (neighbor_id, neighbor_score * 0.8)
+                    )  # Slightly discounted
 
             # Re-sort after adding neighbors, but preserve query() top_k contract.
             top_results = sorted(top_results, key=lambda x: x[1], reverse=True)[:top_k]
@@ -727,11 +770,11 @@ class HAIMEngine:
         """
         if not self.topic_tracker.config.enabled:
             return []
-            
+
         ctx = self.topic_tracker.get_context()
         if ctx is None:
             return []
-            
+
         results = await self.tier_manager.search(
             ctx,
             top_k=top_k,
@@ -739,6 +782,7 @@ class HAIMEngine:
             metadata_filter=None,
         )
         return results
+
     async def _background_dream(self, depth: int = 2):
         """
         Passive Subconscious – strengthen synapses in idle cycles.
@@ -764,7 +808,7 @@ class HAIMEngine:
                 stim_node.content,
                 top_k=depth + 1,
                 associative_jump=False,
-                track_gaps=False,   # ← no gap detection inside dream
+                track_gaps=False,  # ← no gap detection inside dream
             )
 
             for neighbor_id, similarity in potential_connections:
@@ -807,10 +851,14 @@ class HAIMEngine:
                 mem_a = await self.tier_manager.get_memory(id_a)
                 mem_b = await self.tier_manager.get_memory(id_b)
                 if mem_a and mem_b:
-                    self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
+                    self._synapse_index.add_or_fire(
+                        id_a, id_b, success=success, weight=weight
+                    )
         await self._save_synapses()
 
-    async def bind_memories(self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0):
+    async def bind_memories(
+        self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0
+    ):
         """
         Bind two memories by ID.
 
@@ -981,10 +1029,10 @@ class HAIMEngine:
         Original localized encoding logic for backward compatibility.
         Used only for migrating legacy data.
         """
-        tokens = re.findall(r'\w+', content.lower())
+        tokens = re.findall(r"\w+", content.lower())
         if not tokens:
             seed_bytes = hashlib.shake_256(content.encode()).digest(4)
-            seed = int.from_bytes(seed_bytes, 'little')
+            seed = int.from_bytes(seed_bytes, "little")
             return np.random.RandomState(seed).choice([-1, 1], size=self.dimension)
 
         combined = np.zeros(self.dimension)
@@ -1005,7 +1053,7 @@ class HAIMEngine:
 
         def _load():
             try:
-                with open(self.persist_path, 'r', encoding='utf-8') as f:
+                with open(self.persist_path, "r", encoding="utf-8") as f:
                     return f.readlines()
             except Exception:
                 return []
@@ -1018,11 +1066,11 @@ class HAIMEngine:
                 continue
             try:
                 rec = json.loads(line)
-                content = rec.get('content', '')
+                content = rec.get("content", "")
                 if not content:
                     continue
 
-                node_id = rec.get('id')
+                node_id = rec.get("id")
 
                 # Always convert to BinaryHDV
                 hdv = self.binary_encoder.encode(content)
@@ -1031,16 +1079,16 @@ class HAIMEngine:
                     id=node_id,
                     hdv=hdv,
                     content=content,
-                    metadata=rec.get('metadata') or {}
+                    metadata=rec.get("metadata") or {},
                 )
 
                 # Restore timestamps if available
-                if 'created_at' in rec:
-                    node.created_at = datetime.fromisoformat(rec['created_at'])
+                if "created_at" in rec:
+                    node.created_at = datetime.fromisoformat(rec["created_at"])
 
                 # Phase 4.3: Restore episodic chain link
-                if 'previous_id' in rec:
-                    node.previous_id = rec['previous_id']
+                if "previous_id" in rec:
+                    node.previous_id = rec["previous_id"]
 
                 # Add to TierManager
                 await self.tier_manager.add_memory(node)
@@ -1084,16 +1132,16 @@ class HAIMEngine:
 
         def _append():
             try:
-                with open(self.persist_path, 'a', encoding='utf-8') as f:
+                with open(self.persist_path, "a", encoding="utf-8") as f:
                     rec = {
-                        'id': node.id,
-                        'content': node.content,
-                        'metadata': node.metadata,
-                        'created_at': node.created_at.isoformat(),
+                        "id": node.id,
+                        "content": node.content,
+                        "metadata": node.metadata,
+                        "created_at": node.created_at.isoformat(),
                         # Phase 4.3: Temporal metadata for indexing
-                        'unix_timestamp': node.unix_timestamp,
-                        'iso_date': node.iso_date,
-                        'previous_id': node.previous_id,
+                        "unix_timestamp": node.unix_timestamp,
+                        "iso_date": node.iso_date,
+                        "previous_id": node.previous_id,
                     }
                     f.write(json.dumps(rec) + "\n")
             except Exception as e:

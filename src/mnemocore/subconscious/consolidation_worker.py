@@ -20,7 +20,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional
 
 from loguru import logger
 
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 @dataclass
 class ConsolidationWorkerConfig:
     """Configuration for the subconscious consolidation worker."""
+
     interval_seconds: float = 3600.0  # 1 hour default
     hot_tier_enabled: bool = True
     warm_tier_enabled: bool = True
@@ -87,8 +88,7 @@ class SubconsciousConsolidationWorker:
 
         self._running = True
         self._task = asyncio.create_task(
-            self._consolidation_loop(),
-            name="subconscious_consolidation"
+            self._consolidation_loop(), name="subconscious_consolidation"
         )
         logger.info(
             f"SubconsciousConsolidationWorker started — "
@@ -117,8 +117,7 @@ class SubconsciousConsolidationWorker:
                 break
             except Exception as exc:
                 logger.error(
-                    f"SubconsciousConsolidationWorker error: {exc}",
-                    exc_info=True
+                    f"SubconsciousConsolidationWorker error: {exc}", exc_info=True
                 )
                 await asyncio.sleep(60)  # Backoff on error
 
@@ -206,11 +205,7 @@ def create_consolidation_worker(
 
     # Read interval from config if not provided
     if interval_seconds is None:
-        interval_seconds = getattr(
-            config,
-            "consolidation_interval_seconds",
-            3600.0
-        )
+        interval_seconds = getattr(config, "consolidation_interval_seconds", 3600.0)
 
     worker_config = ConsolidationWorkerConfig(
         interval_seconds=interval_seconds,

@@ -5,82 +5,82 @@ FastAPI server for MnemoCore (Phase 3.5.1+).
 Fully Async I/O with Redis backing.
 """
 
-from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
-import sys
-import os
 import asyncio
+import os
 import secrets
+import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request, Security, Depends
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
-from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel, Field, field_validator
 from loguru import logger
+from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mnemocore.core.engine import HAIMEngine
-from mnemocore.core.config import get_config
-from mnemocore.core.container import build_container, Container
 from mnemocore.api.middleware import (
-    SecurityHeadersMiddleware,
-    RateLimiter,
-    StoreRateLimiter,
-    QueryRateLimiter,
-    ConceptRateLimiter,
+    RATE_LIMIT_CONFIGS,
     AnalogyRateLimiter,
+    ConceptRateLimiter,
+    QueryRateLimiter,
+    RateLimiter,
+    SecurityHeadersMiddleware,
+    StoreRateLimiter,
     rate_limit_exception_handler,
-    RATE_LIMIT_CONFIGS
 )
 from mnemocore.api.models import (
-    StoreRequest,
-    QueryRequest,
-    ConceptRequest,
     AnalogyRequest,
-    StoreResponse,
-    QueryResponse,
-    QueryResult,
-    DeleteResponse,
-    ConceptResponse,
     AnalogyResponse,
     AnalogyResult,
+    ConceptRequest,
+    ConceptResponse,
+    DeleteResponse,
+    ErrorResponse,
     HealthResponse,
+    QueryRequest,
+    QueryResponse,
+    QueryResult,
     RootResponse,
-    ErrorResponse
+    StoreRequest,
+    StoreResponse,
 )
-from mnemocore.core.logging_config import configure_logging
+from mnemocore.core.config import get_config
+from mnemocore.core.container import Container, build_container
+from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.exceptions import (
-    MnemoCoreError,
-    RecoverableError,
     IrrecoverableError,
-    ValidationError,
-    NotFoundError,
     MemoryNotFoundError,
+    MnemoCoreError,
+    NotFoundError,
+    RecoverableError,
+    ValidationError,
     is_debug_mode,
 )
+from mnemocore.core.logging_config import configure_logging
 
 # Configure logging
 configure_logging()
 
 # --- Observability ---
 from prometheus_client import make_asgi_app
+
 from mnemocore.core.metrics import (
     API_REQUEST_COUNT,
     API_REQUEST_LATENCY,
-    track_async_latency,
+    OTEL_AVAILABLE,
     STORAGE_OPERATION_COUNT,
     extract_trace_context,
     get_trace_id,
     init_opentelemetry,
+    track_async_latency,
     update_memory_count,
     update_queue_length,
-    OTEL_AVAILABLE
 )
 
 # Initialize OpenTelemetry (optional, gracefully degrades if not installed)
@@ -106,6 +106,7 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
         if trace_id:
             # Set trace ID in context for downstream operations
             from mnemocore.core.metrics import set_trace_id
+
             set_trace_id(trace_id)
         else:
             # Try to extract from W3C Trace Context format
@@ -125,6 +126,7 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
 
 # --- Lifecycle Management ---
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Security Check
@@ -132,7 +134,9 @@ async def lifespan(app: FastAPI):
     security = config.security if config else None
     _api_key = (security.api_key if security else None) or os.getenv("HAIM_API_KEY", "")
     if not _api_key:
-        logger.critical("No API Key configured! Set HAIM_API_KEY env var or security.api_key in config.")
+        logger.critical(
+            "No API Key configured! Set HAIM_API_KEY env var or security.api_key in config."
+        )
         sys.exit(1)
 
     # Startup: Build dependency container
@@ -144,13 +148,16 @@ async def lifespan(app: FastAPI):
     logger.info("Checking Redis connection...")
     if container.redis_storage:
         if not await container.redis_storage.check_health():
-            logger.warning("Redis connection failed. Running in degraded mode (local only).")
+            logger.warning(
+                "Redis connection failed. Running in degraded mode (local only)."
+            )
     else:
         logger.warning("Redis storage not available.")
 
     # Initialize implementation of engine with injected dependencies
     logger.info("Initializing HAIMEngine...")
     from mnemocore.core.tier_manager import TierManager
+
     tier_manager = TierManager(config=config, qdrant_store=container.qdrant_store)
     engine = HAIMEngine(
         persist_path="./data/memory.jsonl",
@@ -170,17 +177,18 @@ async def lifespan(app: FastAPI):
     if container.redis_storage:
         await container.redis_storage.close()
 
+
 app = FastAPI(
     title="MnemoCore API",
     description="MnemoCore - Infrastructure for Persistent Cognitive Memory - REST API (Async)",
     version="3.5.2",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 from mnemocore.core.reliability import (
     CircuitBreakerError,
     storage_circuit_breaker,
-    vector_circuit_breaker
+    vector_circuit_breaker,
 )
 
 
@@ -189,7 +197,10 @@ async def circuit_breaker_exception_handler(request: Request, exc: CircuitBreake
     logger.error(f"Service Unavailable (Circuit Open): {exc}")
     return JSONResponse(
         status_code=503,
-        content={"detail": "Service Unavailable: Storage backend is down or overloaded.", "error": str(exc)},
+        content={
+            "detail": "Service Unavailable: Storage backend is down or overloaded.",
+            "error": str(exc),
+        },
     )
 
 
@@ -249,25 +260,24 @@ app.mount("/metrics", metrics_app)
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
+
 async def get_api_key(api_key: str = Security(api_key_header)):
     config = get_config()
     # Phase 3.5.1 Security - Prioritize config.security.api_key, fallback to env var
     security = config.security if config else None
-    expected_key = (security.api_key if security else None) or os.getenv("HAIM_API_KEY", "")
+    expected_key = (security.api_key if security else None) or os.getenv(
+        "HAIM_API_KEY", ""
+    )
 
     if not expected_key:
         # Should be caught by startup check, but double check
         logger.error("API Key not configured during request processing.")
         raise HTTPException(
-            status_code=500,
-            detail="Server Misconfiguration: API Key not set"
+            status_code=500, detail="Server Misconfiguration: API Key not set"
         )
 
     if not api_key or not secrets.compare_digest(api_key, expected_key):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid or missing API Key"
-        )
+        raise HTTPException(status_code=403, detail="Invalid or missing API Key")
     return api_key
 
 
@@ -281,6 +291,7 @@ def get_container(request: Request) -> Container:
 
 # --- Endpoints ---
 
+
 @app.get("/", response_model=RootResponse)
 async def root():
     return {
@@ -288,12 +299,15 @@ async def root():
         "service": "MnemoCore",
         "version": "3.5.1",
         "phase": "Async I/O",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health(container: Container = Depends(get_container), engine: HAIMEngine = Depends(get_engine)):
+async def health(
+    container: Container = Depends(get_container),
+    engine: HAIMEngine = Depends(get_engine),
+):
     # Check Redis connectivity
     redis_connected = False
     if container.redis_storage:
@@ -303,7 +317,9 @@ async def health(container: Container = Depends(get_container), engine: HAIMEngi
     storage_cb_state = storage_circuit_breaker.state
     vector_cb_state = vector_circuit_breaker.state
 
-    is_healthy = redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
+    is_healthy = (
+        redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
+    )
 
     return {
         "status": "healthy" if is_healthy else "degraded",
@@ -311,20 +327,20 @@ async def health(container: Container = Depends(get_container), engine: HAIMEngi
         "storage_circuit_breaker": storage_cb_state,
         "qdrant_circuit_breaker": vector_cb_state,
         "engine_ready": engine is not None,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 @app.post(
     "/store",
     response_model=StoreResponse,
-    dependencies=[Depends(get_api_key), Depends(StoreRateLimiter())]
+    dependencies=[Depends(get_api_key), Depends(StoreRateLimiter())],
 )
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/store"})
 async def store_memory(
     req: StoreRequest,
     engine: HAIMEngine = Depends(get_engine),
-    container: Container = Depends(get_container)
+    container: Container = Depends(get_container),
 ):
     """Store a new memory (Async + Dual Write). Rate limit: 100/minute."""
     API_REQUEST_COUNT.labels(method="POST", endpoint="/store", status="200").inc()
@@ -345,40 +361,37 @@ async def store_memory(
             "content": node.content,
             "metadata": node.metadata,
             "ltp_strength": node.ltp_strength,
-            "created_at": node.created_at.isoformat()
+            "created_at": node.created_at.isoformat(),
         }
         try:
             await container.redis_storage.store_memory(mem_id, redis_data, ttl=req.ttl)
 
             # PubSub Event
-            await container.redis_storage.publish_event("memory.created", {"id": mem_id})
+            await container.redis_storage.publish_event(
+                "memory.created", {"id": mem_id}
+            )
         except Exception as e:
             logger.exception(f"Failed async write for {mem_id}")
             # Non-blocking failure for Redis write
 
-    return {
-        "ok": True,
-        "memory_id": mem_id,
-        "message": f"Stored memory: {mem_id}"
-    }
+    return {"ok": True, "memory_id": mem_id, "message": f"Stored memory: {mem_id}"}
 
 
 @app.post(
     "/query",
     response_model=QueryResponse,
-    dependencies=[Depends(get_api_key), Depends(QueryRateLimiter())]
+    dependencies=[Depends(get_api_key), Depends(QueryRateLimiter())],
 )
 @track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/query"})
-async def query_memory(
-    req: QueryRequest,
-    engine: HAIMEngine = Depends(get_engine)
-):
+async def query_memory(req: QueryRequest, engine: HAIMEngine = Depends(get_engine)):
     """Query memories by semantic similarity (Async Wrapper). Rate limit: 500/minute."""
     API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
 
     # CPU heavy vector search (offloaded inside engine)
     metadata_filter = {"agent_id": req.agent_id} if req.agent_id else None
-    results = await engine.query(req.query, top_k=req.top_k, metadata_filter=metadata_filter)
+    results = await engine.query(
+        req.query, top_k=req.top_k, metadata_filter=metadata_filter
+    )
 
     formatted = []
     for mem_id, score in results:
@@ -386,26 +399,24 @@ async def query_memory(
         # because Engine has the object cache + Hashing logic.
         node = await engine.get_memory(mem_id)
         if node:
-            formatted.append({
-                "id": mem_id,
-                "content": node.content,
-                "score": float(score),
-                "metadata": node.metadata,
-                "tier": getattr(node, "tier", "unknown")
-            })
+            formatted.append(
+                {
+                    "id": mem_id,
+                    "content": node.content,
+                    "score": float(score),
+                    "metadata": node.metadata,
+                    "tier": getattr(node, "tier", "unknown"),
+                }
+            )
 
-    return {
-        "ok": True,
-        "query": req.query,
-        "results": formatted
-    }
+    return {"ok": True, "query": req.query, "results": formatted}
 
 
 @app.get("/memory/{memory_id}", dependencies=[Depends(get_api_key)])
 async def get_memory(
     memory_id: str,
     engine: HAIMEngine = Depends(get_engine),
-    container: Container = Depends(get_container)
+    container: Container = Depends(get_container),
 ):
     """Get a specific memory by ID."""
     # Validate memory_id format
@@ -413,7 +424,7 @@ async def get_memory(
         raise ValidationError(
             field="memory_id",
             reason="Memory ID must be between 1 and 256 characters",
-            value=memory_id
+            value=memory_id,
         )
 
     # Try Redis first (L2 cache)
@@ -422,10 +433,7 @@ async def get_memory(
         cached = await container.redis_storage.retrieve_memory(memory_id)
 
     if cached:
-        return {
-            "source": "redis",
-            **cached
-        }
+        return {"source": "redis", **cached}
 
     # Fallback to Engine (TierManager)
     node = await engine.get_memory(memory_id)
@@ -440,19 +448,19 @@ async def get_memory(
         "created_at": node.created_at.isoformat(),
         "epistemic_value": getattr(node, "epistemic_value", 0.0),
         "ltp_strength": getattr(node, "ltp_strength", 0.0),
-        "tier": getattr(node, "tier", "unknown")
+        "tier": getattr(node, "tier", "unknown"),
     }
 
 
 @app.delete(
     "/memory/{memory_id}",
     response_model=DeleteResponse,
-    dependencies=[Depends(get_api_key)]
+    dependencies=[Depends(get_api_key)],
 )
 async def delete_memory(
     memory_id: str,
     engine: HAIMEngine = Depends(get_engine),
-    container: Container = Depends(get_container)
+    container: Container = Depends(get_container),
 ):
     """Delete a memory via Engine."""
     # Validate memory_id format
@@ -460,7 +468,7 @@ async def delete_memory(
         raise ValidationError(
             field="memory_id",
             reason="Memory ID must be between 1 and 256 characters",
-            value=memory_id
+            value=memory_id,
         )
 
     # Check if exists first for 404
@@ -477,12 +485,14 @@ async def delete_memory(
 
     return {"ok": True, "deleted": memory_id}
 
+
 # --- Conceptual Endpoints ---
+
 
 @app.post(
     "/concept",
     response_model=ConceptResponse,
-    dependencies=[Depends(get_api_key), Depends(ConceptRateLimiter())]
+    dependencies=[Depends(get_api_key), Depends(ConceptRateLimiter())],
 )
 async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_engine)):
     """Define a concept with attributes. Rate limit: 100/minute."""
@@ -493,19 +503,17 @@ async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_e
 @app.post(
     "/analogy",
     response_model=AnalogyResponse,
-    dependencies=[Depends(get_api_key), Depends(AnalogyRateLimiter())]
+    dependencies=[Depends(get_api_key), Depends(AnalogyRateLimiter())],
 )
 async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_engine)):
     """Solve an analogy. Rate limit: 100/minute."""
     results = await engine.reason_by_analogy(
-        req.source_concept,
-        req.source_value,
-        req.target_concept
+        req.source_concept, req.source_value, req.target_concept
     )
     return {
         "ok": True,
         "analogy": f"{req.source_concept}:{req.source_value} :: {req.target_concept}:?",
-        "results": [{"value": v, "score": float(s)} for v, s in results[:10]]
+        "results": [{"value": v, "score": float(s)} for v, s in results[:10]],
     }
 
 
@@ -525,30 +533,52 @@ async def get_rate_limits():
                 "requests": cfg["requests"],
                 "window_seconds": cfg["window"],
                 "requests_per_minute": cfg["requests"],
-                "description": cfg["description"]
+                "description": cfg["description"],
             }
             for category, cfg in RATE_LIMIT_CONFIGS.items()
         }
     }
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 4.5: Recursive Synthesis Engine Endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class RLMQueryRequest(BaseModel):
     """Request model for Phase 4.5 recursive memory query."""
-    query: str = Field(..., min_length=1, max_length=4096, description="The query to synthesize (can be complex/multi-topic)")
-    context_text: Optional[str] = Field(None, max_length=500000, description="Optional large external text (Ripple environment)")
-    project_id: Optional[str] = Field(None, max_length=128, description="Optional project scope for isolation masking")
-    max_depth: Optional[int] = Field(None, ge=0, le=5, description="Max recursion depth (0-5, default 3)")
-    max_sub_queries: Optional[int] = Field(None, ge=1, le=10, description="Max sub-queries to decompose into (1-10, default 5)")
-    top_k: Optional[int] = Field(None, ge=1, le=50, description="Final results to return (default 10)")
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=4096,
+        description="The query to synthesize (can be complex/multi-topic)",
+    )
+    context_text: Optional[str] = Field(
+        None,
+        max_length=500000,
+        description="Optional large external text (Ripple environment)",
+    )
+    project_id: Optional[str] = Field(
+        None, max_length=128, description="Optional project scope for isolation masking"
+    )
+    max_depth: Optional[int] = Field(
+        None, ge=0, le=5, description="Max recursion depth (0-5, default 3)"
+    )
+    max_sub_queries: Optional[int] = Field(
+        None,
+        ge=1,
+        le=10,
+        description="Max sub-queries to decompose into (1-10, default 5)",
+    )
+    top_k: Optional[int] = Field(
+        None, ge=1, le=50, description="Final results to return (default 10)"
+    )
 
 
 class RLMQueryResponse(BaseModel):
     """Response model for Phase 4.5 recursive memory query."""
+
     ok: bool
     query: str
     sub_queries: List[str]
@@ -591,7 +621,10 @@ async def rlm_query(
     """
     API_REQUEST_COUNT.labels(method="POST", endpoint="/rlm/query", status="200").inc()
 
-    from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+    from mnemocore.core.recursive_synthesizer import (
+        RecursiveSynthesizer,
+        SynthesizerConfig,
+    )
     from mnemocore.core.ripple_context import RippleContext
 
     # Build config from request overrides
@@ -630,4 +663,5 @@ async def rlm_query(
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8100)

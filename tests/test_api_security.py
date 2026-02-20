@@ -1,8 +1,9 @@
+import os
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch, AsyncMock
-import sys
-import os
 
 # Ensure path is set
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,6 +55,7 @@ patcher2.start()
 
 from mnemocore.api.main import app
 
+
 @pytest.fixture(autouse=True)
 def setup_env(monkeypatch):
     monkeypatch.setenv("HAIM_API_KEY", API_KEY)
@@ -66,16 +68,19 @@ def setup_env(monkeypatch):
     yield
     reset_config()
 
+
 @pytest.fixture
 def client(setup_env):
     with TestClient(app) as c:
         yield c
+
 
 def test_health_public(client):
     """Health endpoint should be public."""
     response = client.get("/health")
     assert response.status_code == 200
     assert "status" in response.json()
+
 
 def test_secure_endpoints(client, monkeypatch):
     """Verify endpoints require X-API-Key."""
@@ -89,20 +94,23 @@ def test_secure_endpoints(client, monkeypatch):
 
     # 3. Valid key
     mock_memory = MagicMock(
-        id="mem_1", content="test", metadata={}, ltp_strength=0.5,
-        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+        id="mem_1",
+        content="test",
+        metadata={},
+        ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.store.return_value = "mem_1"
 
     response = client.post(
-        "/store",
-        json={"content": "test"},
-        headers={"X-API-Key": API_KEY}
+        "/store", json={"content": "test"}, headers={"X-API-Key": API_KEY}
     )
     assert response.status_code == 200
 
+
 # --- Enhanced Security Tests ---
+
 
 def test_security_headers(client):
     response = client.get("/")
@@ -113,48 +121,55 @@ def test_security_headers(client):
     assert "Content-Security-Policy" in response.headers
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
+
 def test_cors_headers(client):
     headers = {"Origin": "https://example.com"}
     response = client.get("/", headers=headers)
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "*"
 
+
 def test_api_key_missing_enhanced(client):
     response = client.post("/store", json={"content": "test"})
     assert response.status_code == 403
 
+
 def test_api_key_invalid_enhanced(client):
-    response = client.post("/store", json={"content": "test"}, headers={"X-API-Key": "wrong-key"})
+    response = client.post(
+        "/store", json={"content": "test"}, headers={"X-API-Key": "wrong-key"}
+    )
     assert response.status_code == 403
+
 
 def test_query_max_length_validation(client):
     long_query = "a" * 10001
     response = client.post(
-        "/query",
-        json={"query": long_query},
-        headers={"X-API-Key": API_KEY}
+        "/query", json={"query": long_query}, headers={"X-API-Key": API_KEY}
     )
     assert response.status_code == 422
+
 
 def test_rate_limiter_within_limit(client):
     # Ensure pipeline execute returns count < limit (default 100)
     mock_pipeline.execute.return_value = [1, True]
 
     mock_memory = MagicMock(
-        id="mem_1", content="test", metadata={}, ltp_strength=0.5,
-        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00"))
+        id="mem_1",
+        content="test",
+        metadata={},
+        ltp_strength=0.5,
+        created_at=MagicMock(isoformat=MagicMock(return_value="2024-01-01T00:00:00")),
     )
     mock_engine_instance.get_memory.return_value = mock_memory
     mock_engine_instance.store.return_value = "mem_1"
 
     response = client.post(
-        "/store",
-        json={"content": "test"},
-        headers={"X-API-Key": API_KEY}
+        "/store", json={"content": "test"}, headers={"X-API-Key": API_KEY}
     )
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
+
 
 # Note: Rate limiter exceeded tests are in test_api_security_limits.py
 # which has more comprehensive rate limit testing with proper isolation
