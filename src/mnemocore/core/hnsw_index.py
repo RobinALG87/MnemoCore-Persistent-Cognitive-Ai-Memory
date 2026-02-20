@@ -255,7 +255,20 @@ class HNSWIndexManager:
         if k <= 0:
             return []
 
-        q = np.expand_dims(query_data, axis=0)
+        index_dimension = int(getattr(self._index, "d", self.dimension) or self.dimension)
+        query_bytes = np.ascontiguousarray(query_data, dtype=np.uint8).reshape(-1)
+        expected_bytes = index_dimension // 8
+        if expected_bytes > 0 and query_bytes.size != expected_bytes:
+            logger.warning(
+                f"HNSW query dimension mismatch: index={index_dimension} bits ({expected_bytes} bytes), "
+                f"query={query_bytes.size} bytes. Adjusting query to index dimension."
+            )
+            if query_bytes.size > expected_bytes:
+                query_bytes = query_bytes[:expected_bytes]
+            else:
+                query_bytes = np.pad(query_bytes, (0, expected_bytes - query_bytes.size), mode="constant")
+
+        q = np.expand_dims(query_bytes, axis=0)
 
         try:
             distances, ids = self._index.search(q, k)
@@ -270,7 +283,8 @@ class HNSWIndexManager:
                 
             node_id = self._id_map[idx]
             if node_id is not None:
-                sim = 1.0 - float(dist) / self.dimension
+                sim = 1.0 - float(dist) / max(index_dimension, 1)
+                sim = float(np.clip(sim, 0.0, 1.0))
                 results.append((node_id, sim))
                 if len(results) >= top_k:
                     break
@@ -294,6 +308,13 @@ class HNSWIndexManager:
     def _load(self):
         try:
             self._index = faiss.read_index_binary(str(self.INDEX_PATH))
+            index_dimension = int(getattr(self._index, "d", self.dimension) or self.dimension)
+            if index_dimension != self.dimension:
+                logger.warning(
+                    f"HNSW index dimension mismatch on load: config={self.dimension}, index={index_dimension}. "
+                    "Using index dimension."
+                )
+                self.dimension = index_dimension
             with open(self.IDMAP_PATH, "r") as f:
                 state = json.load(f)
                 self._id_map = state.get("id_map", [])
@@ -328,4 +349,3 @@ class HNSWIndexManager:
             "faiss_available": FAISS_AVAILABLE,
             "stale_count": self._stale_count
         }
-
