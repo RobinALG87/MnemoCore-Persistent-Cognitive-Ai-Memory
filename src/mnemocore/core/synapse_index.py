@@ -240,11 +240,10 @@ class SynapseIndex:
 
         Returns 1.0 for isolated nodes.
         """
-        # Phase 4.5 Hotfix (Robin's Score Bug e+195):
-        # Instead of exponential product scaling which explodes for hub nodes,
-        # we aggregate the strengths and bound the multiplier logarithmically.
-        total_strength = sum(syn.get_current_strength() for syn in self.neighbours(node_id))
-        return 1.0 + math.log1p(total_strength)
+        # User Fix:
+        # Logarithmic boost - capped at ~10x
+        total = sum(s.get_current_strength() for s in self.neighbours(node_id))
+        return 1.0 + min(math.log(1.0 + total), 9.0)
 
     def __len__(self) -> int:
         return len(self._edges)
