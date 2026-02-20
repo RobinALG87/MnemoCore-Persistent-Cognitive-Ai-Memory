@@ -39,6 +39,16 @@ def _build_popcount_table() -> np.ndarray:
     return _POPCOUNT_TABLE
 
 
+def _popcount_array(arr: np.ndarray) -> np.ndarray:
+    """
+    Compute population count (number of 1-bits) for a uint8 array.
+    Uses np.bitwise_count if available (NumPy 2.0+), otherwise uses lookup table.
+    """
+    if hasattr(np, "bitwise_count"):
+        return np.bitwise_count(arr)
+    return _build_popcount_table()[arr]
+
+
 class BinaryHDV:
     """
     A binary hyperdimensional vector stored as a packed uint8 array.
@@ -158,8 +168,8 @@ class BinaryHDV:
         """
         assert self.dimension == other.dimension
         xor_result = np.bitwise_xor(self.data, other.data)
-        # Optimized: use precomputed popcount table instead of unpacking bits
-        return int(_build_popcount_table()[xor_result].sum())
+        # Optimized: use np.bitwise_count or precomputed table
+        return int(_popcount_array(xor_result).sum())
 
     def normalized_distance(self, other: "BinaryHDV") -> float:
         """Hamming distance normalized to [0.0, 1.0]."""
@@ -226,8 +236,8 @@ class BinaryHDV:
         return cls(data=data, dimension=dimension)
 
     def __repr__(self) -> str:
-        # Optimized: use precomputed popcount table
-        popcount = int(_build_popcount_table()[self.data].sum())
+        # Optimized: use np.bitwise_count or precomputed table
+        popcount = int(_popcount_array(self.data).sum())
         return f"BinaryHDV(dim={self.dimension}, popcount={popcount}/{self.dimension})"
 
     def __eq__(self, other: object) -> bool:
@@ -260,10 +270,9 @@ def batch_hamming_distance(
     # XOR query with all database vectors: (N, D//8)
     xor_result = np.bitwise_xor(database, query.data)
 
-    # Popcount via lookup table — count bits set in each byte
-    # This is the fastest pure-NumPy approach for packed binary vectors
-    popcount_table = _build_popcount_table()
-    bit_counts = popcount_table[xor_result]  # (N, D//8)
+    # Popcount via np.bitwise_count (NumPy 2.0+) or lookup table
+    # This avoids unpacking bits and uses CPU POPCNT where available
+    bit_counts = _popcount_array(xor_result)  # (N, D//8)
 
     # Sum across bytes to get total Hamming distance per vector
     return bit_counts.sum(axis=1)
@@ -282,12 +291,11 @@ def batch_hamming_distance_matrix(
         2D array of shape (N, N) with Hamming distances.
     """
     N = database.shape[0]
-    popcount_table = _build_popcount_table()
     distances = np.zeros((N, N), dtype=np.int32)
 
     for i in range(N):
         xor_result = np.bitwise_xor(database[i], database[i + 1 :])
-        bit_counts = popcount_table[xor_result].sum(axis=1)
+        bit_counts = _popcount_array(xor_result).sum(axis=1)
         distances[i, i + 1 :] = bit_counts
         distances[i + 1 :, i] = bit_counts
 
