@@ -7,16 +7,17 @@ This test file verifies:
 3. Migration path is valid
 """
 
-import pytest
 import warnings
-import numpy as np
 
-# Test legacy HDV (deprecated)
-from mnemocore.core.hdv import HDV
-from mnemocore.core.exceptions import DimensionMismatchError
+import numpy as np
+import pytest
 
 # Test BinaryHDV with compatibility shims
 from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.exceptions import DimensionMismatchError
+
+# Test legacy HDV (deprecated)
+from mnemocore.core.hdv import HDV
 
 
 class TestLegacyHDV:
@@ -54,7 +55,9 @@ class TestLegacyHDV:
             with warnings.catch_warnings(record=True):
                 warnings.simplefilter("always")
                 v4 = v2 ^ v1
-            np.testing.assert_allclose(v3.vector, v4.vector, atol=1e-8, err_msg="Binding should be commutative")
+            np.testing.assert_allclose(
+                v3.vector, v4.vector, atol=1e-8, err_msg="Binding should be commutative"
+            )
 
     def test_bind_method(self):
         """Test the bind method."""
@@ -180,14 +183,14 @@ class TestMigrationPath:
         binary_hdv = BinaryHDV.random(dimension=16384)
 
         # All these methods should exist on BinaryHDV:
-        assert hasattr(binary_hdv, 'bind')
-        assert hasattr(binary_hdv, 'unbind')
-        assert hasattr(binary_hdv, 'permute')
-        assert hasattr(binary_hdv, 'cosine_similarity')
-        assert hasattr(binary_hdv, 'normalize')
-        assert hasattr(binary_hdv, 'xor_bind')
-        assert hasattr(binary_hdv, 'similarity')
-        assert hasattr(binary_hdv, 'hamming_distance')
+        assert hasattr(binary_hdv, "bind")
+        assert hasattr(binary_hdv, "unbind")
+        assert hasattr(binary_hdv, "permute")
+        assert hasattr(binary_hdv, "cosine_similarity")
+        assert hasattr(binary_hdv, "normalize")
+        assert hasattr(binary_hdv, "xor_bind")
+        assert hasattr(binary_hdv, "similarity")
+        assert hasattr(binary_hdv, "hamming_distance")
 
     def test_xor_binding_self_inverse(self):
         """

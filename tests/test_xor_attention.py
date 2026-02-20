@@ -5,10 +5,10 @@ Tests for XOR-based Project Isolation (Phase 4.1)
 Tests the XORIsolationMask class and its integration with HAIMEngine.
 """
 
-import pytest
 import numpy as np
+import pytest
 
-from mnemocore.core.attention import XORIsolationMask, IsolationConfig
+from mnemocore.core.attention import IsolationConfig, XORIsolationMask
 from mnemocore.core.binary_hdv import BinaryHDV
 
 
@@ -68,9 +68,9 @@ class TestXORIsolationMask:
         cross_similarity = masked_a1.similarity(masked_b2)
 
         # Expected similarity for unrelated vectors is ~0.5
-        assert 0.45 <= cross_similarity <= 0.55, (
-            f"Cross-project similarity should be ~0.5, got {cross_similarity}"
-        )
+        assert (
+            0.45 <= cross_similarity <= 0.55
+        ), f"Cross-project similarity should be ~0.5, got {cross_similarity}"
 
     def test_same_project_vectors_remain_similar(self):
         """Vectors from the same project should maintain their similarity."""
@@ -90,9 +90,9 @@ class TestXORIsolationMask:
         # Same-project similarity should be preserved
         masked_similarity = masked1.similarity(masked2)
 
-        assert masked_similarity == original_similarity, (
-            "Same-project vectors should maintain similarity"
-        )
+        assert (
+            masked_similarity == original_similarity
+        ), "Same-project vectors should maintain similarity"
         assert masked_similarity > 0.99, "Identical vectors should be nearly identical"
 
     def test_isolation_check(self):
@@ -104,14 +104,14 @@ class TestXORIsolationMask:
         vec2 = BinaryHDV.random(16384)
 
         # Different projects should be isolated
-        assert masker.is_isolated(vec1, "project-a", vec2, "project-b"), (
-            "Different projects should be isolated"
-        )
+        assert masker.is_isolated(
+            vec1, "project-a", vec2, "project-b"
+        ), "Different projects should be isolated"
 
         # Same project should not be isolated
-        assert not masker.is_isolated(vec1, "project-a", vec2, "project-a"), (
-            "Same project should not be isolated"
-        )
+        assert not masker.is_isolated(
+            vec1, "project-a", vec2, "project-a"
+        ), "Same project should not be isolated"
 
     def test_disabled_masking_passes_through(self):
         """When disabled, masking should be a no-op."""
@@ -151,10 +151,16 @@ class TestXORIsolationMaskIntegration:
     @pytest.mark.asyncio
     async def test_same_project_query_finds_memory(self):
         """Query with same project_id should find stored memory with good score."""
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
-        import tempfile
         import os
+        import tempfile
+
+        from mnemocore.core.config import (
+            AttentionMaskingConfig,
+            HAIMConfig,
+            PathsConfig,
+            TierConfig,
+        )
+        from mnemocore.core.engine import HAIMEngine
 
         # Use a temporary directory to avoid legacy data interference
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -188,24 +194,34 @@ class TestXORIsolationMaskIntegration:
                 assert node is not None, "Memory should exist"
 
                 # Query with same project_id
-                results = await engine.query("capital of France", project_id="test-project", top_k=5)
+                results = await engine.query(
+                    "capital of France", project_id="test-project", top_k=5
+                )
 
                 # Should find the stored memory with good score
                 # Note: if HOT tier search fails, this may be empty
                 # The core XOR isolation logic is verified in unit tests above
                 if len(results) > 0:
                     result_ids = [r[0] for r in results]
-                    assert node_id in result_ids, f"Should find stored memory {node_id} in results"
+                    assert (
+                        node_id in result_ids
+                    ), f"Should find stored memory {node_id} in results"
             finally:
                 await engine.close()
 
     @pytest.mark.asyncio
     async def test_different_project_cannot_find_memory(self):
         """Query with different project_id should NOT find stored memory with high score."""
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
-        import tempfile
         import os
+        import tempfile
+
+        from mnemocore.core.config import (
+            AttentionMaskingConfig,
+            HAIMConfig,
+            PathsConfig,
+            TierConfig,
+        )
+        from mnemocore.core.engine import HAIMEngine
 
         # Use a temporary directory to avoid legacy data interference
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -235,25 +251,33 @@ class TestXORIsolationMaskIntegration:
                 node_id = await engine.store(content, project_id="project-alpha")
 
                 # Query with different project_id "beta"
-                results = await engine.query("secret code", project_id="project-beta", top_k=5)
+                results = await engine.query(
+                    "secret code", project_id="project-beta", top_k=5
+                )
 
                 # The memory from project-alpha should not appear with high score in project-beta results
                 for rid, score in results:
                     if rid == node_id:
                         # If found, score should be near random (~0.5)
-                        assert score < 0.6, (
-                            f"Cross-project match score too high: {score}"
-                        )
+                        assert (
+                            score < 0.6
+                        ), f"Cross-project match score too high: {score}"
             finally:
                 await engine.close()
 
     @pytest.mark.asyncio
     async def test_no_project_id_no_isolation(self):
         """Query without project_id should work normally (no isolation)."""
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import HAIMConfig, AttentionMaskingConfig, PathsConfig, TierConfig
-        import tempfile
         import os
+        import tempfile
+
+        from mnemocore.core.config import (
+            AttentionMaskingConfig,
+            HAIMConfig,
+            PathsConfig,
+            TierConfig,
+        )
+        from mnemocore.core.engine import HAIMEngine
 
         # Use a temporary directory to avoid legacy data interference
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -329,9 +353,9 @@ class TestXORIsolationProperties:
         masked_b = vec_b.xor_bind(mask)
         masked_distance = masked_a.hamming_distance(masked_b)
 
-        assert original_distance == masked_distance, (
-            "XOR binding should preserve Hamming distance"
-        )
+        assert (
+            original_distance == masked_distance
+        ), "XOR binding should preserve Hamming distance"
 
     def test_mask_distribution_is_uniform(self):
         """Generated masks should have ~50% bit density (uniform random)."""
@@ -346,6 +370,6 @@ class TestXORIsolationProperties:
         density = bits_set / total_bits
 
         # Should be close to 0.5 (uniform random)
-        assert 0.48 <= density <= 0.52, (
-            f"Mask bit density should be ~0.5, got {density}"
-        )
+        assert (
+            0.48 <= density <= 0.52
+        ), f"Mask bit density should be ~0.5, got {density}"

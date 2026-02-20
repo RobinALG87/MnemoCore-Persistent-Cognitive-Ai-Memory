@@ -4,50 +4,41 @@ Tests for MnemoCore Error Handling
 Tests the exception hierarchy, error codes, and FastAPI integration.
 """
 
-import pytest
 import os
 import sys
+
+import pytest
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mnemocore.core.exceptions import (
-    # Base
-    MnemoCoreError,
-    RecoverableError,
-    IrrecoverableError,
-    ErrorCategory,
-    # Storage
-    StorageError,
-    StorageConnectionError,
-    StorageTimeoutError,
-    DataCorruptionError,
-    # Vector
-    VectorError,
-    DimensionMismatchError,
-    VectorOperationError,
-    # Config
-    ConfigurationError,
-    # Circuit Breaker
-    CircuitOpenError,
-    # Memory
-    MemoryOperationError,
-    # Validation
-    ValidationError,
-    MetadataValidationError,
-    AttributeValidationError,
-    # Not Found
-    NotFoundError,
+from mnemocore.core.exceptions import (  # Base; Storage; Vector; Config; Circuit Breaker; Memory; Validation; Not Found; Provider; Utilities
     AgentNotFoundError,
+    AttributeValidationError,
+    CircuitOpenError,
+    ConfigurationError,
+    DataCorruptionError,
+    DependencyMissingError,
+    DimensionMismatchError,
+    ErrorCategory,
+    IrrecoverableError,
     MemoryNotFoundError,
-    # Provider
+    MemoryOperationError,
+    MetadataValidationError,
+    MnemoCoreError,
+    NotFoundError,
     ProviderError,
+    RecoverableError,
+    StorageConnectionError,
+    StorageError,
+    StorageTimeoutError,
     UnsupportedProviderError,
     UnsupportedTransportError,
-    DependencyMissingError,
-    # Utilities
-    wrap_storage_exception,
+    ValidationError,
+    VectorError,
+    VectorOperationError,
     is_debug_mode,
+    wrap_storage_exception,
 )
 
 
@@ -72,9 +63,7 @@ class TestExceptionHierarchy:
     def test_exception_to_dict(self):
         """Test to_dict conversion."""
         exc = ValidationError(
-            field="test_field",
-            reason="Invalid value",
-            value="bad_data"
+            field="test_field", reason="Invalid value", value="bad_data"
         )
         d = exc.to_dict()
         assert d["error"] == "Validation error for 'test_field': Invalid value"
@@ -153,7 +142,9 @@ class TestIrrecoverableErrors:
 
     def test_unsupported_provider_error_is_irrecoverable(self):
         """Unsupported provider errors should be irrecoverable."""
-        exc = UnsupportedProviderError("unknown", supported_providers=["openai", "anthropic"])
+        exc = UnsupportedProviderError(
+            "unknown", supported_providers=["openai", "anthropic"]
+        )
         assert exc.recoverable is False
         assert exc.error_code == "UNSUPPORTED_PROVIDER_ERROR"
         assert exc.provider == "unknown"
@@ -194,9 +185,11 @@ class TestStorageErrorWrapper:
 
     def test_wrap_connection_exception(self):
         """Connection exceptions should be wrapped as StorageConnectionError."""
+
         # Create a mock exception with 'Connection' in the class name
         class ConnectionRefusedError(Exception):
             pass
+
         exc = ConnectionRefusedError("Connection refused")
         wrapped = wrap_storage_exception("qdrant", "search", exc)
         assert isinstance(wrapped, StorageConnectionError)
@@ -315,8 +308,7 @@ class TestUnsupportedTransportError:
     def test_unsupported_transport_error(self):
         """Test unsupported transport error."""
         exc = UnsupportedTransportError(
-            transport="websocket",
-            supported_transports=["stdio", "sse"]
+            transport="websocket", supported_transports=["stdio", "sse"]
         )
         assert exc.recoverable is False
         assert exc.error_code == "UNSUPPORTED_TRANSPORT_ERROR"
@@ -331,8 +323,7 @@ class TestDependencyMissingError:
     def test_dependency_missing_error(self):
         """Test dependency missing error."""
         exc = DependencyMissingError(
-            dependency="mcp",
-            message="Install with: pip install mcp"
+            dependency="mcp", message="Install with: pip install mcp"
         )
         assert exc.recoverable is False
         assert exc.error_code == "DEPENDENCY_MISSING_ERROR"
@@ -348,7 +339,7 @@ class TestErrorContext:
         exc = StorageConnectionError(
             backend="redis",
             message="Connection failed",
-            context={"retry_count": 3, "last_error": "ECONNREFUSED"}
+            context={"retry_count": 3, "last_error": "ECONNREFUSED"},
         )
         assert exc.context["retry_count"] == 3
         assert exc.context["last_error"] == "ECONNREFUSED"

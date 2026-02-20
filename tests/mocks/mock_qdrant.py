@@ -7,9 +7,10 @@ Implements all public methods from mnemocore.core.qdrant_store.QdrantStore
 using Python dictionaries for storage, enabling full test isolation.
 """
 
-from typing import List, Any, Optional, Dict
-from dataclasses import dataclass, field
 import asyncio
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 from loguru import logger
 
@@ -17,6 +18,7 @@ from loguru import logger
 @dataclass
 class MockPointStruct:
     """Mock of qdrant_client.models.PointStruct"""
+
     id: str
     vector: List[float]
     payload: Optional[Dict[str, Any]] = None
@@ -25,6 +27,7 @@ class MockPointStruct:
 @dataclass
 class MockScoredPoint:
     """Mock of qdrant_client.models.ScoredPoint"""
+
     id: str
     score: float
     version: int = 0
@@ -35,6 +38,7 @@ class MockScoredPoint:
 @dataclass
 class MockRecord:
     """Mock of qdrant_client.models.Record"""
+
     id: str
     payload: Optional[Dict[str, Any]] = None
     vector: Optional[List[float]] = None
@@ -117,13 +121,11 @@ class MockQdrantStore:
         for point in points:
             # Handle both MockPointStruct and real PointStruct
             point_id = str(point.id)
-            vector = list(point.vector) if hasattr(point, 'vector') else []
+            vector = list(point.vector) if hasattr(point, "vector") else []
             payload = dict(point.payload) if point.payload else {}
 
             self._collections[collection][point_id] = MockPointStruct(
-                id=point_id,
-                vector=vector,
-                payload=payload
+                id=point_id, vector=vector, payload=payload
             )
 
         logger.debug(f"[MockQdrant] Upserted {len(points)} points to {collection}")
@@ -133,7 +135,7 @@ class MockQdrantStore:
         collection: str,
         query_vector: List[float],
         limit: int = 5,
-        score_threshold: float = 0.0
+        score_threshold: float = 0.0,
     ) -> List[MockScoredPoint]:
         """
         Async semantic search using cosine similarity.
@@ -175,12 +177,14 @@ class MockQdrantStore:
             similarity = float(np.dot(query_arr, point_arr) / (query_norm * point_norm))
 
             if similarity >= score_threshold:
-                results.append(MockScoredPoint(
-                    id=point_id,
-                    score=similarity,
-                    payload=dict(point.payload) if point.payload else {},
-                    vector=list(point.vector)
-                ))
+                results.append(
+                    MockScoredPoint(
+                        id=point_id,
+                        score=similarity,
+                        payload=dict(point.payload) if point.payload else {},
+                        vector=list(point.vector),
+                    )
+                )
 
         # Sort by score descending
         results.sort(key=lambda x: x.score, reverse=True)
@@ -211,7 +215,7 @@ class MockQdrantStore:
         return MockRecord(
             id=point.id,
             payload=dict(point.payload) if point.payload else {},
-            vector=list(point.vector) if point.vector else None
+            vector=list(point.vector) if point.vector else None,
         )
 
     async def scroll(
@@ -219,7 +223,7 @@ class MockQdrantStore:
         collection: str,
         limit: int = 100,
         offset: Any = None,
-        with_vectors: bool = False
+        with_vectors: bool = False,
     ) -> Any:
         """
         Scroll/Iterate over collection (for consolidation).
@@ -246,16 +250,20 @@ class MockQdrantStore:
         start_idx = int(offset) if offset is not None else 0
 
         # Get slice
-        points_slice = all_points[start_idx:start_idx + limit]
+        points_slice = all_points[start_idx : start_idx + limit]
 
         # Convert to records
         records = []
         for point in points_slice:
-            records.append(MockRecord(
-                id=point.id,
-                payload=dict(point.payload) if point.payload else {},
-                vector=list(point.vector) if point.vector and with_vectors else None
-            ))
+            records.append(
+                MockRecord(
+                    id=point.id,
+                    payload=dict(point.payload) if point.payload else {},
+                    vector=(
+                        list(point.vector) if point.vector and with_vectors else None
+                    ),
+                )
+            )
 
         # Calculate next offset
         next_offset = start_idx + len(records) if len(records) == limit else None
@@ -299,7 +307,9 @@ class MockQdrantStore:
         self._collections.clear()
         self._closed = False
 
-    def _get_point_raw(self, collection: str, point_id: str) -> Optional[MockPointStruct]:
+    def _get_point_raw(
+        self, collection: str, point_id: str
+    ) -> Optional[MockPointStruct]:
         """Get raw point data (for testing assertions)."""
         if collection not in self._collections:
             return None

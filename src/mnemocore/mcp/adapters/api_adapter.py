@@ -5,6 +5,7 @@ HTTP client adapter for communicating with MnemoCore API server.
 """
 
 from typing import Any, Dict, Optional
+
 import requests
 
 from mnemocore.core.exceptions import MnemoCoreError
@@ -18,7 +19,12 @@ class MnemoCoreAPIError(MnemoCoreError):
         status_code: HTTP status code if available (None for network errors).
     """
 
-    def __init__(self, message: str, status_code: Optional[int] = None, context: Optional[dict] = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        context: Optional[dict] = None,
+    ):
         ctx = context or {}
         if status_code is not None:
             ctx["status_code"] = status_code
@@ -32,7 +38,9 @@ class MnemoCoreAPIAdapter:
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
 
-    def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _request(
+        self, method: str, path: str, payload: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         headers = {
             "X-API-Key": self.api_key,

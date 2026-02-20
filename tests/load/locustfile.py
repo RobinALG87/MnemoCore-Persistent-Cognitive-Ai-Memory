@@ -9,12 +9,13 @@ Then open http://localhost:8089 to configure and run the load test.
 
 import random
 import string
-from locust import HttpUser, task, between
+
+from locust import HttpUser, between, task
 
 
 def random_content(length: int = 100) -> str:
     """Generate random content string."""
-    return ''.join(random.choices(string.ascii_letters + string.digits + ' ', k=length))
+    return "".join(random.choices(string.ascii_letters + string.digits + " ", k=length))
 
 
 class StoreMemoryUser(HttpUser):
@@ -34,14 +35,11 @@ class StoreMemoryUser(HttpUser):
             "content": random_content(200),
             "metadata": {
                 "source": "load_test",
-                "timestamp": random.randint(1000000000, 2000000000)
-            }
+                "timestamp": random.randint(1000000000, 2000000000),
+            },
         }
         self.client.post(
-            "/memories",
-            json=payload,
-            headers=self.headers,
-            name="/memories [STORE]"
+            "/memories", json=payload, headers=self.headers, name="/memories [STORE]"
         )
 
 
@@ -59,7 +57,7 @@ class QueryMemoryUser(HttpUser):
             "memory search",
             "find similar",
             "cognitive recall",
-            "semantic search"
+            "semantic search",
         ]
 
     @task(20)
@@ -67,9 +65,7 @@ class QueryMemoryUser(HttpUser):
         """Query for similar memories."""
         query = random.choice(self.queries)
         self.client.get(
-            f"/query?q={query}&limit=10",
-            headers=self.headers,
-            name="/query [SEARCH]"
+            f"/query?q={query}&limit=10", headers=self.headers, name="/query [SEARCH]"
         )
 
 
@@ -86,24 +82,16 @@ class MixedUser(HttpUser):
     @task(3)
     def store_memory(self):
         """Store a random memory."""
-        payload = {
-            "content": random_content(150),
-            "metadata": {"source": "mixed_user"}
-        }
+        payload = {"content": random_content(150), "metadata": {"source": "mixed_user"}}
         self.client.post(
-            "/memories",
-            json=payload,
-            headers=self.headers,
-            name="/memories [STORE]"
+            "/memories", json=payload, headers=self.headers, name="/memories [STORE]"
         )
 
     @task(7)
     def query_memory(self):
         """Query for memories."""
         self.client.get(
-            "/query?q=test&limit=5",
-            headers=self.headers,
-            name="/query [SEARCH]"
+            "/query?q=test&limit=5", headers=self.headers, name="/query [SEARCH]"
         )
 
     @task(1)

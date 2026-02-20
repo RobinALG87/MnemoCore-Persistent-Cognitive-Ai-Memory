@@ -15,11 +15,11 @@ tool interface to search it without loading everything.
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
-from collections import Counter
 import math
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -27,6 +27,7 @@ from loguru import logger
 @dataclass
 class RippleChunk:
     """A single chunk of text from the Ripple environment."""
+
     index: int
     text: str
     start_char: int
@@ -41,7 +42,7 @@ class RippleChunk:
     @staticmethod
     def _build_tf(text: str) -> Dict[str, int]:
         """Build term frequency index for this chunk."""
-        tokens = re.findall(r'\b[a-zA-ZåäöÅÄÖ]{2,}\b', text.lower())
+        tokens = re.findall(r"\b[a-zA-ZåäöÅÄÖ]{2,}\b", text.lower())
         return dict(Counter(tokens))
 
     def score_query(self, query_terms: List[str]) -> float:
@@ -110,12 +111,14 @@ class RippleContext:
         while pos < len(text):
             end = min(pos + self.chunk_size, len(text))
             chunk_text = text[pos:end]
-            self.chunks.append(RippleChunk(
-                index=idx,
-                text=chunk_text,
-                start_char=pos,
-                end_char=end,
-            ))
+            self.chunks.append(
+                RippleChunk(
+                    index=idx,
+                    text=chunk_text,
+                    start_char=pos,
+                    end_char=end,
+                )
+            )
             idx += 1
             pos += step
 
@@ -136,15 +139,12 @@ class RippleContext:
         if not self.chunks:
             return []
 
-        query_terms = re.findall(r'\b[a-zA-ZåäöÅÄÖ]{2,}\b', query.lower())
+        query_terms = re.findall(r"\b[a-zA-ZåäöÅÄÖ]{2,}\b", query.lower())
         if not query_terms:
             # Fallback: return first top_k chunks
             return [c.text for c in self.chunks[:top_k]]
 
-        scored = [
-            (chunk, chunk.score_query(query_terms))
-            for chunk in self.chunks
-        ]
+        scored = [(chunk, chunk.score_query(query_terms)) for chunk in self.chunks]
         scored.sort(key=lambda x: x[1], reverse=True)
 
         results = [chunk.text for chunk, score in scored[:top_k] if score > 0]
@@ -204,6 +204,7 @@ class RippleContext:
         Concatenates all memory content fields into a searchable corpus.
         """
         import json
+
         lines = []
         try:
             with open(path, "r", encoding="utf-8") as f:

@@ -16,9 +16,10 @@ This module is kept temporarily for backward compatibility.
 """
 
 import warnings
-import numpy as np
 from dataclasses import dataclass
 from typing import Optional
+
+import numpy as np
 
 from .exceptions import DimensionMismatchError
 
@@ -37,85 +38,73 @@ class HDV:
             "src.core.hdv.HDV is deprecated. Use src.core.binary_hdv.BinaryHDV instead. "
             "This module will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         if self.vector is None:
             # Initialize with random bipolar vector
-            self.vector = np.random.choice(
-                [-1, 1],
-                size=self.dimension
-            )
+            self.vector = np.random.choice([-1, 1], size=self.dimension)
         elif self.vector.shape[0] != self.dimension:
             raise DimensionMismatchError(
                 expected=self.dimension,
                 actual=self.vector.shape[0],
-                operation="HDV initialization"
+                operation="HDV initialization",
             )
 
-
-    def __add__(self, other: 'HDV') -> 'HDV':
+    def __add__(self, other: "HDV") -> "HDV":
         """Superposition: v_A + v_B contains both"""
         warnings.warn(
             "HDV.__add__() is deprecated. Use binary_hdv.majority_bundle() instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         if self.dimension != other.dimension:
             raise DimensionMismatchError(
                 expected=self.dimension,
                 actual=other.dimension,
-                operation="superposition"
+                operation="superposition",
             )
-        return HDV(
-            vector=self.vector + other.vector,
-            dimension=self.dimension
-        )
+        return HDV(vector=self.vector + other.vector, dimension=self.dimension)
 
-    def __xor__(self, other: 'HDV') -> 'HDV':
+    def __xor__(self, other: "HDV") -> "HDV":
         """Binding: v_A ⊗ v_B (HRR circular convolution) (Deprecated: Use .bind() instead)"""
         warnings.warn(
             "HDV.__xor__() is deprecated. Use BinaryHDV.xor_bind() instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         return self.bind(other)
 
-    def bind(self, other: 'HDV') -> 'HDV':
+    def bind(self, other: "HDV") -> "HDV":
         """Binding: v_A ⊗ v_B (HRR circular convolution)"""
         warnings.warn(
             "HDV.bind() is deprecated. Use BinaryHDV.xor_bind() instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         if self.dimension != other.dimension:
             raise DimensionMismatchError(
-                expected=self.dimension,
-                actual=other.dimension,
-                operation="binding"
+                expected=self.dimension, actual=other.dimension, operation="binding"
             )
         return HDV(
             vector=self.fft_convolution(self.vector, other.vector),
-            dimension=self.dimension
+            dimension=self.dimension,
         )
 
-    def unbind(self, other: 'HDV') -> 'HDV':
+    def unbind(self, other: "HDV") -> "HDV":
         """Unbinding: v_AB ⊗ v_A* (Approximate inverse)"""
         warnings.warn(
             "HDV.unbind() is deprecated. Use BinaryHDV.xor_bind() instead (XOR is self-inverse).",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         if self.dimension != other.dimension:
             raise DimensionMismatchError(
-                expected=self.dimension,
-                actual=other.dimension,
-                operation="unbinding"
+                expected=self.dimension, actual=other.dimension, operation="unbinding"
             )
         # Unbinding is convolution with involution
         inv = self.involution(other.vector)
         return HDV(
-            vector=self.fft_convolution(self.vector, inv),
-            dimension=self.dimension
+            vector=self.fft_convolution(self.vector, inv), dimension=self.dimension
         ).normalize()
 
     def involution(self, a: np.ndarray) -> np.ndarray:
@@ -125,52 +114,46 @@ class HDV:
         res[1:] = a[:0:-1]
         return res
 
-    def permute(self, shift: int = 1) -> 'HDV':
+    def permute(self, shift: int = 1) -> "HDV":
         """Permutation for sequence/role representation"""
         warnings.warn(
             "HDV.permute() is deprecated. Use BinaryHDV.permute() instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
-        return HDV(
-            vector=np.roll(self.vector, shift),
-            dimension=self.dimension
-        )
+        return HDV(vector=np.roll(self.vector, shift), dimension=self.dimension)
 
-    def cosine_similarity(self, other: 'HDV') -> float:
+    def cosine_similarity(self, other: "HDV") -> float:
         """Measure semantic similarity"""
         warnings.warn(
             "HDV.cosine_similarity() is deprecated. Use BinaryHDV.similarity() instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         norm_a = np.linalg.norm(self.vector)
         norm_b = np.linalg.norm(other.vector)
-        
+
         if norm_a == 0 or norm_b == 0:
             return 0.0
-            
+
         return np.dot(self.vector, other.vector) / (norm_a * norm_b)
 
-    def normalize(self) -> 'HDV':
+    def normalize(self) -> "HDV":
         """Binarize for cleaner superposition"""
         warnings.warn(
             "HDV.normalize() is deprecated. BinaryHDV vectors are already binary.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
-        # np.sign returns 0 for 0, we want to avoid 0s in bipolar vectors generally, 
+        # np.sign returns 0 for 0, we want to avoid 0s in bipolar vectors generally,
         # but for superposition result it's standard to threshold.
-        # If 0, we can map to 1 or -1, or keep 0 (tertiary). 
+        # If 0, we can map to 1 or -1, or keep 0 (tertiary).
         # For strict bipolar, we usually map >=0 to 1, <0 to -1.
-        
+
         v = np.sign(self.vector)
-        v[v == 0] = 1 # Handle zero case deterministically
-        
-        return HDV(
-            vector=v.astype(int),
-            dimension=self.dimension
-        )
+        v[v == 0] = 1  # Handle zero case deterministically
+
+        return HDV(vector=v.astype(int), dimension=self.dimension)
 
     @staticmethod
     def fft_convolution(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -178,7 +161,7 @@ class HDV:
         warnings.warn(
             "HDV.fft_convolution() is deprecated. BinaryHDV uses XOR binding instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         fft_a = np.fft.fft(a)
         fft_b = np.fft.fft(b)

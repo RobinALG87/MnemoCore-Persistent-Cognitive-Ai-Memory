@@ -7,28 +7,31 @@ Integrates with Redis Subconscious Bus to publish insights.
 """
 
 import asyncio
-import aiohttp
 import json
+import os
 import random
+import sys
 import time
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
-import sys
-import os
+from typing import Any, Dict, List, Optional
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import aiohttp
 
-from mnemocore.core.engine import HAIMEngine
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+
 from mnemocore.core.async_storage import AsyncRedisStorage
 from mnemocore.core.config import get_config
-from mnemocore.meta.learning_journal import LearningJournal
-from mnemocore.core.node import MemoryNode
+from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.metrics import (
-    DREAM_LOOP_TOTAL,
-    DREAM_LOOP_ITERATION_SECONDS,
+    DREAM_LOOP_ACTIVE,
     DREAM_LOOP_INSIGHTS_GENERATED,
-    DREAM_LOOP_ACTIVE
+    DREAM_LOOP_ITERATION_SECONDS,
+    DREAM_LOOP_TOTAL,
 )
+from mnemocore.core.node import MemoryNode
+from mnemocore.meta.learning_journal import LearningJournal
 
 # Default Config (overridden by config.yaml)
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -49,7 +52,9 @@ def _write_state_to_disk(state: Dict[str, Any], filepath: str):
 class SubconsciousDaemon:
     """The always-running background mind."""
 
-    def __init__(self, storage: Optional[AsyncRedisStorage] = None, config: Optional[Any] = None):
+    def __init__(
+        self, storage: Optional[AsyncRedisStorage] = None, config: Optional[Any] = None
+    ):
         """
         Initialize SubconsciousDaemon with optional dependency injection.
 
@@ -61,14 +66,18 @@ class SubconsciousDaemon:
         self._config = config or get_config()
 
         # Dream loop configuration from config.yaml
-        dream_loop_config = getattr(self._config, 'dream_loop', None)
+        dream_loop_config = getattr(self._config, "dream_loop", None)
         if dream_loop_config:
-            self.ollama_url = getattr(dream_loop_config, 'ollama_url', DEFAULT_OLLAMA_URL)
-            self.model = getattr(dream_loop_config, 'model', DEFAULT_MODEL)
-            self.frequency_seconds = getattr(dream_loop_config, 'frequency_seconds', DEFAULT_CYCLE_INTERVAL)
-            self.batch_size = getattr(dream_loop_config, 'batch_size', 10)
-            self.max_iterations = getattr(dream_loop_config, 'max_iterations', 0)
-            self.dream_loop_enabled = getattr(dream_loop_config, 'enabled', True)
+            self.ollama_url = getattr(
+                dream_loop_config, "ollama_url", DEFAULT_OLLAMA_URL
+            )
+            self.model = getattr(dream_loop_config, "model", DEFAULT_MODEL)
+            self.frequency_seconds = getattr(
+                dream_loop_config, "frequency_seconds", DEFAULT_CYCLE_INTERVAL
+            )
+            self.batch_size = getattr(dream_loop_config, "batch_size", 10)
+            self.max_iterations = getattr(dream_loop_config, "max_iterations", 0)
+            self.dream_loop_enabled = getattr(dream_loop_config, "enabled", True)
         else:
             self.ollama_url = DEFAULT_OLLAMA_URL
             self.model = DEFAULT_MODEL
@@ -92,7 +101,7 @@ class SubconsciousDaemon:
             "parallel_every": 3,
             "value_every": 10,
             "meta_every": 7,
-            "cleanup_every": 20
+            "cleanup_every": 20,
         }
         self.activity_window: List[int] = []
         self.low_activity_streak = 0
@@ -110,7 +119,7 @@ class SubconsciousDaemon:
         """Request graceful stop of the daemon (async-safe)."""
         self._stop_event.set()
         self.running = False
-        
+
     def log(self, msg: str):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{timestamp}] {msg}"
@@ -126,8 +135,12 @@ class SubconsciousDaemon:
             with open(EVOLUTION_STATE_PATH, "r") as f:
                 state = json.load(f)
             self.cycle_count = int(state.get("cycle_count", self.cycle_count))
-            self.insights_generated = int(state.get("insights_generated", self.insights_generated))
-            self.current_cycle_interval = int(state.get("current_cycle_interval", self.current_cycle_interval))
+            self.insights_generated = int(
+                state.get("insights_generated", self.insights_generated)
+            )
+            self.current_cycle_interval = int(
+                state.get("current_cycle_interval", self.current_cycle_interval)
+            )
             saved_schedule = state.get("schedule", {})
             if isinstance(saved_schedule, dict):
                 for k in self.schedule:
@@ -152,7 +165,9 @@ class SubconsciousDaemon:
         }
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _write_state_to_disk, state, EVOLUTION_STATE_PATH)
+            await loop.run_in_executor(
+                None, _write_state_to_disk, state, EVOLUTION_STATE_PATH
+            )
         except Exception as e:
             self.log(f"Failed to save evolution state: {e}")
 
@@ -190,7 +205,9 @@ class SubconsciousDaemon:
 
         if self.low_activity_streak >= 4:
             self.schedule["concept_every"] = max(2, self.schedule["concept_every"] - 1)
-            self.schedule["parallel_every"] = max(2, self.schedule["parallel_every"] - 1)
+            self.schedule["parallel_every"] = max(
+                2, self.schedule["parallel_every"] - 1
+            )
             self.schedule["meta_every"] = max(3, self.schedule["meta_every"] - 1)
             self.current_cycle_interval = max(35, self.current_cycle_interval - 5)
             self.low_activity_streak = 0
@@ -232,22 +249,21 @@ class SubconsciousDaemon:
             tags=["subconscious", "continuous-evolution"],
             surprise=surprise,
         )
-    
+
     async def query_ollama(self, prompt: str, max_tokens: int = 200) -> str:
         """Query local Gemma model."""
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {
-                "num_predict": max_tokens,
-                "temperature": 0.7
-            }
+            "options": {"num_predict": max_tokens, "temperature": 0.7},
         }
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(self.ollama_url, json=payload, timeout=30) as resp:
+                async with session.post(
+                    self.ollama_url, json=payload, timeout=30
+                ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return data.get("response", "").strip()
@@ -257,16 +273,16 @@ class SubconsciousDaemon:
         except Exception as e:
             self.log(f"Ollama connection error: {e}")
             return ""
-    
+
     async def extract_concepts(self, memories: List[MemoryNode]) -> List[Dict]:
         """Extract concepts from recent memories."""
         if not memories:
             return []
-            
+
         # Sample up to 5 memories
         sample = random.sample(memories, min(5, len(memories)))
         contents = [m.content[:200] for m in sample]
-        
+
         prompt = f"""Analyze these memory fragments and extract key concepts.
 Output JSON array of concepts with attributes.
 
@@ -277,7 +293,7 @@ Output format: [{{"name": "concept", "category": "type", "connections": ["relate
 Only output valid JSON array, nothing else."""
 
         response = await self.query_ollama(prompt, max_tokens=300)
-        
+
         try:
             # Try to parse JSON
             if "[" in response:
@@ -285,18 +301,18 @@ Only output valid JSON array, nothing else."""
                 end = response.rindex("]") + 1
                 concepts = json.loads(response[start:end])
                 return concepts
-        except:
+        except Exception:
             pass
         return []
-    
+
     async def draw_parallels(self, memories: List[MemoryNode]) -> List[str]:
         """Find unexpected connections between memories."""
         if len(memories) < 2:
             return []
-            
+
         # Pick 2 random memories
         sample = random.sample(memories, 2)
-        
+
         prompt = f"""Find a non-obvious parallel or connection between these two ideas:
 
 1: {sample[0].content[:200]}
@@ -306,29 +322,29 @@ Only output valid JSON array, nothing else."""
 Output ONE insight about how these connect. Be creative but logical. Max 50 words."""
 
         response = await self.query_ollama(prompt, max_tokens=100)
-        
+
         if response and len(response) > 20:
             return [response]
         return []
-    
+
     async def value_memories(self, memories: List[MemoryNode]) -> Dict[str, float]:
         """Re-evaluate memory importance based on patterns."""
         if not memories:
             return {}
-            
+
         # Sample memories for valuation
         sample = random.sample(memories, min(10, len(memories)))
-        
+
         prompt = f"""Rate each memory's strategic value (0.0-1.0) for a tech entrepreneur focused on expansion.
 
 Memories:
-{chr(10).join(f'{i+1}. {m.content[:100]}' for i, m in enumerate(sample))}
+{chr(10).join(f'{i + 1}. {m.content[:100]}' for i, m in enumerate(sample))}
 
 Output format: {{"1": 0.8, "2": 0.3, ...}}
 Only output valid JSON object."""
 
         response = await self.query_ollama(prompt, max_tokens=200)
-        
+
         try:
             if "{" in response:
                 start = response.index("{")
@@ -341,18 +357,18 @@ Only output valid JSON object."""
                     if key in values:
                         result[m.id] = float(values[key])
                 return result
-        except:
+        except Exception:
             pass
         return {}
-    
+
     async def generate_insight(self, memories: List[MemoryNode]) -> Optional[str]:
         """Generate a meta-insight from memory patterns."""
         if len(memories) < 3:
             return None
-            
+
         sample = random.sample(memories, min(8, len(memories)))
         contents = [m.content[:150] for m in sample]
-        
+
         prompt = f"""You are analyzing patterns in an entrepreneur's memory system.
         
 Recent memories:
@@ -367,23 +383,27 @@ Generate ONE actionable insight or pattern you notice. Focus on:
 Output just the insight, max 60 words."""
 
         response = await self.query_ollama(prompt, max_tokens=120)
-        
+
         if response and len(response) > 30:
             return response
         return None
-    
+
     async def store_insight(self, content: str, meta: Dict[str, Any]):
         """Helper to store insight and publish event."""
         # Store in Engine (Sync)
         # Offload sync I/O to thread to avoid blocking loop
         mem_id = await asyncio.to_thread(self.engine.store, content, metadata=meta)
-        
+
         # Publish Event (Async)
         if self.storage:
             try:
                 await self.storage.publish_event(
-                    "insight.generated", 
-                    {"id": mem_id, "type": meta.get("type", "insight"), "content": content[:50]}
+                    "insight.generated",
+                    {
+                        "id": mem_id,
+                        "type": meta.get("type", "insight"),
+                        "content": content[:50],
+                    },
                 )
             except Exception as e:
                 self.log(f"Failed to publish event: {e}")
@@ -402,7 +422,6 @@ Output just the insight, max 60 words."""
             "memories": len(self.engine.tier_manager.hot),
             "synapses": len(self.engine.synapses),
         }
-
 
         # Get all hot memories as list (references only, no copy)
         memories = list(self.engine.tier_manager.hot.values())
@@ -431,7 +450,9 @@ Output just the insight, max 60 words."""
                     DREAM_LOOP_INSIGHTS_GENERATED.labels(type="concept").inc()
                     # Publish concept event?
                     if self.storage:
-                        await self.storage.publish_event("concept.extracted", {"name": concept["name"]})
+                        await self.storage.publish_event(
+                            "concept.extracted", {"name": concept["name"]}
+                        )
 
         # 2. Draw parallels (every 3 cycles)
         if self.cycle_count % self.schedule["parallel_every"] == 0:
@@ -440,7 +461,11 @@ Output just the insight, max 60 words."""
                 # Store parallel as new memory
                 await self.store_insight(
                     f"[PARALLEL] {p}",
-                    meta={"type": "insight", "source": "subconscious", "cycle": self.cycle_count}
+                    meta={
+                        "type": "insight",
+                        "source": "subconscious",
+                        "cycle": self.cycle_count,
+                    },
                 )
                 self.insights_generated += 1
                 metrics["parallels"] += 1
@@ -463,7 +488,11 @@ Output just the insight, max 60 words."""
             if insight:
                 await self.store_insight(
                     f"[META-INSIGHT] {insight}",
-                    meta={"type": "meta", "source": "subconscious", "cycle": self.cycle_count}
+                    meta={
+                        "type": "meta",
+                        "source": "subconscious",
+                        "cycle": self.cycle_count,
+                    },
                 )
                 self.insights_generated += 1
                 metrics["meta_insights"] += 1
@@ -497,12 +526,13 @@ Output just the insight, max 60 words."""
             f"adaptation={metrics.get('adaptation', 'none')} interval={self.current_cycle_interval}s "
             f"duration={iteration_duration:.2f}s"
         )
-    
+
     async def _consume_events(self):
         """Consume events from the Subconscious Bus (Redis Stream)."""
-        if not self.storage: return
+        if not self.storage:
+            return
 
-        last_id = "$" # New events only
+        last_id = "$"  # New events only
         config = get_config()
         stream_key = config.redis.stream_key
 
@@ -531,76 +561,77 @@ Output just the insight, max 60 words."""
     async def _process_event(self, event_data: Dict[str, Any]):
         """Handle incoming events."""
         event_type = event_data.get("type")
-        
+
         if event_type == "memory.created":
             mem_id = event_data.get("id")
-            if not mem_id: return
-            
+            if not mem_id:
+                return
+
             # Check if we already have it (created by us?)
             if mem_id in self.engine.tier_manager.hot:
                 return
-                
+
             self.log(f"Received sync event: memory.created ({mem_id})")
-            
+
             # Fetch full memory from Redis
             data = await self.storage.retrieve_memory(mem_id)
             if not data:
                 self.log(f"Could not retrieve memory {mem_id} from storage")
                 return
-                
+
             # Reconstruct and add to Engine
             try:
-                # Need to handle HDV reconstruction. 
+                # Need to handle HDV reconstruction.
                 # For now, we might need to load it via Engine's logic or construct manually.
                 # Engine's logic is best to ensure consistency.
                 # But Engine doesn't have a "load_from_redis" method readily available on single node.
                 # TierManager has _load_from_warm, but that's for Qdrant/File.
                 # We can manually reconstruct ephemeral node for HOT tier.
-                
-                # Check if it has HDV vector in Redis? 
+
+                # Check if it has HDV vector in Redis?
                 # AsyncRedisStorage store_memory stores metadata + content.
                 # It does NOT store the vector currently in the metadata payload in `store_memory` in `api/main.py`.
                 # API calls engine.store -> which creates node -> then API calls storage.store_memory.
                 # The node in engine has the vector.
                 # But Daemon is a separate process. It needs the vector.
-                
+
                 # Critical Gap: Redis payload doesn't have the vector.
                 # We need to fetch it from Qdrant/Warm if it was persisted there?
                 # Engine.store puts it in HOT (RAM) and Appends to `memory.jsonl` (Legacy).
                 # It does NOT immediately put it in Qdrant (Warm).
-                
+
                 # So Daemon cannot load it from Qdrant yet.
                 # It can load it from `memory.jsonl` if it reads the file?
                 # Or we must include the vector in the Redis payload or `memory.created` event?
                 # Including vector in Redis event is heavy.
-                
+
                 # Option A: Read from `memory.jsonl` tail?
                 # Option B: Pass vector in Redis (might be large).
                 # Option C: API should also save to Qdrant immediately if we want shared state?
                 # But TierManager logic says "Starts in HOT".
-                
+
                 # Workaround for Phase 3.5:
                 # Since Engine appends to `memory.jsonl`, we can try to re-load from there.
                 # Or, we update API to include the vector/seed in Redis?
                 # Re-encoding in Daemon is an option if we have the content.
                 # HAIM is distinct: Same content = Same Vector (if deterministic).
-                
+
                 # Let's use re-encoding for now.
                 content = data.get("content", "")
                 if content:
                     # Encode
                     hdv = self.engine.encode_content(content)
-                    
+
                     # Create Node
                     node = MemoryNode(
                         id=data["id"],
                         hdv=hdv,
                         content=content,
-                        metadata=data.get("metadata", {})
+                        metadata=data.get("metadata", {}),
                     )
                     node.ltp_strength = float(data.get("ltp_strength", 0.5))
                     node.created_at = datetime.fromisoformat(data["created_at"])
-                    
+
                     # Add to Daemon's Engine
                     self.engine.tier_manager.add_memory(node)
                     self.log(f"Synced memory {mem_id} to HOT tier")
@@ -630,7 +661,9 @@ Output just the insight, max 60 words."""
                 password=config.redis.password,
             )
         self.log("Subconscious daemon starting...")
-        self.log(f"Model: {self.model} | Cycle interval: {self.frequency_seconds}s | Max iterations: {self.max_iterations or 'unlimited'}")
+        self.log(
+            f"Model: {self.model} | Cycle interval: {self.frequency_seconds}s | Max iterations: {self.max_iterations or 'unlimited'}"
+        )
 
         # Start event consumer task
         asyncio.create_task(self._consume_events())
@@ -675,6 +708,7 @@ async def main():
 
     # Handle graceful shutdown
     import signal
+
     def shutdown(sig, frame):
         daemon.stop()
 

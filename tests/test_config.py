@@ -11,11 +11,11 @@ import yaml
 
 from mnemocore.core.config import (
     HAIMConfig,
-    load_config,
-    get_config,
-    reset_config,
-    TierConfig,
     LTPConfig,
+    TierConfig,
+    get_config,
+    load_config,
+    reset_config,
 )
 from mnemocore.core.exceptions import ConfigurationError
 
@@ -202,6 +202,7 @@ class TestConfigValidation:
             with pytest.raises(ConfigurationError):
                 load_config(path)
 
+
 class TestSecurityOverrides:
     def test_redis_password_override(self, sample_config_path):
         os.environ["HAIM_REDIS_PASSWORD"] = "secret_password"
@@ -226,12 +227,9 @@ class TestSecurityOverrides:
                 "dimensionality": 1024,
                 "redis": {
                     "url": "redis://localhost:6379/0",
-                    "password": "yaml_password"
+                    "password": "yaml_password",
                 },
-                "qdrant": {
-                    "url": "http://localhost:6333",
-                    "api_key": "yaml_api_key"
-                }
+                "qdrant": {"url": "http://localhost:6333", "api_key": "yaml_api_key"},
             }
         }
         config_path = tmp_path / "config_security.yaml"

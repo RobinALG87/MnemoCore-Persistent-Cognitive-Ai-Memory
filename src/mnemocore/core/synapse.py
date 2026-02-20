@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
 import math
+from datetime import datetime, timezone
 
 from .config import get_config
 
@@ -8,10 +8,7 @@ class SynapticConnection:
     """Biologically-inspired synapse with decay"""
 
     def __init__(
-        self,
-        neuron_a_id: str,
-        neuron_b_id: str,
-        initial_strength: float = 0.1
+        self, neuron_a_id: str, neuron_b_id: str, initial_strength: float = 0.1
     ):
         self.neuron_a_id = neuron_a_id
         self.neuron_b_id = neuron_b_id

@@ -19,11 +19,10 @@ All batch operations are NumPy-vectorized (no Python loops for distance computat
 """
 
 import hashlib
+import re
 from typing import List, Optional, Tuple
 
 import numpy as np
-import re
-
 
 # Cached lookup table for popcount (bits set per byte value 0-255)
 _POPCOUNT_TABLE: Optional[np.ndarray] = None
@@ -60,9 +59,9 @@ class BinaryHDV:
             dimension: Number of logical bits.
         """
         assert data.dtype == np.uint8, f"Expected uint8, got {data.dtype}"
-        assert data.shape == (dimension // 8,), (
-            f"Shape mismatch: expected ({dimension // 8},), got {data.shape}"
-        )
+        assert data.shape == (
+            dimension // 8,
+        ), f"Shape mismatch: expected ({dimension // 8},), got {data.shape}"
         self.data = data
         self.dimension = dimension
 
@@ -88,9 +87,7 @@ class BinaryHDV:
     def ones(cls, dimension: int = 16384) -> "BinaryHDV":
         """All-one vector (every bit set)."""
         n_bytes = dimension // 8
-        return cls(
-            data=np.full(n_bytes, 0xFF, dtype=np.uint8), dimension=dimension
-        )
+        return cls(data=np.full(n_bytes, 0xFF, dtype=np.uint8), dimension=dimension)
 
     @classmethod
     def from_seed(cls, seed: str, dimension: int = 16384) -> "BinaryHDV":
@@ -139,15 +136,11 @@ class BinaryHDV:
 
         bits = np.unpackbits(self.data)
         bits = np.roll(bits, shift)
-        return BinaryHDV(
-            data=np.packbits(bits), dimension=self.dimension
-        )
+        return BinaryHDV(data=np.packbits(bits), dimension=self.dimension)
 
     def invert(self) -> "BinaryHDV":
         """Bitwise NOT — produces the maximally distant vector."""
-        return BinaryHDV(
-            data=np.bitwise_not(self.data), dimension=self.dimension
-        )
+        return BinaryHDV(data=np.bitwise_not(self.data), dimension=self.dimension)
 
     def hamming_distance(self, other: "BinaryHDV") -> int:
         """
@@ -243,9 +236,7 @@ class BinaryHDV:
 # ======================================================================
 
 
-def batch_hamming_distance(
-    query: BinaryHDV, database: np.ndarray
-) -> np.ndarray:
+def batch_hamming_distance(query: BinaryHDV, database: np.ndarray) -> np.ndarray:
     """
     Compute Hamming distance between a query vector and all vectors in a database.
 
@@ -332,9 +323,7 @@ def majority_bundle(
     if randomize_ties:
         ties = sums == threshold
         if ties.any():
-            result_bits[ties] = np.random.randint(
-                0, 2, size=ties.sum(), dtype=np.uint8
-            )
+            result_bits[ties] = np.random.randint(0, 2, size=ties.sum(), dtype=np.uint8)
 
     return BinaryHDV(data=np.packbits(result_bits), dimension=dimension)
 
@@ -365,7 +354,9 @@ def top_k_nearest(
     sorted_indices = indices[sort_order]
     sorted_distances = selected_distances[sort_order]
 
-    return [(int(idx), int(dist)) for idx, dist in zip(sorted_indices, sorted_distances)]
+    return [
+        (int(idx), int(dist)) for idx, dist in zip(sorted_indices, sorted_distances)
+    ]
 
 
 # ======================================================================
@@ -405,7 +396,7 @@ class TextEncoder:
         All position-bound tokens are bundled via majority vote.
         """
         # BUG-02 Fix: strip punctuation and normalize spaces
-        normalized = re.sub(r'[^\w\s]', '', text).lower()
+        normalized = re.sub(r"[^\w\s]", "", text).lower()
         tokens = normalized.split()
         if not tokens:
             return BinaryHDV.random(self.dimension)
@@ -432,9 +423,7 @@ class TextEncoder:
 
         return BinaryHDV(data=np.packbits(result_bits), dimension=self.dimension)
 
-    def encode_with_context(
-        self, text: str, context_hdv: BinaryHDV
-    ) -> BinaryHDV:
+    def encode_with_context(self, text: str, context_hdv: BinaryHDV) -> BinaryHDV:
         """
         Encode text and bind it with a context vector.
 

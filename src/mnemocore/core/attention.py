@@ -42,8 +42,9 @@ from .binary_hdv import BinaryHDV, majority_bundle
 @dataclass
 class AttentionConfig:
     """Tunable hyperparameters for XOR attention."""
-    alpha: float = 0.6          # Weight for raw similarity
-    beta: float = 0.4           # Weight for novelty score from XOR mask
+
+    alpha: float = 0.6  # Weight for raw similarity
+    beta: float = 0.4  # Weight for novelty score from XOR mask
     context_sample_n: int = 50  # How many HOT nodes to include in context key
     min_novelty_boost: float = 0.0  # Floor for novelty contribution
     enabled: bool = True
@@ -57,6 +58,7 @@ class AttentionConfig:
 @dataclass
 class AttentionResult:
     """Enriched result from contextual reranking."""
+
     node_id: str
     raw_score: float
     novelty_score: float
@@ -84,7 +86,9 @@ class XORAttentionMasker:
         Falls back to zero-vector if no context is available.
         """
         if not context_nodes_hdv:
-            return BinaryHDV.zeros(context_nodes_hdv[0].dimension if context_nodes_hdv else 16384)
+            return BinaryHDV.zeros(
+                context_nodes_hdv[0].dimension if context_nodes_hdv else 16384
+            )
 
         return majority_bundle(context_nodes_hdv)
 
@@ -160,9 +164,7 @@ class XORAttentionMasker:
         results.sort(key=lambda r: r.composite_score, reverse=True)
         return results
 
-    def extract_scores(
-        self, results: List[AttentionResult]
-    ) -> List[Tuple[str, float]]:
+    def extract_scores(self, results: List[AttentionResult]) -> List[Tuple[str, float]]:
         """Convert AttentionResult list to the standard (node_id, score) tuple format."""
         return [(r.node_id, r.composite_score) for r in results]
 
@@ -175,6 +177,7 @@ class XORAttentionMasker:
 @dataclass
 class IsolationConfig:
     """Configuration for XOR-based project isolation."""
+
     enabled: bool = True
     dimension: int = 16384
 
@@ -268,7 +271,9 @@ class XORIsolationMask:
         mask = BinaryHDV(data=mask_bytes, dimension=self.config.dimension)
         self._mask_cache[project_id] = mask
 
-        logger.debug(f"Generated isolation mask for project '{project_id}' (seed={seed})")
+        logger.debug(
+            f"Generated isolation mask for project '{project_id}' (seed={seed})"
+        )
         return mask
 
     def apply_mask(self, hdv: BinaryHDV, project_id: str) -> BinaryHDV:

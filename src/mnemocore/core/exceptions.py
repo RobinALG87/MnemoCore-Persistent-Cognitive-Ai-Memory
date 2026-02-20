@@ -31,13 +31,14 @@ Usage Guidelines:
     - Use error_code for API responses
 """
 
-from typing import Optional, Any
-from enum import Enum
 import os
+from enum import Enum
+from typing import Any, Optional
 
 
 class ErrorCategory(Enum):
     """Categories for error classification."""
+
     STORAGE = "STORAGE"
     VECTOR = "VECTOR"
     CONFIG = "CONFIG"
@@ -68,7 +69,7 @@ class MnemoCoreError(Exception):
         message: str,
         context: Optional[dict] = None,
         error_code: Optional[str] = None,
-        recoverable: Optional[bool] = None
+        recoverable: Optional[bool] = None,
     ):
         super().__init__(message)
         self.message = message
@@ -98,6 +99,7 @@ class MnemoCoreError(Exception):
 
         if include_traceback:
             import traceback
+
             result["traceback"] = traceback.format_exc()
 
         if self.context:
@@ -110,6 +112,7 @@ class MnemoCoreError(Exception):
 # Base Categories: Recoverable vs Irrecoverable
 # =============================================================================
 
+
 class RecoverableError(MnemoCoreError):
     """
     Base class for recoverable errors.
@@ -120,6 +123,7 @@ class RecoverableError(MnemoCoreError):
     - Circuit breaker open
     - Rate limiting
     """
+
     recoverable = True
 
 
@@ -133,6 +137,7 @@ class IrrecoverableError(MnemoCoreError):
     - Validation failures
     - Resource not found
     """
+
     recoverable = False
 
 
@@ -140,17 +145,25 @@ class IrrecoverableError(MnemoCoreError):
 # Storage Errors
 # =============================================================================
 
+
 class StorageError(MnemoCoreError):
     """Base exception for storage-related errors."""
+
     error_code = "STORAGE_ERROR"
     category = ErrorCategory.STORAGE
 
 
 class StorageConnectionError(RecoverableError, StorageError):
     """Raised when connection to storage backend fails."""
+
     error_code = "STORAGE_CONNECTION_ERROR"
 
-    def __init__(self, backend: str, message: str = "Connection failed", context: Optional[dict] = None):
+    def __init__(
+        self,
+        backend: str,
+        message: str = "Connection failed",
+        context: Optional[dict] = None,
+    ):
         ctx = {"backend": backend}
         if context:
             ctx.update(context)
@@ -160,9 +173,16 @@ class StorageConnectionError(RecoverableError, StorageError):
 
 class StorageTimeoutError(RecoverableError, StorageError):
     """Raised when a storage operation times out."""
+
     error_code = "STORAGE_TIMEOUT_ERROR"
 
-    def __init__(self, backend: str, operation: str, timeout_ms: Optional[int] = None, context: Optional[dict] = None):
+    def __init__(
+        self,
+        backend: str,
+        operation: str,
+        timeout_ms: Optional[int] = None,
+        context: Optional[dict] = None,
+    ):
         msg = f"[{backend}] Operation '{operation}' timed out"
         ctx = {"backend": backend, "operation": operation}
         if timeout_ms is not None:
@@ -176,9 +196,15 @@ class StorageTimeoutError(RecoverableError, StorageError):
 
 class DataCorruptionError(IrrecoverableError, StorageError):
     """Raised when stored data is corrupt or cannot be deserialized."""
+
     error_code = "DATA_CORRUPTION_ERROR"
 
-    def __init__(self, resource_id: str, reason: str = "Data corruption detected", context: Optional[dict] = None):
+    def __init__(
+        self,
+        resource_id: str,
+        reason: str = "Data corruption detected",
+        context: Optional[dict] = None,
+    ):
         ctx = {"resource_id": resource_id}
         if context:
             ctx.update(context)
@@ -190,23 +216,31 @@ class DataCorruptionError(IrrecoverableError, StorageError):
 # Vector Errors
 # =============================================================================
 
+
 class VectorError(MnemoCoreError):
     """Base exception for vector/hyperdimensional operations."""
+
     error_code = "VECTOR_ERROR"
     category = ErrorCategory.VECTOR
 
 
 class DimensionMismatchError(IrrecoverableError, VectorError):
     """Raised when vector dimensions do not match."""
+
     error_code = "DIMENSION_MISMATCH_ERROR"
 
-    def __init__(self, expected: int, actual: int, operation: str = "operation", context: Optional[dict] = None):
+    def __init__(
+        self,
+        expected: int,
+        actual: int,
+        operation: str = "operation",
+        context: Optional[dict] = None,
+    ):
         ctx = {"expected": expected, "actual": actual, "operation": operation}
         if context:
             ctx.update(context)
         super().__init__(
-            f"Dimension mismatch in {operation}: expected {expected}, got {actual}",
-            ctx
+            f"Dimension mismatch in {operation}: expected {expected}, got {actual}", ctx
         )
         self.expected = expected
         self.actual = actual
@@ -215,6 +249,7 @@ class DimensionMismatchError(IrrecoverableError, VectorError):
 
 class VectorOperationError(IrrecoverableError, VectorError):
     """Raised when a vector operation fails."""
+
     error_code = "VECTOR_OPERATION_ERROR"
 
     def __init__(self, operation: str, reason: str, context: Optional[dict] = None):
@@ -229,8 +264,10 @@ class VectorOperationError(IrrecoverableError, VectorError):
 # Configuration Errors
 # =============================================================================
 
+
 class ConfigurationError(IrrecoverableError):
     """Raised when configuration is invalid or missing."""
+
     error_code = "CONFIGURATION_ERROR"
     category = ErrorCategory.CONFIG
 
@@ -246,18 +283,21 @@ class ConfigurationError(IrrecoverableError):
 # Circuit Breaker Errors
 # =============================================================================
 
+
 class CircuitOpenError(RecoverableError):
     """Raised when a circuit breaker is open and blocking requests."""
+
     error_code = "CIRCUIT_OPEN_ERROR"
     category = ErrorCategory.SYSTEM
 
-    def __init__(self, breaker_name: str, failures: int, context: Optional[dict] = None):
+    def __init__(
+        self, breaker_name: str, failures: int, context: Optional[dict] = None
+    ):
         ctx = {"breaker_name": breaker_name, "failures": failures}
         if context:
             ctx.update(context)
         super().__init__(
-            f"Circuit breaker '{breaker_name}' is OPEN after {failures} failures",
-            ctx
+            f"Circuit breaker '{breaker_name}' is OPEN after {failures} failures", ctx
         )
         self.breaker_name = breaker_name
         self.failures = failures
@@ -267,12 +307,20 @@ class CircuitOpenError(RecoverableError):
 # Memory Operation Errors
 # =============================================================================
 
+
 class MemoryOperationError(MnemoCoreError):
     """Raised when a memory operation (store, retrieve, delete) fails."""
+
     error_code = "MEMORY_OPERATION_ERROR"
     category = ErrorCategory.MEMORY
 
-    def __init__(self, operation: str, node_id: Optional[str], reason: str, context: Optional[dict] = None):
+    def __init__(
+        self,
+        operation: str,
+        node_id: Optional[str],
+        reason: str,
+        context: Optional[dict] = None,
+    ):
         ctx = {"operation": operation}
         if node_id:
             ctx["node_id"] = node_id
@@ -287,12 +335,16 @@ class MemoryOperationError(MnemoCoreError):
 # Validation Errors
 # =============================================================================
 
+
 class ValidationError(IrrecoverableError):
     """Raised when input validation fails."""
+
     error_code = "VALIDATION_ERROR"
     category = ErrorCategory.VALIDATION
 
-    def __init__(self, field: str, reason: str, value: Any = None, context: Optional[dict] = None):
+    def __init__(
+        self, field: str, reason: str, value: Any = None, context: Optional[dict] = None
+    ):
         ctx = {"field": field}
         if value is not None:
             # Truncate large values
@@ -309,11 +361,13 @@ class ValidationError(IrrecoverableError):
 
 class MetadataValidationError(ValidationError):
     """Raised when metadata validation fails."""
+
     error_code = "METADATA_VALIDATION_ERROR"
 
 
 class AttributeValidationError(ValidationError):
     """Raised when attribute validation fails."""
+
     error_code = "ATTRIBUTE_VALIDATION_ERROR"
 
 
@@ -321,12 +375,16 @@ class AttributeValidationError(ValidationError):
 # Not Found Errors
 # =============================================================================
 
+
 class NotFoundError(IrrecoverableError):
     """Raised when a requested resource is not found."""
+
     error_code = "NOT_FOUND_ERROR"
     category = ErrorCategory.SYSTEM
 
-    def __init__(self, resource_type: str, resource_id: str, context: Optional[dict] = None):
+    def __init__(
+        self, resource_type: str, resource_id: str, context: Optional[dict] = None
+    ):
         ctx = {"resource_type": resource_type, "resource_id": resource_id}
         if context:
             ctx.update(context)
@@ -337,6 +395,7 @@ class NotFoundError(IrrecoverableError):
 
 class AgentNotFoundError(NotFoundError):
     """Raised when an agent is not found."""
+
     error_code = "AGENT_NOT_FOUND_ERROR"
     category = ErrorCategory.AGENT
 
@@ -347,6 +406,7 @@ class AgentNotFoundError(NotFoundError):
 
 class MemoryNotFoundError(NotFoundError):
     """Raised when a memory is not found."""
+
     error_code = "MEMORY_NOT_FOUND_ERROR"
     category = ErrorCategory.MEMORY
 
@@ -359,17 +419,25 @@ class MemoryNotFoundError(NotFoundError):
 # Provider Errors
 # =============================================================================
 
+
 class ProviderError(MnemoCoreError):
     """Base exception for provider-related errors."""
+
     error_code = "PROVIDER_ERROR"
     category = ErrorCategory.PROVIDER
 
 
 class UnsupportedProviderError(IrrecoverableError, ProviderError):
     """Raised when an unsupported provider is requested."""
+
     error_code = "UNSUPPORTED_PROVIDER_ERROR"
 
-    def __init__(self, provider: str, supported_providers: Optional[list] = None, context: Optional[dict] = None):
+    def __init__(
+        self,
+        provider: str,
+        supported_providers: Optional[list] = None,
+        context: Optional[dict] = None,
+    ):
         ctx = {"provider": provider}
         if supported_providers:
             ctx["supported_providers"] = supported_providers
@@ -384,10 +452,16 @@ class UnsupportedProviderError(IrrecoverableError, ProviderError):
 
 class UnsupportedTransportError(IrrecoverableError, ValueError):
     """Raised when an unsupported transport is requested."""
+
     error_code = "UNSUPPORTED_TRANSPORT_ERROR"
     category = ErrorCategory.CONFIG
 
-    def __init__(self, transport: str, supported_transports: Optional[list] = None, context: Optional[dict] = None):
+    def __init__(
+        self,
+        transport: str,
+        supported_transports: Optional[list] = None,
+        context: Optional[dict] = None,
+    ):
         ctx = {"transport": transport}
         if supported_transports:
             ctx["supported_transports"] = supported_transports
@@ -402,10 +476,13 @@ class UnsupportedTransportError(IrrecoverableError, ValueError):
 
 class DependencyMissingError(IrrecoverableError):
     """Raised when a required dependency is missing."""
+
     error_code = "DEPENDENCY_MISSING_ERROR"
     category = ErrorCategory.SYSTEM
 
-    def __init__(self, dependency: str, message: str = "", context: Optional[dict] = None):
+    def __init__(
+        self, dependency: str, message: str = "", context: Optional[dict] = None
+    ):
         ctx = {"dependency": dependency}
         if context:
             ctx.update(context)
@@ -420,7 +497,10 @@ class DependencyMissingError(IrrecoverableError):
 # Utility Functions
 # =============================================================================
 
-def wrap_storage_exception(backend: str, operation: str, exc: Exception) -> StorageError:
+
+def wrap_storage_exception(
+    backend: str, operation: str, exc: Exception
+) -> StorageError:
     """
     Wrap a generic exception into an appropriate StorageError.
 
@@ -436,17 +516,17 @@ def wrap_storage_exception(backend: str, operation: str, exc: Exception) -> Stor
     exc_msg = str(exc)
 
     # Timeout detection
-    if 'timeout' in exc_msg.lower() or 'Timeout' in exc_name:
+    if "timeout" in exc_msg.lower() or "Timeout" in exc_name:
         return StorageTimeoutError(backend, operation)
 
     # Connection error detection
-    if any(x in exc_name.lower() for x in ['connection', 'connect', 'network']):
+    if any(x in exc_name.lower() for x in ["connection", "connect", "network"]):
         return StorageConnectionError(backend, exc_msg)
 
     # Default to generic storage error
     return StorageError(
         f"[{backend}] {operation} failed: {exc_msg}",
-        {"backend": backend, "operation": operation, "original_exception": exc_name}
+        {"backend": backend, "operation": operation, "original_exception": exc_name},
     )
 
 

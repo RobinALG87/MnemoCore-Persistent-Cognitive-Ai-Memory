@@ -6,19 +6,19 @@ Provides async access to Qdrant for vector storage and similarity search.
 Phase 4.3: Temporal Recall - supports time-based filtering and indexing.
 """
 
-from typing import List, Any, Optional, Tuple, Dict
-from datetime import datetime
 import asyncio
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
-from qdrant_client import AsyncQdrantClient, models
 from loguru import logger
+from qdrant_client import AsyncQdrantClient, models
 
-from .reliability import qdrant_breaker
 from .exceptions import (
     CircuitOpenError,
     StorageConnectionError,
     wrap_storage_exception,
 )
+from .reliability import qdrant_breaker
 
 
 class QdrantStore:
@@ -88,9 +88,7 @@ class QdrantStore:
         quantization_config = None
         if self.binary_quantization:
             quantization_config = models.BinaryQuantization(
-                binary=models.BinaryQuantizationConfig(
-                    always_ram=self.always_ram
-                )
+                binary=models.BinaryQuantizationConfig(always_ram=self.always_ram)
             )
 
         # Create HOT collection (optimized for latency)
@@ -99,16 +97,12 @@ class QdrantStore:
             await self.client.create_collection(
                 collection_name=self.collection_hot,
                 vectors_config=models.VectorParams(
-                    size=self.dim,
-                    distance=models.Distance.DOT,
-                    on_disk=False
+                    size=self.dim, distance=models.Distance.DOT, on_disk=False
                 ),
                 quantization_config=quantization_config,
                 hnsw_config=models.HnswConfigDiff(
-                    m=self.hnsw_m,
-                    ef_construct=self.hnsw_ef_construct,
-                    on_disk=False
-                )
+                    m=self.hnsw_m, ef_construct=self.hnsw_ef_construct, on_disk=False
+                ),
             )
 
         # Create WARM collection (optimized for scale/disk)
@@ -117,16 +111,12 @@ class QdrantStore:
             await self.client.create_collection(
                 collection_name=self.collection_warm,
                 vectors_config=models.VectorParams(
-                    size=self.dim,
-                    distance=models.Distance.DOT,
-                    on_disk=True
+                    size=self.dim, distance=models.Distance.DOT, on_disk=True
                 ),
                 quantization_config=quantization_config,
                 hnsw_config=models.HnswConfigDiff(
-                    m=self.hnsw_m,
-                    ef_construct=self.hnsw_ef_construct,
-                    on_disk=True
-                )
+                    m=self.hnsw_m, ef_construct=self.hnsw_ef_construct, on_disk=True
+                ),
             )
 
         # Phase 4.3: Create payload index on unix_timestamp for temporal queries
@@ -156,7 +146,9 @@ class QdrantStore:
                 self.client.upsert, collection_name=collection, points=points
             )
         except CircuitOpenError:
-            logger.error(f"Qdrant upsert blocked for {collection}: circuit breaker open")
+            logger.error(
+                f"Qdrant upsert blocked for {collection}: circuit breaker open"
+            )
             raise
         except Exception as e:
             logger.exception(f"Qdrant upsert failed for {collection}")
@@ -203,16 +195,13 @@ class QdrantStore:
                         ),
                     )
                 )
-            
+
             if metadata_filter:
                 for k, v in metadata_filter.items():
                     must_conditions.append(
-                        models.FieldCondition(
-                            key=k,
-                            match=models.MatchValue(value=v)
-                        )
+                        models.FieldCondition(key=k, match=models.MatchValue(value=v))
                     )
-            
+
             if must_conditions:
                 query_filter = models.Filter(must=must_conditions)
 
@@ -221,9 +210,7 @@ class QdrantStore:
             if self.binary_quantization:
                 search_params = models.SearchParams(
                     quantization=models.QuantizationSearchParams(
-                        ignore=False,
-                        rescore=True,
-                        oversampling=2.0
+                        ignore=False, rescore=True, oversampling=2.0
                     )
                 )
 
@@ -237,13 +224,17 @@ class QdrantStore:
                 search_params=search_params,
             )
         except CircuitOpenError:
-            logger.warning(f"Qdrant search blocked for {collection}: circuit breaker open")
+            logger.warning(
+                f"Qdrant search blocked for {collection}: circuit breaker open"
+            )
             return []
         except Exception as e:
             logger.error(f"Qdrant search failed for {collection}: {e}")
             return []
 
-    async def get_point(self, collection: str, point_id: str) -> Optional[models.Record]:
+    async def get_point(
+        self, collection: str, point_id: str
+    ) -> Optional[models.Record]:
         """
         Get a single point by ID.
 
@@ -260,13 +251,15 @@ class QdrantStore:
                 collection_name=collection,
                 ids=[point_id],
                 with_vectors=True,
-                with_payload=True
+                with_payload=True,
             )
             if records:
                 return records[0]
             return None  # Not found - expected case
         except CircuitOpenError:
-            logger.error(f"Qdrant get_point blocked for {point_id}: circuit breaker open")
+            logger.error(
+                f"Qdrant get_point blocked for {point_id}: circuit breaker open"
+            )
             raise
         except Exception as e:
             logger.error(f"Qdrant get_point failed for {point_id}: {e}")
@@ -279,11 +272,12 @@ class QdrantStore:
         """
         try:
             return await qdrant_breaker.call(
-                self.client.get_collection,
-                collection_name=collection
+                self.client.get_collection, collection_name=collection
             )
         except CircuitOpenError:
-            logger.warning(f"Qdrant get_collection_info blocked for {collection}: circuit breaker open")
+            logger.warning(
+                f"Qdrant get_collection_info blocked for {collection}: circuit breaker open"
+            )
             return None
         except Exception as e:
             logger.error(f"Failed to get collection info for {collection}: {e}")
@@ -294,7 +288,7 @@ class QdrantStore:
         collection: str,
         limit: int = 100,
         offset: Any = None,
-        with_vectors: bool = False
+        with_vectors: bool = False,
     ) -> Any:
         """
         Scroll/Iterate over collection (for consolidation).
@@ -313,10 +307,12 @@ class QdrantStore:
                 limit=limit,
                 with_vectors=with_vectors,
                 with_payload=True,
-                offset=offset
+                offset=offset,
             )
         except CircuitOpenError:
-            logger.warning(f"Qdrant scroll blocked for {collection}: circuit breaker open")
+            logger.warning(
+                f"Qdrant scroll blocked for {collection}: circuit breaker open"
+            )
             return [], None
         except Exception as e:
             logger.error(f"Qdrant scroll failed for {collection}: {e}")
@@ -334,7 +330,7 @@ class QdrantStore:
             await qdrant_breaker.call(
                 self.client.delete,
                 collection_name=collection,
-                points_selector=models.PointIdsList(points=point_ids)
+                points_selector=models.PointIdsList(points=point_ids),
             )
         except CircuitOpenError:
             logger.error(f"Qdrant delete blocked for {point_ids}: circuit breaker open")

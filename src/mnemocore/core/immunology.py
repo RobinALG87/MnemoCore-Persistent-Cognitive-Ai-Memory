@@ -48,28 +48,30 @@ from loguru import logger
 from .binary_hdv import BinaryHDV, majority_bundle
 from .node import MemoryNode
 
-
 # ------------------------------------------------------------------ #
 #  Configuration                                                      #
 # ------------------------------------------------------------------ #
 
+
 @dataclass
 class ImmunologyConfig:
     """Tunable parameters for the immunology sweep."""
-    sweep_interval_seconds: float = 300.0   # how often to run (default 5 min)
-    drift_threshold: float = 0.40           # Hamming dist > this → drifted
-    entropy_threshold: float = 0.48         # bit-balance entropy > this → corrupted
-    min_ltp_to_keep: float = 0.05           # nodes below this AND corrupted → quarantine
-    attractor_k: int = 5                    # neighbours used for attractor convergence
-    attractor_enabled: bool = True          # run Hopfield attractor step
-    re_encode_drifted: bool = True          # re-encode drifted nodes from content
-    quarantine_corrupted: bool = True       # move corrupted nodes to COLD
+
+    sweep_interval_seconds: float = 300.0  # how often to run (default 5 min)
+    drift_threshold: float = 0.40  # Hamming dist > this → drifted
+    entropy_threshold: float = 0.48  # bit-balance entropy > this → corrupted
+    min_ltp_to_keep: float = 0.05  # nodes below this AND corrupted → quarantine
+    attractor_k: int = 5  # neighbours used for attractor convergence
+    attractor_enabled: bool = True  # run Hopfield attractor step
+    re_encode_drifted: bool = True  # re-encode drifted nodes from content
+    quarantine_corrupted: bool = True  # move corrupted nodes to COLD
     enabled: bool = True
 
 
 # ------------------------------------------------------------------ #
 #  Entropy helper                                                     #
 # ------------------------------------------------------------------ #
+
 
 def _bit_entropy(hdv: BinaryHDV) -> float:
     """
@@ -90,6 +92,7 @@ def _bit_entropy(hdv: BinaryHDV) -> float:
 # ------------------------------------------------------------------ #
 #  Main immunology loop                                               #
 # ------------------------------------------------------------------ #
+
 
 class ImmunologyLoop:
     """
@@ -197,7 +200,7 @@ class ImmunologyLoop:
             logger.info(
                 f"Immunology sweep — nodes={len(nodes)} "
                 f"corrected={drifted_corrected} quarantined={corrupted_quarantined} "
-                f"({elapsed*1000:.0f}ms)"
+                f"({elapsed * 1000:.0f}ms)"
             )
 
         return sweep_stats
@@ -259,8 +262,12 @@ class ImmunologyLoop:
                     node.hdv = new_hdv
                     # Update the packed vector in our local array
                     vecs[idx] = new_hdv.data
-                    node.metadata["immune_re_encoded_at"] = datetime.now(timezone.utc).isoformat()
-                    logger.debug(f"Re-encoded drifted node {node.id[:8]} (nn_min={nn_min_dist:.3f})")
+                    node.metadata["immune_re_encoded_at"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
+                    logger.debug(
+                        f"Re-encoded drifted node {node.id[:8]} (nn_min={nn_min_dist:.3f})"
+                    )
                     return "corrected"
 
                 elif self.cfg.attractor_enabled:
@@ -270,7 +277,9 @@ class ImmunologyLoop:
                     # Soft convergence: XOR blend – bits that agree with proto are kept
                     node.hdv = proto
                     vecs[idx] = proto.data
-                    node.metadata["immune_attractor_at"] = datetime.now(timezone.utc).isoformat()
+                    node.metadata["immune_attractor_at"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
                     logger.debug(f"Attractor-converged drifted node {node.id[:8]}")
                     return "corrected"
 

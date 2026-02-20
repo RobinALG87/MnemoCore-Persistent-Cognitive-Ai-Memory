@@ -1,13 +1,16 @@
+import os
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch, AsyncMock
-import sys
-import os
 
 # 1. Mock dependencies
 mock_engine_cls = MagicMock()
 mock_engine_instance = MagicMock()
-mock_engine_instance.get_stats = AsyncMock(return_value={"engine_version": "3.5.1", "tiers": {"hot_count": 10}})
+mock_engine_instance.get_stats = AsyncMock(
+    return_value={"engine_version": "3.5.1", "tiers": {"hot_count": 10}}
+)
 mock_engine_instance.get_memory = AsyncMock(return_value=None)
 mock_engine_instance.delete_memory = AsyncMock(return_value=True)
 mock_engine_instance.initialize = AsyncMock(return_value=None)
@@ -33,9 +36,11 @@ client = TestClient(app)
 # Bypass auth for functional tests or provide valid key
 API_KEY = "test-key"
 
+
 @pytest.fixture(autouse=True)
 def setup_mocks(monkeypatch):
     from mnemocore.core.config import get_config, reset_config
+
     reset_config()
     monkeypatch.setenv("HAIM_API_KEY", API_KEY)
 
@@ -45,10 +50,12 @@ def setup_mocks(monkeypatch):
     yield
     reset_config()
 
+
 def test_root():
     response = client.get("/")
     assert response.status_code == 200
     assert "version" in response.json()
+
 
 def test_health():
     response = client.get("/health")
@@ -56,15 +63,17 @@ def test_health():
     assert response.json()["status"] == "healthy"
     assert response.json()["engine_ready"] is True
 
+
 def test_stats():
     mock_engine_instance.get_stats.return_value = {
         "engine_version": "3.5.1",
-        "tiers": {"hot_count": 10}
+        "tiers": {"hot_count": 10},
     }
 
     response = client.get("/stats", headers={"X-API-Key": API_KEY})
     assert response.status_code == 200
     assert response.json()["tiers"]["hot_count"] == 10
+
 
 def test_delete_memory_found():
     mock_memory = MagicMock()
@@ -75,6 +84,7 @@ def test_delete_memory_found():
     assert response.json()["ok"] is True
     mock_engine_instance.delete_memory.assert_called_with("mem_123")
 
+
 def test_delete_memory_not_found():
     mock_engine_instance.get_memory.return_value = None
 
@@ -82,5 +92,11 @@ def test_delete_memory_not_found():
     assert response.status_code == 404
     # MnemoCore exception handler returns {"error": ..., "code": ..., "recoverable": ...}
     json_resp = response.json()
-    error_text = json_resp.get("error", json_resp.get("detail", json_resp.get("message", ""))).lower()
-    assert "not found" in error_text or "memory" in error_text or "mem_missing" in error_text
+    error_text = json_resp.get(
+        "error", json_resp.get("detail", json_resp.get("message", ""))
+    ).lower()
+    assert (
+        "not found" in error_text
+        or "memory" in error_text
+        or "mem_missing" in error_text
+    )

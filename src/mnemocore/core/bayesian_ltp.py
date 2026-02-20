@@ -37,12 +37,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from loguru import logger
 
+from loguru import logger
 
 # ------------------------------------------------------------------ #
 #  Beta distribution helpers                                          #
 # ------------------------------------------------------------------ #
+
 
 def _beta_mean(alpha: float, beta: float) -> float:
     """E[p] = α / (α + β)."""
@@ -56,7 +57,7 @@ def _beta_variance(alpha: float, beta: float) -> float:
     """Var[p] = αβ / ((α+β)²(α+β+1))."""
     total = alpha + beta
     if total <= 0:
-        return 0.25   # Maximum variance of Beta(1,1)
+        return 0.25  # Maximum variance of Beta(1,1)
     return (alpha * beta) / (total * total * (total + 1.0))
 
 
@@ -76,6 +77,7 @@ def _beta_upper_credible(alpha: float, beta: float, z: float = 1.65) -> float:
 #  Mixin state stored alongside SynapticConnection / MemoryNode      #
 # ------------------------------------------------------------------ #
 
+
 @dataclass
 class BayesianState:
     """
@@ -84,8 +86,11 @@ class BayesianState:
 
     alpha_prior / beta_prior: informative priors (default: uninformative Beta(1,1))
     """
-    alpha: float = 1.0   # success pseudo-count
-    beta_count: float = 1.0  # failure pseudo-count  (renamed to avoid clash with scipy.beta)
+
+    alpha: float = 1.0  # success pseudo-count
+    beta_count: float = (
+        1.0  # failure pseudo-count  (renamed to avoid clash with scipy.beta)
+    )
 
     def observe(self, success: bool, strength: float = 1.0) -> None:
         """
@@ -131,6 +136,7 @@ class BayesianState:
 #  Core updater                                                       #
 # ------------------------------------------------------------------ #
 
+
 class BayesianLTPUpdater:
     """
     Manages Bayesian LTP state for synapses and memory nodes.
@@ -139,7 +145,7 @@ class BayesianLTPUpdater:
     signatures across the codebase.
     """
 
-    _ATTR = "_bayes"   # attribute name injected onto target objects
+    _ATTR = "_bayes"  # attribute name injected onto target objects
 
     # ---- Synapse helpers ------------------------------------------ #
 
@@ -153,7 +159,9 @@ class BayesianLTPUpdater:
             sc = max(synapse.success_count, 0)
             alpha = 1.0 + sc
             beta_count = 1.0 + (fc - sc)
-            object.__setattr__(synapse, self._ATTR, BayesianState(alpha=alpha, beta_count=beta_count))
+            object.__setattr__(
+                synapse, self._ATTR, BayesianState(alpha=alpha, beta_count=beta_count)
+            )
         return getattr(synapse, self._ATTR)
 
     def observe_synapse(self, synapse, success: bool, weight: float = 1.0) -> None:
@@ -192,7 +200,9 @@ class BayesianLTPUpdater:
             ac = max(getattr(node, "access_count", 1), 1)
             alpha = 1.0 + combined * ac
             beta_count = 1.0 + (1.0 - combined) * ac
-            object.__setattr__(node, self._ATTR, BayesianState(alpha=alpha, beta_count=beta_count))
+            object.__setattr__(
+                node, self._ATTR, BayesianState(alpha=alpha, beta_count=beta_count)
+            )
         return getattr(node, self._ATTR)
 
     def observe_node_retrieval(

@@ -1,12 +1,13 @@
-
 import numpy as np
 import pytest
+
 from mnemocore.core.binary_hdv import BinaryHDV
+
 
 class TestLargeDimensionPermutation:
     """Tests for large-dimension permute correctness."""
 
-    LARGE_DIM = 65536 # Well above 32768 threshold
+    LARGE_DIM = 65536  # Well above 32768 threshold
 
     def test_permute_large_dim_correctness(self):
         """
@@ -19,7 +20,7 @@ class TestLargeDimensionPermutation:
         # Golden reference implementation
         bits = np.unpackbits(v.data)
 
-        test_shifts = [0, 1, 7, 8, 9, 100, D-1, D+1]
+        test_shifts = [0, 1, 7, 8, 9, 100, D - 1, D + 1]
 
         for shift in test_shifts:
             # Expected
@@ -30,8 +31,9 @@ class TestLargeDimensionPermutation:
             permuted = v.permute(shift)
 
             assert permuted.dimension == D
-            assert np.array_equal(permuted.data, expected_data), \
-                f"Mismatch for shift {shift}"
+            assert np.array_equal(
+                permuted.data, expected_data
+            ), f"Mismatch for shift {shift}"
 
     def test_permute_invertible(self):
         D = self.LARGE_DIM

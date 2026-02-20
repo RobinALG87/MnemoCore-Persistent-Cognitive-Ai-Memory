@@ -1,10 +1,12 @@
-import os
-import pytest
-from unittest.mock import patch, MagicMock
 import asyncio
+import os
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from mnemocore.core.config import get_config, reset_config
 from mnemocore.core.engine import HAIMEngine
+
 
 @pytest.fixture
 def test_engine(tmp_path):
@@ -37,6 +39,7 @@ def test_engine(tmp_path):
     del os.environ["HAIM_DIMENSIONALITY"]
     reset_config()
 
+
 def test_persistence_failure_logs_error(test_engine, capsys):
     """Test that persistence failures are logged but don't crash the store."""
     # Mock open to fail when opening the persistence file
@@ -45,10 +48,10 @@ def test_persistence_failure_logs_error(test_engine, capsys):
 
     def side_effect(file, *args, **kwargs):
         if str(file) == str(persist_path):
-             raise IOError("Mocked IO Error")
+            raise IOError("Mocked IO Error")
         return original_open(file, *args, **kwargs)
 
-    with patch('builtins.open', side_effect=side_effect):
+    with patch("builtins.open", side_effect=side_effect):
         # This should NOT raise an exception - error should be caught and logged
         asyncio.run(test_engine.initialize())
     asyncio.run(test_engine.store("Test content"))

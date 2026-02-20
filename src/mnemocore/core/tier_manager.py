@@ -23,10 +23,11 @@ import json
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from .qdrant_store import QdrantStore
+
 import asyncio
 import functools
 
@@ -35,16 +36,17 @@ from loguru import logger
 
 from .binary_hdv import BinaryHDV
 from .config import HAIMConfig, get_config
-from .node import MemoryNode
 from .exceptions import (
-    MnemoCoreError,
-    StorageError,
     CircuitOpenError,
     DataCorruptionError,
+    MnemoCoreError,
+    StorageError,
 )
+from .node import MemoryNode
 
 try:
     import faiss
+
     FAISS_AVAILABLE = True
 except ImportError:
     FAISS_AVAILABLE = False
@@ -52,6 +54,7 @@ except ImportError:
 # Phase 4.0: HNSW index manager (replaces raw FAISS management)
 try:
     from .hnsw_index import HNSWIndexManager
+
     HNSW_AVAILABLE = True
 except ImportError:
     HNSW_AVAILABLE = False
@@ -171,7 +174,9 @@ class TierManager:
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run blocking function in thread pool."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+        return await loop.run_in_executor(
+            None, functools.partial(func, *args, **kwargs)
+        )
 
     async def add_memory(self, node: MemoryNode):
         """Add a new memory node. New memories are always HOT initially."""
@@ -189,7 +194,9 @@ class TierManager:
             # Check if we need to evict - decide under lock, execute outside
             if len(self.hot) > self.config.tiers_hot.max_memories:
                 # Use unified eviction logic, protecting the new node
-                victim_to_evict = self._prepare_eviction_from_hot(exclude_node_id=node.id)
+                victim_to_evict = self._prepare_eviction_from_hot(
+                    exclude_node_id=node.id
+                )
 
         # Phase 2: Perform I/O outside lock
         if victim_to_evict:
@@ -211,7 +218,7 @@ class TierManager:
             self._next_faiss_id += 1
 
             vec = np.expand_dims(node.hdv.data, axis=0)
-            ids = np.array([fid], dtype='int64')
+            ids = np.array([fid], dtype="int64")
             self.faiss_index.add_with_ids(vec, ids)
 
             self.faiss_id_map[fid] = node.id
@@ -229,25 +236,27 @@ class TierManager:
             if node_id in self.hot:
                 node = self.hot[node_id]
                 node.access()
-                
+
                 # check if node should be demoted
                 if self._should_demote(node):
                     # Node will be demoted, mark it as warm immediately to prevent TOCTOU
                     # This ensures concurrent readers see the correct upcoming state
                     node.tier = "warm"
                     demote_candidate = node
-                
+
                 result_node = node
 
         # If demotion is needed, save to WARM first, then remove from HOT
-        # This occurs outside the lock to allow concurrency, but the node 
+        # This occurs outside the lock to allow concurrency, but the node
         # is already marked as "warm" (graceful degradation if save fails)
         if demote_candidate:
-            logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
-            
+            logger.info(
+                f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})"
+            )
+
             # Step 1: Save to WARM (I/O outside lock)
             await self._save_to_warm(demote_candidate)
-            
+
             # Step 2: Remove from HOT (under lock)
             async with self.lock:
                 # Double-check: it might have been accessed again or removed
@@ -275,7 +284,9 @@ class TierManager:
             logger.debug(f"Retrieved {node_id} from COLD tier.")
         return cold_node
 
-    async def get_memories_batch(self, node_ids: List[str]) -> List[Optional[MemoryNode]]:
+    async def get_memories_batch(
+        self, node_ids: List[str]
+    ) -> List[Optional[MemoryNode]]:
         """
         Retrieve multiple memories concurrently.
 
@@ -310,13 +321,14 @@ class TierManager:
             async with self.lock:
                 if nid in self.hot:
                     in_hot = True
-            
+
             if not in_hot:
                 # Load from WARM
                 node = await self._load_from_warm(nid)
                 if node:
                     # Force promote to HOT
                     await self._promote_to_hot(node)
+
     async def delete_memory(self, node_id: str):
         """Robust delete from all tiers."""
         async with self.lock:
@@ -345,7 +357,7 @@ class TierManager:
         fid = self.node_id_to_faiss_id.get(node_id)
         if fid is not None:
             try:
-                ids_to_remove = np.array([fid], dtype='int64')
+                ids_to_remove = np.array([fid], dtype="int64")
                 self.faiss_index.remove_ids(ids_to_remove)
                 del self.faiss_id_map[fid]
                 del self.node_id_to_faiss_id[node_id]
@@ -375,7 +387,8 @@ class TierManager:
                 logger.warning(f"Qdrant delete failed for {node_id}: {e}")
 
         # Filesystem fallback
-        if hasattr(self, 'warm_path') and self.warm_path:
+        if hasattr(self, "warm_path") and self.warm_path:
+
             def _fs_delete():
                 d = False
                 npy = self.warm_path / f"{node_id}.npy"
@@ -397,7 +410,9 @@ class TierManager:
 
         return deleted
 
-    def _prepare_eviction_from_hot(self, exclude_node_id: Optional[str] = None) -> Optional[MemoryNode]:
+    def _prepare_eviction_from_hot(
+        self, exclude_node_id: Optional[str] = None
+    ) -> Optional[MemoryNode]:
         """
         Prepare eviction by finding and removing the victim from HOT.
         Returns the victim node to be saved to WARM (caller must do I/O outside lock).
@@ -417,17 +432,19 @@ class TierManager:
             return None
 
         victim = min(candidates, key=lambda n: n.ltp_strength)
-        logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
+        logger.info(
+            f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})"
+        )
 
         # Remove from HOT structure (maintain inverted chain index)
         if victim.previous_id:
             self._next_chain.pop(victim.previous_id, None)
         del self.hot[victim.id]
         self._remove_from_faiss(victim.id)
-        
+
         # Mark as warm for state consistency
         victim.tier = "warm"
-        
+
         return victim
 
     async def _save_to_warm(self, node: MemoryNode):
@@ -466,26 +483,31 @@ class TierManager:
                         "unix_timestamp": node.unix_timestamp,
                         "iso_date": node.iso_date,
                         "previous_id": node.previous_id,
-                    }
+                    },
                 )
 
                 await self.qdrant.upsert(
-                    collection=self.config.qdrant.collection_warm,
-                    points=[point]
+                    collection=self.config.qdrant.collection_warm, points=[point]
                 )
                 return
             except CircuitOpenError as e:
-                logger.warning(f"Cannot save {node.id} to Qdrant (circuit open), falling back to FS: {e}")
+                logger.warning(
+                    f"Cannot save {node.id} to Qdrant (circuit open), falling back to FS: {e}"
+                )
                 # Fall through to filesystem fallback
             except StorageError as e:
-                logger.error(f"Storage error saving {node.id} to Qdrant, falling back to FS: {e}")
+                logger.error(
+                    f"Storage error saving {node.id} to Qdrant, falling back to FS: {e}"
+                )
                 # Fall through to filesystem fallback
             except Exception as e:
-                logger.error(f"Failed to save {node.id} to Qdrant, falling back to FS: {e}")
+                logger.error(
+                    f"Failed to save {node.id} to Qdrant, falling back to FS: {e}"
+                )
                 # Fall through to filesystem fallback
 
         # Fallback (File System)
-        if not hasattr(self, 'warm_path') or not self.warm_path:
+        if not hasattr(self, "warm_path") or not self.warm_path:
             self.warm_path = Path(self.config.paths.warm_mmap_dir)
             self.warm_path.mkdir(parents=True, exist_ok=True)
 
@@ -573,7 +595,8 @@ class TierManager:
                 return None
 
         # Fallback (File System)
-        if hasattr(self, 'warm_path') and self.warm_path:
+        if hasattr(self, "warm_path") and self.warm_path:
+
             def _fs_load():
                 hdv_path = self.warm_path / f"{node_id}.npy"
                 meta_path = self.warm_path / f"{node_id}.json"
@@ -641,7 +664,9 @@ class TierManager:
         # Step 1: I/O outside lock (may fail gracefully)
         deleted = await self._delete_from_warm(node.id)
         if not deleted:
-            logger.debug(f"Skipping promotion of {node.id}: not found in WARM (already promoted?)")
+            logger.debug(
+                f"Skipping promotion of {node.id}: not found in WARM (already promoted?)"
+            )
             return
 
         # Step 2: Atomic state transition under lock
@@ -676,19 +701,25 @@ class TierManager:
             "cold_count": 0,
             "using_qdrant": self.use_qdrant,
             # Phase 4.0: HNSW index stats
-            "ann_index": self._hnsw.stats() if self._hnsw is not None else {"index_type": "none"},
+            "ann_index": (
+                self._hnsw.stats() if self._hnsw is not None else {"index_type": "none"}
+            ),
         }
 
         if self.use_qdrant:
-            info = await self.qdrant.get_collection_info(self.config.qdrant.collection_warm)
+            info = await self.qdrant.get_collection_info(
+                self.config.qdrant.collection_warm
+            )
             if info:
                 stats["warm_count"] = info.points_count
             else:
                 stats["warm_count"] = -1
         else:
-            if hasattr(self, 'warm_path') and self.warm_path:
+            if hasattr(self, "warm_path") and self.warm_path:
+
                 def _count():
                     return len(list(self.warm_path.glob("*.json")))
+
                 stats["warm_count"] = await self._run_in_thread(_count)
 
         return stats
@@ -723,24 +754,32 @@ class TierManager:
                             content=payload["content"],
                             metadata=payload.get("metadata", {}),
                             created_at=datetime.fromisoformat(payload["created_at"]),
-                            last_accessed=datetime.fromisoformat(payload["last_accessed"]),
+                            last_accessed=datetime.fromisoformat(
+                                payload["last_accessed"]
+                            ),
                             tier="warm",
                             access_count=payload.get("access_count", 0),
                             ltp_strength=payload.get("ltp_strength", 0.0),
-                            previous_id=payload.get("previous_id"),  # Phase 4.3: episodic chain
+                            previous_id=payload.get(
+                                "previous_id"
+                            ),  # Phase 4.3: episodic chain
                         )
                         nodes.append(node)
                     except Exception as exc:
-                        logger.debug(f"list_warm: could not deserialize point {pt.id}: {exc}")
+                        logger.debug(
+                            f"list_warm: could not deserialize point {pt.id}: {exc}"
+                        )
             except Exception as exc:
                 logger.warning(f"list_warm Qdrant failed: {exc}")
 
         elif hasattr(self, "warm_path") and self.warm_path:
+
             def _list_fs() -> List[MemoryNode]:
                 result = []
                 for meta_file in list(self.warm_path.glob("*.json"))[:max_results]:
                     try:
                         import json as _json
+
                         with open(meta_file, "r") as f:
                             data = _json.load(f)
                         hdv_path = self.warm_path / f"{data['id']}.npy"
@@ -755,10 +794,14 @@ class TierManager:
                                 content=data["content"],
                                 metadata=data.get("metadata", {}),
                                 created_at=datetime.fromisoformat(data["created_at"]),
-                                last_accessed=datetime.fromisoformat(data["last_accessed"]),
+                                last_accessed=datetime.fromisoformat(
+                                    data["last_accessed"]
+                                ),
                                 tier="warm",
                                 ltp_strength=data.get("ltp_strength", 0.0),
-                                previous_id=data.get("previous_id"),  # Phase 4.3: episodic chain
+                                previous_id=data.get(
+                                    "previous_id"
+                                ),  # Phase 4.3: episodic chain
                             )
                         )
                     except Exception as exc:
@@ -815,7 +858,7 @@ class TierManager:
                     self.config.qdrant.collection_warm,
                     limit=100,
                     offset=offset,
-                    with_vectors=True
+                    with_vectors=True,
                 )
                 points = points_result[0]
                 next_offset = points_result[1]
@@ -848,7 +891,8 @@ class TierManager:
                     break
         else:
             # Filesystem fallback
-            if hasattr(self, 'warm_path') and self.warm_path:
+            if hasattr(self, "warm_path") and self.warm_path:
+
                 def _process_fs():
                     to_delete = []
                     for meta_file in self.warm_path.glob("*.json"):
@@ -892,13 +936,13 @@ class TierManager:
                     node = self.hot.get(nid)
                     if not node:
                         continue
-                    
+
                     if time_range:
                         start_ts = time_range[0].timestamp()
                         end_ts = time_range[1].timestamp()
                         if not (start_ts <= node.created_at.timestamp() <= end_ts):
                             continue
-                            
+
                     if metadata_filter:
                         match = True
                         node_meta = node.metadata or {}
@@ -908,7 +952,7 @@ class TierManager:
                                 break
                         if not match:
                             continue
-                            
+
                     filtered_hot.append((nid, score))
             hot_results = filtered_hot
 
@@ -923,7 +967,7 @@ class TierManager:
                     query_vector=q_vec,
                     limit=top_k,
                     time_range=time_range,  # Phase 4.3: Pass time filter to Qdrant
-                    metadata_filter=metadata_filter, # BUG-09: Agent Isolation
+                    metadata_filter=metadata_filter,  # BUG-09: Agent Isolation
                 )
                 warm_results = [(hit.id, hit.score) for hit in hits]
             except Exception as e:
@@ -946,7 +990,9 @@ class TierManager:
         sorted_results = sorted(combined.items(), key=lambda x: x[1], reverse=True)
         return sorted_results[:top_k]
 
-    def search_hot(self, query_vec: BinaryHDV, top_k: int = 5) -> List[Tuple[str, float]]:
+    def search_hot(
+        self, query_vec: BinaryHDV, top_k: int = 5
+    ) -> List[Tuple[str, float]]:
         """Search HOT tier using HNSW or FAISS binary index (Phase 4.0)."""
         # Phase 4.0: use HNSWIndexManager (auto-selects flat vs HNSW)
         if self._hnsw is not None and self._hnsw.size > 0:
@@ -976,7 +1022,9 @@ class TierManager:
             logger.error(f"FAISS search failed, falling back: {e}")
             return self._linear_search_hot(query_vec, top_k)
 
-    def _linear_search_hot(self, query_vec: BinaryHDV, top_k: int = 5) -> List[Tuple[str, float]]:
+    def _linear_search_hot(
+        self, query_vec: BinaryHDV, top_k: int = 5
+    ) -> List[Tuple[str, float]]:
         """Fallback linear scan for HOT tier."""
         scores = []
         for node in self.hot.values():
@@ -993,6 +1041,7 @@ class TierManager:
         Archives are gzip JSONL, sorted newest-first for early-exit on recent data.
         Returns None if not found or on error.
         """
+
         def _scan():
             for archive_file in sorted(
                 self.cold_path.glob("archive_*.jsonl.gz"), reverse=True

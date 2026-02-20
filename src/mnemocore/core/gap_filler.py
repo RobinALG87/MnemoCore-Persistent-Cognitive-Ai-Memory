@@ -32,25 +32,27 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
 from loguru import logger
 
 from .gap_detector import GapDetector, GapRecord
-
 
 # ------------------------------------------------------------------ #
 #  Configuration                                                      #
 # ------------------------------------------------------------------ #
 
+
 @dataclass
 class GapFillerConfig:
     """Controls how/when the gap filler triggers LLM calls."""
-    poll_interval_seconds: float = 600.0     # check for gaps every 10 min
-    max_fills_per_hour: int = 20             # rate limit
-    min_priority_to_fill: float = 0.3        # skip low-priority gaps
-    min_seen_before_fill: int = 2            # gap must be seen ≥ N times
-    max_statements_per_gap: int = 5          # slice LLM response into pieces
-    dry_run: bool = False                    # if True: generate but don't store
-    store_tag: str = "llm_gap_fill"          # metadata tag on stored memories
+
+    poll_interval_seconds: float = 600.0  # check for gaps every 10 min
+    max_fills_per_hour: int = 20  # rate limit
+    min_priority_to_fill: float = 0.3  # skip low-priority gaps
+    min_seen_before_fill: int = 2  # gap must be seen ≥ N times
+    max_statements_per_gap: int = 5  # slice LLM response into pieces
+    dry_run: bool = False  # if True: generate but don't store
+    store_tag: str = "llm_gap_fill"  # metadata tag on stored memories
     enabled: bool = True
 
 
@@ -84,17 +86,18 @@ Statements:"""
 #  Gap filler                                                         #
 # ------------------------------------------------------------------ #
 
+
 class GapFiller:
     """
     Autonomous LLM-driven knowledge gap filler.
-    
+
     Integrates with GapDetector (finds gaps) and HAIMLLMIntegrator (fills them).
     """
 
     def __init__(
         self,
-        engine,                       # HAIMEngine
-        llm_integrator,               # HAIMLLMIntegrator
+        engine,  # HAIMEngine
+        llm_integrator,  # HAIMLLMIntegrator
         gap_detector: GapDetector,
         config: Optional[GapFillerConfig] = None,
     ):
@@ -164,7 +167,8 @@ class GapFiller:
 
         open_gaps = self.detector.get_open_gaps(top_n=n * 3)  # over-fetch to filter
         eligible = [
-            g for g in open_gaps
+            g
+            for g in open_gaps
             if g.priority_score >= self.cfg.min_priority_to_fill
             and g.seen_count >= self.cfg.min_seen_before_fill
         ][:n]
@@ -260,6 +264,7 @@ class GapFiller:
         Handles bullet points, numbered lists, and plain line-breaks.
         """
         import re
+
         lines = raw.strip().split("\n")
         statements = []
         for line in lines:

@@ -8,20 +8,20 @@ Uses `redis.asyncio` for native asyncio support.
 """
 
 import json
-from typing import Dict, List, Optional, Any, Union
+from typing import Any, Dict, List, Optional, Union
 
 import redis.asyncio as redis
-from redis.asyncio.connection import ConnectionPool
 from loguru import logger
+from redis.asyncio.connection import ConnectionPool
 
-from .reliability import StorageCircuitBreaker
 from .exceptions import (
-    StorageError,
-    StorageConnectionError,
-    DataCorruptionError,
     CircuitOpenError,
+    DataCorruptionError,
+    StorageConnectionError,
+    StorageError,
     wrap_storage_exception,
 )
+from .reliability import StorageCircuitBreaker
 
 
 class AsyncRedisStorage:
@@ -29,6 +29,7 @@ class AsyncRedisStorage:
     Wrapper for Async Redis client with connection pooling.
     No longer a singleton - instances should be created via dependency injection.
     """
+
     _pool: Optional[ConnectionPool] = None
 
     def __init__(
@@ -50,7 +51,13 @@ class AsyncRedisStorage:
         else:
             self._initialize_from_pool(url, max_connections, socket_timeout, password)
 
-    def _initialize_from_pool(self, url: str, max_connections: int, socket_timeout: int, password: Optional[str]):
+    def _initialize_from_pool(
+        self,
+        url: str,
+        max_connections: int,
+        socket_timeout: int,
+        password: Optional[str],
+    ):
         """Initialize Redis client from connection pool."""
         # Use class-level pool to share connections if multiple instances are created
         if AsyncRedisStorage._pool is None:
@@ -72,10 +79,12 @@ class AsyncRedisStorage:
         """Close the client connection."""
         if self.redis_client:
             await self.redis_client.aclose()
-            
+
     # --- CRUD Operations ---
 
-    async def store_memory(self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None):
+    async def store_memory(
+        self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None
+    ):
         """
         Store memory metadata in Redis (Key-Value) + Update LTP Index.
         """
@@ -86,11 +95,13 @@ class AsyncRedisStorage:
             logger.error(f"AsyncRedis store blocked or failed for {node_id}")
             raise
 
-    async def _store_memory(self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None):
+    async def _store_memory(
+        self, node_id: str, data: Dict[str, Any], ttl: Optional[int] = None
+    ):
         key = f"haim:memory:{node_id}"
         # Serialize
         payload = json.dumps(data, default=str)
-        
+
         if ttl:
             await self.redis_client.setex(key, ttl, payload)
         else:
@@ -124,12 +135,14 @@ class AsyncRedisStorage:
                     raise DataCorruptionError(
                         resource_id=node_id,
                         reason=f"Invalid JSON data: {e}",
-                        context={"key": key}
+                        context={"key": key},
                     )
             return None  # Not found - expected case, not an error
         except CircuitOpenError:
             # Re-raise circuit breaker errors directly
-            logger.error(f"AsyncRedis retrieve blocked for {node_id}: circuit breaker open")
+            logger.error(
+                f"AsyncRedis retrieve blocked for {node_id}: circuit breaker open"
+            )
             raise
         except DataCorruptionError:
             # Re-raise data corruption errors directly
@@ -139,7 +152,9 @@ class AsyncRedisStorage:
             logger.error(f"AsyncRedis retrieve failed for {node_id}: {e}")
             raise wrap_storage_exception("redis", "retrieve", e)
 
-    async def batch_retrieve(self, node_ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+    async def batch_retrieve(
+        self, node_ids: List[str]
+    ) -> List[Optional[Dict[str, Any]]]:
         """
         Batch retrieve multiple memories using MGET.
 
@@ -191,7 +206,9 @@ class AsyncRedisStorage:
             await breaker.call(self.redis_client.delete, key)
             await breaker.call(self.redis_client.zrem, "haim:ltp_index", node_id)
         except CircuitOpenError:
-            logger.error(f"AsyncRedis delete blocked for {node_id}: circuit breaker open")
+            logger.error(
+                f"AsyncRedis delete blocked for {node_id}: circuit breaker open"
+            )
             raise
         except Exception as e:
             logger.error(f"AsyncRedis delete failed for {node_id}: {e}")
@@ -214,7 +231,9 @@ class AsyncRedisStorage:
         breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
             # ZRANGE 0 (count-1) returns lowest scores
-            members = await breaker.call(self.redis_client.zrange, "haim:ltp_index", 0, count - 1)
+            members = await breaker.call(
+                self.redis_client.zrange, "haim:ltp_index", 0, count - 1
+            )
             return members
         except CircuitOpenError:
             logger.warning("AsyncRedis eviction scan blocked: circuit breaker open")
@@ -233,9 +252,13 @@ class AsyncRedisStorage:
         """
         breaker = StorageCircuitBreaker.get_redis_breaker()
         try:
-            await breaker.call(self.redis_client.zadd, "haim:ltp_index", {node_id: new_ltp})
+            await breaker.call(
+                self.redis_client.zadd, "haim:ltp_index", {node_id: new_ltp}
+            )
         except CircuitOpenError:
-            logger.error(f"AsyncRedis LTP update blocked for {node_id}: circuit breaker open")
+            logger.error(
+                f"AsyncRedis LTP update blocked for {node_id}: circuit breaker open"
+            )
             raise
         except Exception as e:
             logger.error(f"AsyncRedis LTP update failed for {node_id}: {e}")
@@ -264,7 +287,9 @@ class AsyncRedisStorage:
 
             await breaker.call(self.redis_client.xadd, self.stream_key, msg)
         except CircuitOpenError:
-            logger.warning(f"AsyncRedis publish blocked for {event_type}: circuit breaker open")
+            logger.warning(
+                f"AsyncRedis publish blocked for {event_type}: circuit breaker open"
+            )
         except Exception as e:
             logger.error(f"AsyncRedis publish failed for {event_type}: {e}")
 

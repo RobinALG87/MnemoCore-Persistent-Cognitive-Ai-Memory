@@ -4,8 +4,8 @@ import types
 import pytest
 
 from mnemocore.core.config import HAIMConfig, MCPConfig, SecurityConfig
-from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIError
 from mnemocore.mcp import server as mcp_server
+from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIError
 
 
 class FakeFastMCP:
@@ -58,7 +58,9 @@ def _install_fake_mcp_modules(monkeypatch):
 
 def test_build_server_registers_only_allowlisted_tools(monkeypatch):
     _install_fake_mcp_modules(monkeypatch)
-    monkeypatch.setattr(mcp_server, "MnemoCoreAPIAdapter", lambda *args, **kwargs: FakeAdapter())
+    monkeypatch.setattr(
+        mcp_server, "MnemoCoreAPIAdapter", lambda *args, **kwargs: FakeAdapter()
+    )
 
     config = HAIMConfig(
         security=SecurityConfig(api_key="test-key"),
@@ -83,7 +85,9 @@ def test_tool_error_handling(monkeypatch):
             raise MnemoCoreAPIError("boom", status_code=503)
 
     _install_fake_mcp_modules(monkeypatch)
-    monkeypatch.setattr(mcp_server, "MnemoCoreAPIAdapter", lambda *args, **kwargs: ErrorAdapter())
+    monkeypatch.setattr(
+        mcp_server, "MnemoCoreAPIAdapter", lambda *args, **kwargs: ErrorAdapter()
+    )
 
     config = HAIMConfig(
         security=SecurityConfig(api_key="test-key"),

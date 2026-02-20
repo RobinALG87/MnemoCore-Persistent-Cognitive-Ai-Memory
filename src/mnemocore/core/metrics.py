@@ -5,21 +5,23 @@ Central definition of Prometheus metrics and utility decorators.
 Includes OpenTelemetry tracing support.
 """
 
-import time
-import functools
 import contextvars
-from typing import Optional, Dict, Any, Callable
+import functools
+import time
+from typing import Any, Callable, Dict, Optional
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 # OpenTelemetry imports (optional - gracefully degrade if not installed)
 try:
     from opentelemetry import trace
+    from opentelemetry.context import Context
+    from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-    from opentelemetry.context import Context
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
 
     OTEL_AVAILABLE = True
     tracer = trace.get_tracer(__name__)
@@ -30,7 +32,9 @@ except ImportError:
     propagator = None
 
 # Context variable for trace ID propagation
-_trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('trace_id', default=None)
+_trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "trace_id", default=None
+)
 
 
 # =============================================================================
@@ -39,30 +43,21 @@ _trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('t
 
 # --- API Metrics ---
 API_REQUEST_COUNT = Counter(
-    "haim_api_request_count",
-    "Total API requests",
-    ["method", "endpoint", "status"]
+    "haim_api_request_count", "Total API requests", ["method", "endpoint", "status"]
 )
 API_REQUEST_LATENCY = Histogram(
-    "haim_api_request_latency_seconds",
-    "API request latency",
-    ["method", "endpoint"]
+    "haim_api_request_latency_seconds", "API request latency", ["method", "endpoint"]
 )
 
 # --- Engine Metrics ---
 ENGINE_MEMORY_COUNT = Gauge(
-    "haim_engine_memory_total",
-    "Total memories in the system",
-    ["tier"]
+    "haim_engine_memory_total", "Total memories in the system", ["tier"]
 )
 ENGINE_STORE_LATENCY = Histogram(
-    "haim_engine_store_seconds",
-    "Time taken to store memory",
-    ["tier"]
+    "haim_engine_store_seconds", "Time taken to store memory", ["tier"]
 )
 ENGINE_QUERY_LATENCY = Histogram(
-    "haim_engine_query_seconds",
-    "Time taken to query memories"
+    "haim_engine_query_seconds", "Time taken to query memories"
 )
 
 # --- New Metrics (Phase 4.1 Observability) ---
@@ -70,75 +65,60 @@ STORE_DURATION_SECONDS = Histogram(
     "mnemocore_store_duration_seconds",
     "Duration of memory store operations",
     ["tier"],
-    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
 QUERY_DURATION_SECONDS = Histogram(
     "mnemocore_query_duration_seconds",
     "Duration of memory query operations",
-    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
 MEMORY_COUNT_TOTAL = Gauge(
-    "mnemocore_memory_count_total",
-    "Total number of memories by tier",
-    ["tier"]
+    "mnemocore_memory_count_total", "Total number of memories by tier", ["tier"]
 )
 
-QUEUE_LENGTH = Gauge(
-    "mnemocore_queue_length",
-    "Current length of the processing queue"
-)
+QUEUE_LENGTH = Gauge("mnemocore_queue_length", "Current length of the processing queue")
 
-ERROR_TOTAL = Counter(
-    "mnemocore_error_total",
-    "Total number of errors",
-    ["error_type"]
-)
+ERROR_TOTAL = Counter("mnemocore_error_total", "Total number of errors", ["error_type"])
 
 # --- Storage Metrics (Redis/Qdrant) ---
 STORAGE_OPERATION_COUNT = Counter(
-    "haim_storage_ops_total",
-    "Storage operations",
-    ["backend", "operation", "status"]
+    "haim_storage_ops_total", "Storage operations", ["backend", "operation", "status"]
 )
 STORAGE_LATENCY = Histogram(
     "haim_storage_latency_seconds",
     "Storage operation latency",
-    ["backend", "operation"]
+    ["backend", "operation"],
 )
 
 # --- Bus Metrics ---
 BUS_EVENTS_PUBLISHED = Counter(
-    "haim_bus_events_published",
-    "Events published to bus",
-    ["type"]
+    "haim_bus_events_published", "Events published to bus", ["type"]
 )
 BUS_EVENTS_CONSUMED = Counter(
-    "haim_bus_events_consumed",
-    "Events consumed from bus",
-    ["consumer", "type"]
+    "haim_bus_events_consumed", "Events consumed from bus", ["consumer", "type"]
 )
 
 # --- Dream Loop Metrics (Subconscious background processing) ---
 DREAM_LOOP_TOTAL = Counter(
     "haim_dream_loop_total",
     "Total dream cycles completed",
-    ["status"]  # success, error
+    ["status"],  # success, error
 )
 DREAM_LOOP_ITERATION_SECONDS = Histogram(
     "haim_dream_iteration_seconds",
     "Time taken for each dream loop iteration",
-    []  # No labels needed
+    [],  # No labels needed
 )
 DREAM_LOOP_INSIGHTS_GENERATED = Counter(
     "haim_dream_insights_generated_total",
     "Total insights generated by dream loop",
-    ["type"]  # concept, parallel, meta
+    ["type"],  # concept, parallel, meta
 )
 DREAM_LOOP_ACTIVE = Gauge(
     "haim_dream_loop_active",
-    "Whether the dream loop is currently running (1=active, 0=stopped)"
+    "Whether the dream loop is currently running (1=active, 0=stopped)",
 )
 
 
@@ -146,7 +126,10 @@ DREAM_LOOP_ACTIVE = Gauge(
 # OpenTelemetry Configuration
 # =============================================================================
 
-def init_opentelemetry(service_name: str = "mnemocore", exporter: str = "console") -> Optional["TracerProvider"]:
+
+def init_opentelemetry(
+    service_name: str = "mnemocore", exporter: str = "console"
+) -> Optional["TracerProvider"]:
     """
     Initialize OpenTelemetry tracing.
 
@@ -168,7 +151,10 @@ def init_opentelemetry(service_name: str = "mnemocore", exporter: str = "console
         provider.add_span_processor(processor)
     elif exporter == "otlp":
         try:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                OTLPSpanExporter,
+            )
+
             processor = BatchSpanProcessor(OTLPSpanExporter())
             provider.add_span_processor(processor)
         except ImportError:
@@ -207,7 +193,7 @@ def extract_trace_context(headers: Dict[str, str]) -> Optional[str]:
     span_ctx = trace.get_current_span(ctx).get_span_context()
 
     if span_ctx.is_valid:
-        trace_id = format(span_ctx.trace_id, '032x')
+        trace_id = format(span_ctx.trace_id, "032x")
         set_trace_id(trace_id)
         return trace_id
 
@@ -233,8 +219,10 @@ def inject_trace_context() -> Dict[str, str]:
 # Decorators
 # =============================================================================
 
+
 def track_latency(metric: Histogram, labels: dict = None):
     """Decorator to track function execution time."""
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -248,12 +236,15 @@ def track_latency(metric: Histogram, labels: dict = None):
                     metric.labels(**labels).observe(duration)
                 else:
                     metric.observe(duration)
+
         return wrapper
+
     return decorator
 
 
 def track_async_latency(metric: Histogram, labels: dict = None):
     """Decorator to track async function execution time."""
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -267,7 +258,9 @@ def track_async_latency(metric: Histogram, labels: dict = None):
                     metric.labels(**labels).observe(duration)
                 else:
                     metric.observe(duration)
+
         return wrapper
+
     return decorator
 
 
@@ -280,6 +273,7 @@ def timer(metric: Histogram, labels: Optional[Dict[str, str]] = None):
         async def store(...):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -319,6 +313,7 @@ def timer(metric: Histogram, labels: Optional[Dict[str, str]] = None):
                     span.end()
 
         return wrapper
+
     return decorator
 
 
@@ -331,6 +326,7 @@ def traced(name: Optional[str] = None):
         async def my_function(...):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         span_name = name or func.__name__
 
@@ -352,12 +348,14 @@ def traced(name: Optional[str] = None):
                     raise
 
         return wrapper
+
     return decorator
 
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
 
 def update_memory_count(tier: str, count: int) -> None:
     """Update the memory count gauge for a specific tier."""

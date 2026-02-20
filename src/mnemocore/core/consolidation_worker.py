@@ -9,12 +9,14 @@ Subconscious bus consumer that:
 
 import asyncio
 import time
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
 from .async_storage import AsyncRedisStorage
-from .config import get_config, HAIMConfig
+from .config import HAIMConfig, get_config
 from .tier_manager import TierManager
+
 
 class ConsolidationWorker:
     def __init__(
@@ -64,7 +66,7 @@ class ConsolidationWorker:
             mem_id = data.get("id")
             logger.info(f"New memory registered: {mem_id}")
             # Placeholder for future "System 2" triggers
-        
+
         elif event_type == "memory.accessed":
             # Update access patterns, maybe promote if needed (handled by TierManager logic mostly)
             pass
@@ -95,7 +97,11 @@ class ConsolidationWorker:
                 # 1. Read from stream
                 streams = {stream_key: ">"}
                 messages = await self.storage.redis_client.xreadgroup(
-                    self.consumer_group, self.consumer_name, streams, count=10, block=1000
+                    self.consumer_group,
+                    self.consumer_name,
+                    streams,
+                    count=10,
+                    block=1000,
                 )
 
                 if messages:
@@ -115,7 +121,7 @@ class ConsolidationWorker:
 
             except Exception as e:
                 logger.error(f"Worker loop error: {e}")
-                await asyncio.sleep(5) # Backoff logic placeholder
+                await asyncio.sleep(5)  # Backoff logic placeholder
 
     async def start(self):
         self.running = True
@@ -127,9 +133,11 @@ class ConsolidationWorker:
         self.running = False
         logger.info("Stopping worker...")
 
+
 if __name__ == "__main__":
     # Standalone entry point
     from .logging_config import configure_logging
+
     configure_logging(level="INFO")
     worker = ConsolidationWorker()
     try:

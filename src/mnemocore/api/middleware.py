@@ -6,42 +6,42 @@ Supports differentiated rate limits per endpoint category.
 """
 
 import time
-from typing import Optional, Callable
-from fastapi import Request, HTTPException, status, Response
+from typing import Callable, Optional
+
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from mnemocore.core.config import get_config
-
 
 # Rate limit configurations per endpoint category
 RATE_LIMIT_CONFIGS = {
     "store": {
         "requests": 100,
         "window": 60,  # 100/minute
-        "description": "Memory storage operations"
+        "description": "Memory storage operations",
     },
     "query": {
         "requests": 500,
         "window": 60,  # 500/minute
-        "description": "Query operations"
+        "description": "Query operations",
     },
     "concept": {
         "requests": 100,
         "window": 60,  # 100/minute
-        "description": "Concept operations"
+        "description": "Concept operations",
     },
     "analogy": {
         "requests": 100,
         "window": 60,  # 100/minute
-        "description": "Analogy operations"
+        "description": "Analogy operations",
     },
     "default": {
         "requests": 100,
         "window": 60,  # 100/minute
-        "description": "Default rate limit"
-    }
+        "description": "Default rate limit",
+    },
 }
 
 
@@ -62,6 +62,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
     Middleware to add security headers to every response.
     """
+
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -90,11 +91,12 @@ class RateLimiter:
         # Category-based rate limit
         @app.post("/store", dependencies=[Depends(RateLimiter(category="store"))])
     """
+
     def __init__(
         self,
         requests: Optional[int] = None,
         window: Optional[int] = None,
-        category: Optional[str] = None
+        category: Optional[str] = None,
     ):
         self.requests = requests
         self.window = window
@@ -106,7 +108,7 @@ class RateLimiter:
             return
 
         # Get container from app state
-        container = getattr(request.app.state, 'container', None)
+        container = getattr(request.app.state, "container", None)
         if not container or not container.redis_storage:
             logger.warning("Redis storage not available, skipping rate limit.")
             return
@@ -159,12 +161,14 @@ class RateLimiter:
                 window_end = (window_index + 1) * window
                 retry_after = window_end - current_time
 
-                logger.warning(f"Rate limit exceeded for {client_ip} on {effective_category}: {count}/{limit}")
+                logger.warning(
+                    f"Rate limit exceeded for {client_ip} on {effective_category}: {count}/{limit}"
+                )
 
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
-                    headers={"Retry-After": str(retry_after)}
+                    headers={"Retry-After": str(retry_after)},
                 )
 
         except HTTPException:
@@ -178,29 +182,35 @@ class RateLimiter:
 
 class StoreRateLimiter(RateLimiter):
     """Rate limiter for store endpoints: 100/minute."""
+
     def __init__(self):
         super().__init__(category="store")
 
 
 class QueryRateLimiter(RateLimiter):
     """Rate limiter for query endpoints: 500/minute."""
+
     def __init__(self):
         super().__init__(category="query")
 
 
 class ConceptRateLimiter(RateLimiter):
     """Rate limiter for concept endpoints: 100/minute."""
+
     def __init__(self):
         super().__init__(category="concept")
 
 
 class AnalogyRateLimiter(RateLimiter):
     """Rate limiter for analogy endpoints: 100/minute."""
+
     def __init__(self):
         super().__init__(category="analogy")
 
 
-async def rate_limit_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def rate_limit_exception_handler(
+    request: Request, exc: HTTPException
+) -> JSONResponse:
     """
     Custom exception handler for rate limit errors.
     Ensures HTTP 429 with Retry-After header.
@@ -212,7 +222,7 @@ async def rate_limit_exception_handler(request: Request, exc: HTTPException) -> 
         content={
             "detail": exc.detail,
             "error_type": "rate_limit_exceeded",
-            "retry_after": int(retry_after)
+            "retry_after": int(retry_after),
         },
-        headers={"Retry-After": retry_after}
+        headers={"Retry-After": retry_after},
     )

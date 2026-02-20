@@ -38,28 +38,30 @@ from .binary_hdv import BinaryHDV, majority_bundle
 from .config import get_config
 from .node import MemoryNode
 
-
 # ------------------------------------------------------------------ #
 #  Configuration                                                      #
 # ------------------------------------------------------------------ #
 
+
 @dataclass
 class SemanticConsolidationConfig:
     """Tuning knobs for the nightly consolidation pass."""
-    schedule_hour: int = 3          # UTC hour to run (3 = 03:00 UTC)
-    duplicate_epsilon: float = 0.05 # Hamming dist < epsilon → near-duplicate
-    cluster_k: int = 32             # Target number of clusters (k-medoids)
-    cluster_max_iter: int = 10      # k-medoids convergence iterations
-    min_cluster_size: int = 3       # Ignore clusters smaller than this
-    prune_duplicates: bool = True   # Actually remove duplicates (vs just log)
-    min_ltp_to_prune: float = 0.0   # Only prune nodes with ltp < this
-    batch_size: int = 500           # Process WARM tier in batches
+
+    schedule_hour: int = 3  # UTC hour to run (3 = 03:00 UTC)
+    duplicate_epsilon: float = 0.05  # Hamming dist < epsilon → near-duplicate
+    cluster_k: int = 32  # Target number of clusters (k-medoids)
+    cluster_max_iter: int = 10  # k-medoids convergence iterations
+    min_cluster_size: int = 3  # Ignore clusters smaller than this
+    prune_duplicates: bool = True  # Actually remove duplicates (vs just log)
+    min_ltp_to_prune: float = 0.0  # Only prune nodes with ltp < this
+    batch_size: int = 500  # Process WARM tier in batches
     enabled: bool = True
 
 
 # ------------------------------------------------------------------ #
 #  Helpers                                                            #
 # ------------------------------------------------------------------ #
+
 
 def _hamming_matrix(vecs: np.ndarray) -> np.ndarray:
     """
@@ -123,6 +125,7 @@ def _kmedoids_iter(
 #  Worker                                                             #
 # ------------------------------------------------------------------ #
 
+
 class SemanticConsolidationWorker:
     """
     Nightly semantic consolidation.
@@ -152,7 +155,9 @@ class SemanticConsolidationWorker:
             logger.info("SemanticConsolidationWorker disabled by config.")
             return
         self._running = True
-        self._task = asyncio.create_task(self._schedule_loop(), name="semantic_consolidation")
+        self._task = asyncio.create_task(
+            self._schedule_loop(), name="semantic_consolidation"
+        )
         logger.info(
             f"SemanticConsolidationWorker started — runs at {self.cfg.schedule_hour:02d}:00 UTC"
         )
@@ -263,7 +268,9 @@ class SemanticConsolidationWorker:
                 medoid_node.ltp_strength + 0.05 * len(member_nodes),
             )
             medoid_node.metadata["proto_cluster_size"] = int(len(member_nodes))
-            medoid_node.metadata["proto_updated_at"] = datetime.now(timezone.utc).isoformat()
+            medoid_node.metadata["proto_updated_at"] = datetime.now(
+                timezone.utc
+            ).isoformat()
             proto_count += 1
 
         elapsed = time.monotonic() - t0
@@ -286,7 +293,11 @@ class SemanticConsolidationWorker:
         # 6. Fire optional hook
         if self.hook:
             try:
-                await asyncio.coroutine(self.hook)(self.stats) if asyncio.iscoroutinefunction(self.hook) else self.hook(self.stats)
+                (
+                    await asyncio.coroutine(self.hook)(self.stats)
+                    if asyncio.iscoroutinefunction(self.hook)
+                    else self.hook(self.stats)
+                )
             except Exception as e:
                 logger.warning(f"post_consolidation_hook error: {e}")
 
@@ -310,9 +321,7 @@ class SemanticConsolidationWorker:
             pass  # list_warm not available; work with HOT only
         return nodes
 
-    async def _prune_duplicates(
-        self, nodes: List[MemoryNode], vecs: np.ndarray
-    ) -> int:
+    async def _prune_duplicates(self, nodes: List[MemoryNode], vecs: np.ndarray) -> int:
         """
         Find and remove near-duplicate nodes (distance < epsilon).
         Keeps the node with the highest LTP strength.

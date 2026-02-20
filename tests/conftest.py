@@ -1,10 +1,11 @@
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Mock Infrastructure Fixtures (Phase 3.5 - Offline Testing Support)
 # =============================================================================
+
 
 @pytest.fixture
 def qdrant_store():
@@ -25,7 +26,7 @@ def qdrant_store():
         url="mock://localhost:6333",
         dimensionality=1024,
         collection_hot="haim_hot",
-        collection_warm="haim_warm"
+        collection_warm="haim_warm",
     )
     return store
 
@@ -46,8 +47,7 @@ def redis_storage():
     from tests.mocks import MockAsyncRedisStorage
 
     storage = MockAsyncRedisStorage(
-        url="redis://localhost:6379/0",
-        stream_key="haim:subconscious"
+        url="redis://localhost:6379/0", stream_key="haim:subconscious"
     )
     return storage
 
@@ -88,15 +88,14 @@ def engine(qdrant_store, redis_storage):
     }
 
     return MockEngine(
-        qdrant_store=qdrant_store,
-        redis_storage=redis_storage,
-        config=mock_config
+        qdrant_store=qdrant_store, redis_storage=redis_storage, config=mock_config
     )
 
 
 # =============================================================================
 # Legacy Mock Fixtures (for backward compatibility)
 # =============================================================================
+
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_hardware_dependencies():
@@ -179,19 +178,21 @@ def mock_hardware_dependencies():
         container.qdrant_store = mock_qdrant_instance
         return container
 
-    container_patch = patch.object(container_module, 'build_container', side_effect=mock_build_container)
+    container_patch = patch.object(
+        container_module, "build_container", side_effect=mock_build_container
+    )
     container_patch.start()
 
     # Patch _initialize_from_pool instead of __init__ to allow constructor to run
     redis_init_patch = patch.object(
         mnemocore.core.async_storage.AsyncRedisStorage,
-        '_initialize_from_pool',
-        return_value=None
+        "_initialize_from_pool",
+        return_value=None,
     )
     redis_init_patch.start()
 
     # Patch AsyncQdrantClient instead of __init__
-    qdrant_client_patch = patch('mnemocore.core.qdrant_store.AsyncQdrantClient')
+    qdrant_client_patch = patch("mnemocore.core.qdrant_store.AsyncQdrantClient")
     qdrant_client_patch.start()
 
     yield (mock_qdrant_instance, mock_redis_storage)
@@ -206,6 +207,7 @@ def mock_hardware_dependencies():
 def clean_config():
     """Reset config state between tests."""
     from mnemocore.core.config import reset_config
+
     reset_config()
     yield
     reset_config()
@@ -220,7 +222,9 @@ def mock_container():
 
     mock_redis_client = MagicMock()
     mock_redis_client.ping = AsyncMock(return_value=True)
-    mock_redis_client.pipeline.return_value.__aenter__ = AsyncMock(return_value=mock_redis_client.pipeline.return_value)
+    mock_redis_client.pipeline.return_value.__aenter__ = AsyncMock(
+        return_value=mock_redis_client.pipeline.return_value
+    )
     mock_redis_client.pipeline.return_value.__aexit__ = AsyncMock(return_value=None)
     mock_redis_client.pipeline.return_value.execute = AsyncMock(return_value=[1, True])
 

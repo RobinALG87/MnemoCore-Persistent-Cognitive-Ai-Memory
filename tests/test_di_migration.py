@@ -5,8 +5,9 @@ Verifies that the singleton pattern has been properly removed
 and replaced with dependency injection.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 class TestAsyncRedisStorageDI:
@@ -15,8 +16,10 @@ class TestAsyncRedisStorageDI:
     def test_no_get_instance_method(self):
         """AsyncRedisStorage should not have get_instance class method."""
         from mnemocore.core.async_storage import AsyncRedisStorage
-        assert not hasattr(AsyncRedisStorage, 'get_instance'), \
-            "AsyncRedisStorage should not have get_instance method"
+
+        assert not hasattr(
+            AsyncRedisStorage, "get_instance"
+        ), "AsyncRedisStorage should not have get_instance method"
 
     def test_constructor_accepts_parameters(self):
         """AsyncRedisStorage constructor should accept explicit parameters."""
@@ -50,8 +53,10 @@ class TestQdrantStoreDI:
     def test_no_get_instance_method(self):
         """QdrantStore should not have get_instance class method."""
         from mnemocore.core.qdrant_store import QdrantStore
-        assert not hasattr(QdrantStore, 'get_instance'), \
-            "QdrantStore should not have get_instance method"
+
+        assert not hasattr(
+            QdrantStore, "get_instance"
+        ), "QdrantStore should not have get_instance method"
 
     def test_constructor_accepts_parameters(self):
         """QdrantStore constructor should accept explicit parameters."""
@@ -78,19 +83,22 @@ class TestContainer:
     def test_container_exists(self):
         """Container module should exist and be importable."""
         from mnemocore.core.container import Container, build_container
+
         assert Container is not None
         assert build_container is not None
 
     def test_build_container_creates_dependencies(self):
         """build_container should create all required dependencies."""
-        from mnemocore.core.container import build_container
         from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.container import build_container
 
         # Create a minimal config
         config = HAIMConfig()
 
-        with patch('mnemocore.core.container.AsyncRedisStorage') as mock_redis_class, \
-             patch('mnemocore.core.container.QdrantStore') as mock_qdrant_class:
+        with (
+            patch("mnemocore.core.container.AsyncRedisStorage") as mock_redis_class,
+            patch("mnemocore.core.container.QdrantStore") as mock_qdrant_class,
+        ):
 
             mock_redis_class.return_value = MagicMock()
             mock_qdrant_class.return_value = MagicMock()
@@ -103,15 +111,15 @@ class TestContainer:
 
     def test_container_dataclass_fields(self):
         """Container should have expected fields."""
-        from mnemocore.core.container import Container
         from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.container import Container
 
         config = HAIMConfig()
         container = Container(config=config)
 
-        assert hasattr(container, 'config')
-        assert hasattr(container, 'redis_storage')
-        assert hasattr(container, 'qdrant_store')
+        assert hasattr(container, "config")
+        assert hasattr(container, "redis_storage")
+        assert hasattr(container, "qdrant_store")
 
 
 class TestTierManagerDI:
@@ -119,27 +127,31 @@ class TestTierManagerDI:
 
     def test_constructor_accepts_config(self):
         """TierManager constructor should accept config parameter."""
-        from mnemocore.core.tier_manager import TierManager
         from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.tier_manager import TierManager
 
         config = HAIMConfig()
 
-        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
+        with (
+            patch("mnemocore.core.tier_manager.HNSW_AVAILABLE", False),
+            patch("mnemocore.core.tier_manager.FAISS_AVAILABLE", False),
+        ):
             manager = TierManager(config=config)
 
         assert manager.config is config
 
     def test_constructor_accepts_qdrant_store(self):
         """TierManager constructor should accept qdrant_store parameter."""
-        from mnemocore.core.tier_manager import TierManager
         from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.tier_manager import TierManager
 
         config = HAIMConfig()
         mock_qdrant = MagicMock()
 
-        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
+        with (
+            patch("mnemocore.core.tier_manager.HNSW_AVAILABLE", False),
+            patch("mnemocore.core.tier_manager.FAISS_AVAILABLE", False),
+        ):
             manager = TierManager(config=config, qdrant_store=mock_qdrant)
 
         assert manager.qdrant is mock_qdrant
@@ -151,28 +163,32 @@ class TestHAIMEngineDI:
 
     def test_constructor_accepts_config(self):
         """HAIMEngine constructor should accept config parameter."""
-        from mnemocore.core.engine import HAIMEngine
         from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.engine import HAIMEngine
 
         config = HAIMConfig()
 
         # Patch at tier_manager level since that's where HNSW/FAISS is used
-        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
+        with (
+            patch("mnemocore.core.tier_manager.HNSW_AVAILABLE", False),
+            patch("mnemocore.core.tier_manager.FAISS_AVAILABLE", False),
+        ):
             engine = HAIMEngine(config=config)
 
         assert engine.config is config
 
     def test_constructor_accepts_tier_manager(self):
         """HAIMEngine constructor should accept tier_manager parameter."""
-        from mnemocore.core.engine import HAIMEngine
         from mnemocore.core.config import HAIMConfig
+        from mnemocore.core.engine import HAIMEngine
         from mnemocore.core.tier_manager import TierManager
 
         config = HAIMConfig()
 
-        with patch('mnemocore.core.tier_manager.HNSW_AVAILABLE', False), \
-             patch('mnemocore.core.tier_manager.FAISS_AVAILABLE', False):
+        with (
+            patch("mnemocore.core.tier_manager.HNSW_AVAILABLE", False),
+            patch("mnemocore.core.tier_manager.FAISS_AVAILABLE", False),
+        ):
             tier_manager = TierManager(config=config)
             engine = HAIMEngine(config=config, tier_manager=tier_manager)
 
@@ -207,16 +223,20 @@ class TestNoSingletonPattern:
         from mnemocore.core.qdrant_store import QdrantStore
 
         # _instance is the typical singleton storage attribute
-        assert not hasattr(AsyncRedisStorage, '_instance') or \
-               AsyncRedisStorage._instance is None or \
-               '_instance' not in AsyncRedisStorage.__dict__
+        assert (
+            not hasattr(AsyncRedisStorage, "_instance")
+            or AsyncRedisStorage._instance is None
+            or "_instance" not in AsyncRedisStorage.__dict__
+        )
 
         # Note: QdrantStore might have _instance from object base,
         # but shouldn't have it defined explicitly for singleton use
-        if hasattr(QdrantStore, '_instance'):
+        if hasattr(QdrantStore, "_instance"):
             # Check it's not being used as singleton storage
-            assert '_instance' not in QdrantStore.__dict__ or \
-                   QdrantStore.__dict__['_instance'] is None
+            assert (
+                "_instance" not in QdrantStore.__dict__
+                or QdrantStore.__dict__["_instance"] is None
+            )
 
     def test_multiple_instances_independent(self):
         """Creating multiple instances should work independently."""
@@ -232,4 +252,3 @@ class TestNoSingletonPattern:
         assert storage1.redis_client is mock_client1
         assert storage2.redis_client is mock_client2
         assert storage1 is not storage2
-
