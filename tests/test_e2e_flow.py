@@ -34,6 +34,8 @@ def isolated_engine(tmp_path):
       (new memories have LTP ~0.55, below the default threshold of 0.7)
     - HAIM_HOT_MAX_MEMORIES=10000     → prevents eviction during tests
     """
+    from mnemocore.core.hnsw_index import HNSWIndexManager
+    HNSWIndexManager._instance = None
     reset_config()
     data_dir = tmp_path / "data"
     data_dir.mkdir()

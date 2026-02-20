@@ -19,6 +19,8 @@ from mnemocore.core.node import MemoryNode
 
 @pytest.fixture
 def binary_engine(tmp_path):
+    from mnemocore.core.hnsw_index import HNSWIndexManager
+    HNSWIndexManager._instance = None
     reset_config()
     data_dir = tmp_path / "data"
     data_dir.mkdir()

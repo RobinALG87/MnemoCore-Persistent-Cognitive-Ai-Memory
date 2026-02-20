@@ -132,6 +132,23 @@ class HAIMEngine:
 
         # ── Phase 4.5: recursive synthesizer ───────────────────────────
         self._recursive_synthesizer: Optional[RecursiveSynthesizer] = None
+        
+        # ── Phase 12.2: Contextual Topic Tracker ───────────────────────
+        from .topic_tracker import TopicTracker
+        self.topic_tracker = TopicTracker(self.config.context, self.dimension)
+
+        # ── Phase 12.3: Preference Learning ────────────────────────────
+        from .preference_store import PreferenceStore
+        self.preference_store = PreferenceStore(self.config.preference, self.dimension)
+
+        # ── Phase 13.2: Anticipatory Memory ────────────────────────────
+        from .anticipatory import AnticipatoryEngine
+        self.anticipatory_engine = AnticipatoryEngine(
+            self.config.anticipatory, 
+            self._synapse_index, 
+            self.tier_manager, 
+            self.topic_tracker
+        )
 
         # Conceptual Layer (VSA Soul)
         data_dir = self.config.paths.data_dir
@@ -337,6 +354,19 @@ class HAIMEngine:
         """
         _is_gap_fill = metadata.get("source") == "llm_gap_fill"
 
+        # Phase 12.1: Aggressive Synapse Formation (Auto-bind)
+        if hasattr(self.config, 'synapse') and self.config.synapse.auto_bind_on_store:
+            # Query for similar nodes to auto-bind immediately
+            similar_nodes = await self.query(
+                node.content,
+                top_k=3,
+                associative_jump=False,
+                track_gaps=False
+            )
+            for neighbor_id, similarity in similar_nodes:
+                if neighbor_id != node.id and similarity >= self.config.synapse.similarity_threshold:
+                    await self.bind_memories(node.id, neighbor_id, success=True)
+
         self.subconscious_queue.append(node.id)
 
         if not _is_gap_fill:
@@ -430,6 +460,14 @@ class HAIMEngine:
 
         return deleted
 
+    async def log_decision(self, context_text: str, outcome: float) -> None:
+        """
+        Phase 12.3: Logs a user decision or feedback context to update preference vector.
+        Outcome should be positive (e.g. 1.0) or negative (e.g. -1.0).
+        """
+        vec = await self._run_in_thread(self.binary_encoder.encode, context_text)
+        self.preference_store.log_decision(vec, outcome)
+
     async def close(self):
         """Perform graceful shutdown of engine components."""
         logger.info("Shutting down HAIMEngine...")
@@ -485,6 +523,11 @@ class HAIMEngine:
         # Encode Query
         query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
 
+        # Phase 12.2: Context Tracking
+        is_shift, sim = self.topic_tracker.add_query(query_vec)
+        if is_shift:
+            logger.info(f"Context shifted during query. (sim {sim:.3f})")
+
         # Phase 4.1: Apply project isolation mask to query
         if project_id:
             query_vec = self.isolation_masker.apply_mask(query_vec, project_id)
@@ -521,6 +564,16 @@ class HAIMEngine:
                     # Formula: Final = Semantic * (1 / (1 + lambda * time_delta))
                     decay_factor = 1.0 / (1.0 + chrono_lambda * time_delta)
                     score = score * decay_factor
+
+            # Phase 12.3: Preference Learning Bias
+            if self.preference_store.config.enabled and self.preference_store.preference_vector is not None:
+                mem = mem_map.get(nid)
+                if not mem:
+                    mem = await self.tier_manager.get_memory(nid)
+                    if mem and mem.id not in mem_map:
+                        mem_map[mem.id] = mem
+                if mem:
+                    score = self.preference_store.bias_score(mem.hdv, score)
 
             scores[nid] = score
 
@@ -636,6 +689,26 @@ class HAIMEngine:
 
         return top_results
 
+    async def get_context_nodes(self, top_k: int = 3) -> List[Tuple[str, float]]:
+        """
+        Phase 12.2: Contextual Awareness
+        Retrieves the top_k most relevant nodes relating to the current topic context vector.
+        Should be explicitly used by prompt builders before LLM logic injection.
+        """
+        if not self.topic_tracker.config.enabled:
+            return []
+            
+        ctx = self.topic_tracker.get_context()
+        if ctx is None:
+            return []
+            
+        results = await self.tier_manager.search(
+            ctx,
+            top_k=top_k,
+            time_range=None,
+            metadata_filter=None,
+        )
+        return results
     async def _background_dream(self, depth: int = 2):
         """
         Passive Subconscious – strengthen synapses in idle cycles.
@@ -688,7 +761,7 @@ class HAIMEngine:
 
         return sorted(active_nodes, key=score, reverse=True)[:max_collapse]
 
-    async def bind_memories(self, id_a: str, id_b: str, success: bool = True):
+    async def bind_memories(self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0):
         """
         Bind two memories by ID.
 
@@ -702,7 +775,7 @@ class HAIMEngine:
             return
 
         async with self.synapse_lock:
-            syn = self._synapse_index.add_or_fire(id_a, id_b, success=success)
+            syn = self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
 
             # Keep legacy dict in sync for any external code still using it
             synapse_key = tuple(sorted([id_a, id_b]))

@@ -6,7 +6,7 @@ Provides async access to Qdrant for vector storage and similarity search.
 Phase 4.3: Temporal Recall - supports time-based filtering and indexing.
 """
 
-from typing import List, Any, Optional, Tuple
+from typing import List, Any, Optional, Tuple, Dict
 from datetime import datetime
 import asyncio
 

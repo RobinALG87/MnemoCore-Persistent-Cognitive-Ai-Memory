@@ -83,7 +83,7 @@ class SynapseIndex:
             self._adj.setdefault(key[0], set()).add(key[1])
             self._adj.setdefault(key[1], set()).add(key[0])
 
-    def add_or_fire(self, id_a: str, id_b: str, success: bool = True) -> "SynapticConnection":
+    def add_or_fire(self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0) -> "SynapticConnection":
         """
         Create a synapse if it doesn't exist, then fire it.
 
@@ -104,7 +104,7 @@ class SynapseIndex:
         upd = _get_bayesian_updater()
         upd.observe_synapse(syn, success=success)
         # Also call the Hebbian fire for backward compat (updates fire_count etc.)
-        syn.fire(success=success)
+        syn.fire(success=success, weight=weight)
 
         return syn
 
@@ -125,6 +125,36 @@ class SynapseIndex:
             if syn:
                 result.append(syn)
         return result
+
+    def get_multi_hop_neighbors(self, node_id: str, depth: int = 2) -> Dict[str, float]:
+        """
+        Phase 12.1: Traverse graph up to `depth` hops away.
+        Returns a mapping of node_id -> maximum cumulative connection strength path.
+        """
+        visited = {node_id: 1.0}
+        current_layer = {node_id: 1.0}
+        
+        for _ in range(depth):
+            next_layer = {}
+            for curr_node, cum_weight in current_layer.items():
+                for syn in self.neighbours(curr_node):
+                    neighbor_id = syn.neuron_b_id if syn.neuron_a_id == curr_node else syn.neuron_a_id
+                    if neighbor_id == node_id:
+                        continue
+                    
+                    edge_weight = syn.get_current_strength()
+                    new_weight = cum_weight * edge_weight
+                    
+                    # Store the strongest path to the node
+                    if neighbor_id not in visited or new_weight > visited[neighbor_id]:
+                        visited[neighbor_id] = new_weight
+                    
+                    if neighbor_id not in next_layer or new_weight > next_layer[neighbor_id]:
+                        next_layer[neighbor_id] = new_weight
+            current_layer = next_layer
+            
+        visited.pop(node_id, None)
+        return visited
 
     def neighbour_ids(self, node_id: str) -> Set[str]:
         """O(1) set of connected node IDs."""

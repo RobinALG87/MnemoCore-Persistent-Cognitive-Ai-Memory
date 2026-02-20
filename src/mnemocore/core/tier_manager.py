@@ -288,6 +288,25 @@ class TierManager:
 
         return [result_by_id.get(nid) for nid in node_ids]
 
+    async def anticipate(self, node_ids: List[str]) -> None:
+        """
+        Phase 13.2: Anticipatory Memory
+        Pre-loads specific nodes into the HOT active tier (working memory).
+        This forces the nodes out of WARM/COLD and into RAM for near-zero latency retrieval.
+        """
+        for nid in set(node_ids):
+            # Check if already in HOT
+            in_hot = False
+            async with self.lock:
+                if nid in self.hot:
+                    in_hot = True
+            
+            if not in_hot:
+                # Load from WARM
+                node = await self._load_from_warm(nid)
+                if node:
+                    # Force promote to HOT
+                    await self._promote_to_hot(node)
     async def delete_memory(self, node_id: str):
         """Robust delete from all tiers."""
         async with self.lock:

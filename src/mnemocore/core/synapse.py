@@ -21,15 +21,16 @@ class SynapticConnection:
         self.fire_count = 0
         self.success_count = 0  # For Hebbian learning
 
-    def fire(self, success: bool = True):
+    def fire(self, success: bool = True, weight: float = 1.0):
         """Activate synapse (strengthen if successful)"""
         self.last_fired = datetime.now(timezone.utc)
         self.fire_count += 1
 
         if success:
-            # Hebbian learning: fire together, wire together
-            # Logistic-like growth or simple fractional approach
-            self.strength += 0.1 * (1 - self.strength)  # Cap at 1.0 implicitly
+            # Phase 12.1: Allow aggressive weight multiplier for co-occurrence
+            self.strength += (0.1 * weight) * (1 - self.strength)
+            if self.strength > 1.0:
+                self.strength = 1.0
             self.success_count += 1
 
     def get_current_strength(self) -> float:

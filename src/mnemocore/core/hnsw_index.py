@@ -228,7 +228,7 @@ class HNSWIndexManager:
                                     compact_ids.append(nid)
                                     compact_vecs.append(self._vector_store[i])
                             if compact_vecs:
-                                vecs = np.stack(compact_vecs)
+                                vecs = np.ascontiguousarray(np.stack(compact_vecs))
                                 self._index.add(vecs)
                             self._id_map = compact_ids
                             self._vector_store = compact_vecs

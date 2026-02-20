@@ -140,6 +140,37 @@ class EncodingConfig:
 
 
 @dataclass(frozen=True)
+class SynapseConfig:
+    """Configuration for Phase 12.1: Aggressive Synapse Formation"""
+    similarity_threshold: float = 0.5
+    auto_bind_on_store: bool = True
+    multi_hop_depth: int = 2
+
+
+@dataclass(frozen=True)
+class ContextConfig:
+    """Configuration for Phase 12.2: Contextual Awareness"""
+    enabled: bool = True
+    shift_threshold: float = 0.3
+    rolling_window_size: int = 5
+
+
+@dataclass(frozen=True)
+class PreferenceConfig:
+    """Configuration for Phase 12.3: Preference Learning"""
+    enabled: bool = True
+    learning_rate: float = 0.1
+    history_limit: int = 100
+
+
+@dataclass(frozen=True)
+class AnticipatoryConfig:
+    """Configuration for Phase 13.2: Anticipatory Memory"""
+    enabled: bool = True
+    predictive_depth: int = 1
+
+
+@dataclass(frozen=True)
 class DreamLoopConfig:
     """Configuration for the dream loop (subconscious background processing)."""
     enabled: bool = True
@@ -230,6 +261,10 @@ class HAIMConfig:
     paths: PathsConfig = field(default_factory=PathsConfig)
     consolidation: ConsolidationConfig = field(default_factory=ConsolidationConfig)
     attention_masking: AttentionMaskingConfig = field(default_factory=AttentionMaskingConfig)
+    synapse: SynapseConfig = field(default_factory=SynapseConfig)
+    context: ContextConfig = field(default_factory=ContextConfig)
+    preference: PreferenceConfig = field(default_factory=PreferenceConfig)
+    anticipatory: AnticipatoryConfig = field(default_factory=AnticipatoryConfig)
     dream_loop: DreamLoopConfig = field(default_factory=DreamLoopConfig)
     subconscious_ai: SubconsciousAIConfig = field(default_factory=SubconsciousAIConfig)
 
@@ -499,6 +534,37 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         model=_env_override("DREAM_LOOP_MODEL", dream_raw.get("model", "gemma3:1b")),
     )
 
+    # Build synapse config (Phase 12.1)
+    syn_raw = raw.get("synapse") or {}
+    synapse = SynapseConfig(
+        similarity_threshold=_env_override("SYNAPSE_SIMILARITY_THRESHOLD", syn_raw.get("similarity_threshold", 0.5)),
+        auto_bind_on_store=_env_override("SYNAPSE_AUTO_BIND_ON_STORE", syn_raw.get("auto_bind_on_store", True)),
+        multi_hop_depth=_env_override("SYNAPSE_MULTI_HOP_DEPTH", syn_raw.get("multi_hop_depth", 2)),
+    )
+
+    # Build context config (Phase 12.2)
+    ctx_raw = raw.get("context") or {}
+    context = ContextConfig(
+        enabled=_env_override("CONTEXT_ENABLED", ctx_raw.get("enabled", True)),
+        shift_threshold=_env_override("CONTEXT_SHIFT_THRESHOLD", ctx_raw.get("shift_threshold", 0.3)),
+        rolling_window_size=_env_override("CONTEXT_ROLLING_WINDOW_SIZE", ctx_raw.get("rolling_window_size", 5)),
+    )
+
+    # Build preference config (Phase 12.3)
+    pref_raw = raw.get("preference") or {}
+    preference = PreferenceConfig(
+        enabled=_env_override("PREFERENCE_ENABLED", pref_raw.get("enabled", True)),
+        learning_rate=_env_override("PREFERENCE_LEARNING_RATE", pref_raw.get("learning_rate", 0.1)),
+        history_limit=_env_override("PREFERENCE_HISTORY_LIMIT", pref_raw.get("history_limit", 100)),
+    )
+
+    # Build anticipatory config (Phase 13.2)
+    ant_raw = raw.get("anticipatory") or {}
+    anticipatory = AnticipatoryConfig(
+        enabled=_env_override("ANTICIPATORY_ENABLED", ant_raw.get("enabled", True)),
+        predictive_depth=_env_override("ANTICIPATORY_PREDICTIVE_DEPTH", ant_raw.get("predictive_depth", 1)),
+    )
+
     # Build subconscious AI config (Phase 4.4 BETA)
     sub_raw = raw.get("subconscious_ai") or {}
     subconscious_ai = SubconsciousAIConfig(
@@ -542,6 +608,10 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         paths=paths,
         consolidation=consolidation,
         attention_masking=attention_masking,
+        synapse=synapse,
+        context=context,
+        preference=preference,
+        anticipatory=anticipatory,
         dream_loop=dream_loop,
         subconscious_ai=subconscious_ai,
     )
