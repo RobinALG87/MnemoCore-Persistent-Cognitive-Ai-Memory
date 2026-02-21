@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import TYPE_CHECKING, Dict, Any, Optional
 import math
 
 from .binary_hdv import BinaryHDV
 from .config import get_config
+
+if TYPE_CHECKING:
+    from .provenance import ProvenanceRecord
 
 
 @dataclass
@@ -35,6 +40,15 @@ class MemoryNode:
     # Phase 4.3: Episodic Chaining - links to temporally adjacent memories
     previous_id: Optional[str] = None  # UUID of the memory created immediately before this one
 
+    # Phase 5.0 — Agent 1: Trust & Provenance
+    provenance: Optional["ProvenanceRecord"] = field(default=None, repr=False)
+
+    # Phase 5.0 — Agent 2: Adaptive Temporal Decay
+    # Per-memory stability: S_i = S_base * (1 + k * access_count)
+    # Starts at 1.0; increases logarithmically on access.
+    stability: float = 1.0
+    review_candidate: bool = False  # Set by ForgettingCurveManager when near decay threshold
+
     def access(self, update_weights: bool = True):
         """Retrieve memory (reconsolidation)"""
         now = datetime.now(timezone.utc)
@@ -45,6 +59,11 @@ class MemoryNode:
             # Decay old strength first? Or just recalculate?
             # We recalculate based on new access count
             self.calculate_ltp()
+
+            # Phase 5.0: update per-memory stability on each successful access
+            # S_i grows logarithmically so older frequently-accessed memories are more stable
+            import math as _math
+            self.stability = max(1.0, 1.0 + _math.log1p(self.access_count) * 0.5)
 
             # Legacy updates
             self.epistemic_value *= 1.01

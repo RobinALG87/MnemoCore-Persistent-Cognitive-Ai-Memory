@@ -37,6 +37,7 @@ from loguru import logger
 from .binary_hdv import BinaryHDV, majority_bundle
 from .config import get_config
 from .node import MemoryNode
+from .provenance import ProvenanceRecord
 
 
 # ------------------------------------------------------------------ #
@@ -265,6 +266,18 @@ class SemanticConsolidationWorker:
             medoid_node.metadata["proto_cluster_size"] = int(len(member_nodes))
             medoid_node.metadata["proto_updated_at"] = datetime.now(timezone.utc).isoformat()
             proto_count += 1
+
+            # Phase 5.0: record consolidation in provenance lineage
+            source_ids = [n.id for n in member_nodes if n.id != medoid_node.id]
+            if medoid_node.provenance is None:
+                medoid_node.provenance = ProvenanceRecord.new(
+                    origin_type="consolidation",
+                    actor="consolidation_worker",
+                )
+            medoid_node.provenance.mark_consolidated(
+                source_memory_ids=source_ids,
+                actor="consolidation_worker",
+            )
 
         elapsed = time.monotonic() - t0
         self.last_run = datetime.now(timezone.utc)

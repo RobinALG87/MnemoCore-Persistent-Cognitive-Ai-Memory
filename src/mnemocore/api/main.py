@@ -687,6 +687,310 @@ async def rlm_query(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5.0 — Agent 1: Trust & Provenance Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/memory/{memory_id}/lineage",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Trust"],
+    summary="Get full provenance lineage for a memory",
+)
+async def get_memory_lineage(
+    memory_id: str,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Return the complete provenance lineage of a memory:
+    origin (who created it, how, when) and all transformation events
+    (consolidated, verified, contradicted, archived, …).
+    """
+    node = await engine.get_memory(memory_id)
+    if not node:
+        raise MemoryNotFoundError(memory_id)
+
+    prov = getattr(node, "provenance", None)
+    if prov is None:
+        return {
+            "ok": True,
+            "memory_id": memory_id,
+            "provenance": None,
+            "message": "No provenance record attached to this memory.",
+        }
+
+    return {
+        "ok": True,
+        "memory_id": memory_id,
+        "provenance": prov.to_dict(),
+    }
+
+
+@app.get(
+    "/memory/{memory_id}/confidence",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Trust"],
+    summary="Get confidence envelope for a memory",
+)
+async def get_memory_confidence(
+    memory_id: str,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Return a structured confidence envelope for a memory, combining:
+    - Bayesian reliability (BayesianLTP posterior mean)
+    - access_count (evidence strength)
+    - staleness (days since last verification)
+    - source_type trust weight
+    - contradiction flag
+
+    Level: high | medium | low | contradicted | stale
+    """
+    from mnemocore.core.confidence import build_confidence_envelope
+
+    node = await engine.get_memory(memory_id)
+    if not node:
+        raise MemoryNotFoundError(memory_id)
+
+    prov = getattr(node, "provenance", None)
+    envelope = build_confidence_envelope(node, prov)
+
+    return {
+        "ok": True,
+        "memory_id": memory_id,
+        "confidence": envelope,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5.0 — Agent 3 stub: Proactive Recall
+# (Full implementation added by Agent 3 workstream)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/proactive",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Autonomy"],
+    summary="Retrieve contextually relevant memories without explicit query",
+)
+async def get_proactive_memories(
+    agent_id: Optional[str] = None,
+    limit: int = 10,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Proactive recall stub (Phase 5.0 / Agent 3).
+    Returns the most recently active high-LTP memories as a stand-in
+    until the full ProactiveRecallDaemon is implemented.
+    """
+    nodes = await engine.tier_manager.get_hot_snapshot() if hasattr(engine, "tier_manager") else []
+    sorted_nodes = sorted(nodes, key=lambda n: n.ltp_strength, reverse=True)[:limit]
+
+    from mnemocore.core.confidence import build_confidence_envelope
+    results = []
+    for n in sorted_nodes:
+        prov = getattr(n, "provenance", None)
+        results.append({
+            "id": n.id,
+            "content": n.content,
+            "ltp_strength": round(n.ltp_strength, 4),
+            "confidence": build_confidence_envelope(n, prov),
+            "tier": getattr(n, "tier", "hot"),
+        })
+
+    return {"ok": True, "proactive_results": results, "count": len(results)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5.0 — Agent 2: Memory Lifecycle Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/contradictions",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Lifecycle"],
+    summary="List active contradiction groups requiring resolution",
+)
+async def list_contradictions(
+    unresolved_only: bool = True,
+):
+    """
+    Returns all detected contradiction groups from the ContradictionRegistry.
+    By default only unresolved contradictions are returned.
+    """
+    from mnemocore.core.contradiction import get_contradiction_detector
+    detector = get_contradiction_detector()
+    records = detector.registry.list_all(unresolved_only=unresolved_only)
+    return {
+        "ok": True,
+        "count": len(records),
+        "contradictions": [r.to_dict() for r in records],
+    }
+
+
+class ResolveContradictionRequest(BaseModel):
+    note: Optional[str] = None
+
+
+@app.post(
+    "/contradictions/{group_id}/resolve",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Lifecycle"],
+    summary="Mark a contradiction group as resolved",
+)
+async def resolve_contradiction(group_id: str, req: ResolveContradictionRequest):
+    """Manually resolve a detected contradiction."""
+    from mnemocore.core.contradiction import get_contradiction_detector
+    detector = get_contradiction_detector()
+    success = detector.registry.resolve(group_id, note=req.note)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Contradiction group {group_id!r} not found.")
+    return {"ok": True, "resolved_group_id": group_id}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5.0 — Agent 3: Autonomous Cognition Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/memory/{memory_id}/emotional-tag",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Autonomy"],
+    summary="Get emotional (valence/arousal) tag for a memory",
+)
+async def get_emotional_tag_ep(
+    memory_id: str,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """Return the valence/arousal emotional metadata for a memory."""
+    from mnemocore.core.emotional_tag import get_emotional_tag
+    node = await engine.get_memory(memory_id)
+    if not node:
+        raise MemoryNotFoundError(memory_id)
+    tag = get_emotional_tag(node)
+    return {
+        "ok": True,
+        "memory_id": memory_id,
+        "emotional_tag": {
+            "valence": tag.valence,
+            "arousal": tag.arousal,
+            "salience": round(tag.salience(), 4),
+        },
+    }
+
+
+class EmotionalTagPatchRequest(BaseModel):
+    valence: float
+    arousal: float
+
+
+@app.patch(
+    "/memory/{memory_id}/emotional-tag",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Autonomy"],
+    summary="Attach or update emotional tag on a memory",
+)
+async def patch_emotional_tag(
+    memory_id: str,
+    req: EmotionalTagPatchRequest,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    from mnemocore.core.emotional_tag import EmotionalTag, attach_emotional_tag
+    node = await engine.get_memory(memory_id)
+    if not node:
+        raise MemoryNotFoundError(memory_id)
+    tag = EmotionalTag(valence=req.valence, arousal=req.arousal)
+    attach_emotional_tag(node, tag)
+    return {"ok": True, "memory_id": memory_id, "emotional_tag": tag.to_metadata_dict()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5.0 — Agent 4: Prediction Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+_prediction_store_instance = None
+
+
+def _get_prediction_store(engine: HAIMEngine = Depends(get_engine)):
+    from mnemocore.core.prediction_store import PredictionStore
+    global _prediction_store_instance
+    if _prediction_store_instance is None:
+        _prediction_store_instance = PredictionStore(engine=engine)
+    return _prediction_store_instance
+
+
+class CreatePredictionRequest(BaseModel):
+    content: str
+    confidence: float = 0.5
+    deadline_days: Optional[float] = None
+    related_memory_ids: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+
+
+class VerifyPredictionRequest(BaseModel):
+    success: bool
+    notes: Optional[str] = None
+
+
+@app.post(
+    "/predictions",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Prediction"],
+    summary="Store a new forward-looking prediction",
+)
+async def create_prediction(req: CreatePredictionRequest):
+    from mnemocore.core.prediction_store import PredictionStore
+    global _prediction_store_instance
+    if _prediction_store_instance is None:
+        _prediction_store_instance = PredictionStore()
+    pred_id = _prediction_store_instance.create(
+        content=req.content,
+        confidence=req.confidence,
+        deadline_days=req.deadline_days,
+        related_memory_ids=req.related_memory_ids,
+        tags=req.tags,
+    )
+    pred = _prediction_store_instance.get(pred_id)
+    return {"ok": True, "prediction": pred.to_dict()}
+
+
+@app.get(
+    "/predictions",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Prediction"],
+    summary="List all predictions",
+)
+async def list_predictions(status: Optional[str] = None):
+    from mnemocore.core.prediction_store import PredictionStore
+    global _prediction_store_instance
+    if _prediction_store_instance is None:
+        _prediction_store_instance = PredictionStore()
+    return {
+        "ok": True,
+        "predictions": [
+            p.to_dict()
+            for p in _prediction_store_instance.list_all(status=status)
+        ],
+    }
+
+
+@app.post(
+    "/predictions/{pred_id}/verify",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Prediction"],
+    summary="Verify or falsify a prediction",
+)
+async def verify_prediction(pred_id: str, req: VerifyPredictionRequest):
+    from mnemocore.core.prediction_store import PredictionStore
+    global _prediction_store_instance
+    if _prediction_store_instance is None:
+        _prediction_store_instance = PredictionStore()
+    pred = await _prediction_store_instance.verify(pred_id, success=req.success, notes=req.notes)
+    if pred is None:
+        raise HTTPException(status_code=404, detail=f"Prediction {pred_id!r} not found.")
+    return {"ok": True, "prediction": pred.to_dict()}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8100)
