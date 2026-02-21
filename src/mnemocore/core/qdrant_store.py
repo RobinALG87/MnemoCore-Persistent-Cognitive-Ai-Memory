@@ -100,7 +100,7 @@ class QdrantStore:
                 collection_name=self.collection_hot,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.DOT,
+                    distance=models.Distance.MANHATTAN,
                     on_disk=False
                 ),
                 quantization_config=quantization_config,
@@ -118,7 +118,7 @@ class QdrantStore:
                 collection_name=self.collection_warm,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.DOT,
+                    distance=models.Distance.MANHATTAN,
                     on_disk=True
                 ),
                 quantization_config=quantization_config,
@@ -213,6 +213,7 @@ class QdrantStore:
                         )
                     )
             
+            query_filter = None
             if must_conditions:
                 query_filter = models.Filter(must=must_conditions)
 
@@ -227,7 +228,7 @@ class QdrantStore:
                     )
                 )
 
-            return await qdrant_breaker.call(
+            response = await qdrant_breaker.call(
                 self.client.query_points,
                 collection_name=collection,
                 query=query_vector,
@@ -236,6 +237,7 @@ class QdrantStore:
                 query_filter=query_filter,
                 search_params=search_params,
             )
+            return response.points
         except CircuitOpenError:
             logger.warning(f"Qdrant search blocked for {collection}: circuit breaker open")
             return []
