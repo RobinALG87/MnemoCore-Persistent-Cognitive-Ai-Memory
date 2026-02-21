@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from mnemocore.core.working_memory import WorkingMemoryService
 from mnemocore.core.memory_model import WorkingMemoryItem
 
@@ -31,7 +31,7 @@ def test_working_memory_eviction():
         item = WorkingMemoryItem(
             id=f"wm_{i}",
             agent_id="agent1",
-            created_at=datetime.utcnow(),
+            created_at=datetime.utcnow() + timedelta(milliseconds=i*50),
             ttl_seconds=3600,
             content=f"Test {i}",
             importance=0.5,

@@ -49,8 +49,10 @@ def test_episodic_eviction():
     store = EpisodicStoreService()
     agent_id = "agent-x"
     
+    import time
     for i in range(3):
         ep_id = store.start_episode(agent_id, goal=f"Goal {i}")
+        time.sleep(0.02)
         store.end_episode(ep_id, outcome="Done")
         
     recent = store.get_recent(agent_id, limit=2)

@@ -10,6 +10,15 @@ import numpy as np
 
 from mnemocore.core.attention import XORIsolationMask, IsolationConfig
 from mnemocore.core.binary_hdv import BinaryHDV
+from mnemocore.core.hnsw_index import HNSWIndexManager
+
+@pytest.fixture(autouse=True)
+def reset_hnsw_singleton():
+    """Reset the HNSWIndexManager singleton to prevent cross-test pollution."""
+    HNSWIndexManager._instance = None
+    yield
+    HNSWIndexManager._instance = None
+
 
 
 class TestXORIsolationMask:
@@ -175,6 +184,8 @@ class TestXORIsolationMaskIntegration:
                     cold_archive_dir=os.path.join(tmpdir, "cold"),
                 ),
             )
+            import mnemocore.core.config as config_module
+            config_module._CONFIG = config
             engine = HAIMEngine(config=config)
             await engine.initialize()
 
@@ -226,6 +237,8 @@ class TestXORIsolationMaskIntegration:
                     cold_archive_dir=os.path.join(tmpdir, "cold"),
                 ),
             )
+            import mnemocore.core.config as config_module
+            config_module._CONFIG = config
             engine = HAIMEngine(config=config)
             await engine.initialize()
 
@@ -274,6 +287,8 @@ class TestXORIsolationMaskIntegration:
                     cold_archive_dir=os.path.join(tmpdir, "cold"),
                 ),
             )
+            import mnemocore.core.config as config_module
+            config_module._CONFIG = config
             engine = HAIMEngine(config=config)
             await engine.initialize()
 
