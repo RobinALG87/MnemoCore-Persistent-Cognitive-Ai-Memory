@@ -12,6 +12,14 @@ from .config import HAIMConfig
 from .async_storage import AsyncRedisStorage
 from .qdrant_store import QdrantStore
 
+# Phase 5 AGI Services
+from .working_memory import WorkingMemoryService
+from .episodic_store import EpisodicStoreService
+from .semantic_store import SemanticStoreService
+from .procedural_store import ProceduralStoreService
+from .meta_memory import MetaMemoryService
+from .agent_profile import AgentProfileService
+
 
 @dataclass
 class Container:
@@ -21,6 +29,14 @@ class Container:
     config: HAIMConfig
     redis_storage: Optional[AsyncRedisStorage] = None
     qdrant_store: Optional[QdrantStore] = None
+    
+    # Phase 5 Services
+    working_memory: Optional[WorkingMemoryService] = None
+    episodic_store: Optional[EpisodicStoreService] = None
+    semantic_store: Optional[SemanticStoreService] = None
+    procedural_store: Optional[ProceduralStoreService] = None
+    meta_memory: Optional[MetaMemoryService] = None
+    agent_profiles: Optional[AgentProfileService] = None
 
 
 def build_container(config: HAIMConfig) -> Container:
@@ -56,6 +72,14 @@ def build_container(config: HAIMConfig) -> Container:
         hnsw_m=config.qdrant.hnsw_m,
         hnsw_ef_construct=config.qdrant.hnsw_ef_construct,
     )
+
+    # Initialize Phase 5 AGI Services
+    container.working_memory = WorkingMemoryService()
+    container.episodic_store = EpisodicStoreService()
+    container.semantic_store = SemanticStoreService(qdrant_store=container.qdrant_store)
+    container.procedural_store = ProceduralStoreService()
+    container.meta_memory = MetaMemoryService()
+    container.agent_profiles = AgentProfileService()
 
     return container
 

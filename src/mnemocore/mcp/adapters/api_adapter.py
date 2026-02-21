@@ -82,3 +82,14 @@ class MnemoCoreAPIAdapter:
 
     def health(self) -> Dict[str, Any]:
         return self._request("GET", "/health")
+
+    # --- Phase 5: Cognitive Client Adapters ---
+
+    def observe_context(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/wm/observe", payload)
+
+    def get_working_context(self, agent_id: str, limit: int = 16) -> Dict[str, Any]:
+        return self._request("GET", f"/wm/context/{agent_id}?limit={limit}")
+
+    def start_episode(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/episodes/start", payload)

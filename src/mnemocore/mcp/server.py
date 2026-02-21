@@ -9,7 +9,10 @@ from loguru import logger
 
 from mnemocore.core.config import get_config, HAIMConfig
 from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
-from mnemocore.mcp.schemas import StoreToolInput, QueryToolInput, MemoryIdInput
+from mnemocore.mcp.schemas import (
+    StoreToolInput, QueryToolInput, MemoryIdInput,
+    ObserveToolInput, ContextToolInput, EpisodeToolInput
+)
 from mnemocore.core.exceptions import (
     DependencyMissingError,
     UnsupportedTransportError,
@@ -110,12 +113,45 @@ def build_server(config: HAIMConfig | None = None):
         def memory_health() -> Dict[str, Any]:
             return with_error_handling(adapter.health)
 
+    # --- Phase 5: Cognitive Client Tools ---
+
+    def register_store_observation() -> None:
+        @server.tool()
+        def store_observation(
+            agent_id: str,
+            content: str,
+            kind: str = "observation",
+            importance: float = 0.5,
+            tags: list[str] | None = None
+        ) -> Dict[str, Any]:
+            payload = ObserveToolInput(
+                agent_id=agent_id, content=content, kind=kind, importance=importance, tags=tags
+            ).model_dump(exclude_none=True)
+            return with_error_handling(lambda: adapter.observe_context(payload))
+
+    def register_recall_context() -> None:
+        @server.tool()
+        def recall_context(agent_id: str, limit: int = 16) -> Dict[str, Any]:
+            data = ContextToolInput(agent_id=agent_id, limit=limit)
+            return with_error_handling(lambda: adapter.get_working_context(data.agent_id, data.limit))
+
+    def register_start_episode() -> None:
+        @server.tool()
+        def start_episode(agent_id: str, goal: str, context: str | None = None) -> Dict[str, Any]:
+            payload = EpisodeToolInput(
+                agent_id=agent_id, goal=goal, context=context
+            ).model_dump(exclude_none=True)
+            return with_error_handling(lambda: adapter.start_episode(payload))
+
     register_tool("memory_store", register_memory_store)
     register_tool("memory_query", register_memory_query)
     register_tool("memory_get", register_memory_get)
     register_tool("memory_delete", register_memory_delete)
     register_tool("memory_stats", register_memory_stats)
     register_tool("memory_health", register_memory_health)
+    register_tool("store_observation", register_store_observation)
+    register_tool("recall_context", register_recall_context)
+    register_tool("start_episode", register_start_episode)
 
     return server
 

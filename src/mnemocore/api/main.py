@@ -156,9 +156,22 @@ async def lifespan(app: FastAPI):
         persist_path="./data/memory.jsonl",
         config=config,
         tier_manager=tier_manager,
+        working_memory=container.working_memory,
+        episodic_store=container.episodic_store,
+        semantic_store=container.semantic_store,
     )
     await engine.initialize()
     app.state.engine = engine
+    # Also expose the cognitive client to app state for agentic frameworks
+    from mnemocore.agent_interface import CognitiveMemoryClient
+    app.state.cognitive_client = CognitiveMemoryClient(
+        engine=engine,
+        wm=container.working_memory,
+        episodic=container.episodic_store,
+        semantic=container.semantic_store,
+        procedural=container.procedural_store,
+        meta=container.meta_memory,
+    )
 
     yield
 
@@ -476,6 +489,52 @@ async def delete_memory(
         await container.redis_storage.delete_memory(memory_id)
 
     return {"ok": True, "deleted": memory_id}
+
+# --- Phase 5: Cognitive Client Endpoints ---
+
+class ObserveRequest(BaseModel):
+    agent_id: str
+    content: str
+    kind: str = "observation"
+    importance: float = 0.5
+    tags: Optional[List[str]] = None
+
+@app.post("/wm/observe", dependencies=[Depends(get_api_key)])
+async def observe_context(req: ObserveRequest, request: Request):
+    """Push an observation explicitly into Working Memory."""
+    client = request.app.state.cognitive_client
+    if not client:
+        raise HTTPException(status_code=503, detail="Cognitive Client unavailable")
+    item_id = client.observe(
+        agent_id=req.agent_id,
+        content=req.content,
+        kind=req.kind,
+        importance=req.importance,
+        tags=req.tags
+    )
+    return {"ok": True, "item_id": item_id}
+
+@app.get("/wm/context/{agent_id}", dependencies=[Depends(get_api_key)])
+async def get_working_context(agent_id: str, limit: int = 16, request: Request = None):
+    """Read active Working Memory context."""
+    client = request.app.state.cognitive_client
+    items = client.get_working_context(agent_id, limit=limit)
+    return {"ok": True, "items": [
+        {"id": i.id, "content": i.content, "kind": i.kind, "importance": i.importance} 
+        for i in items
+    ]}
+
+class EpisodeStartRequest(BaseModel):
+    agent_id: str
+    goal: str
+    context: Optional[str] = None
+
+@app.post("/episodes/start", dependencies=[Depends(get_api_key)])
+async def start_episode(req: EpisodeStartRequest, request: Request):
+    """Start a new episode chain."""
+    client = request.app.state.cognitive_client
+    ep_id = client.start_episode(req.agent_id, goal=req.goal, context=req.context)
+    return {"ok": True, "episode_id": ep_id}
 
 # --- Conceptual Endpoints ---
 

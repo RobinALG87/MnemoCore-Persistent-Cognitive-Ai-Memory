@@ -22,6 +22,25 @@ class MemoryIdInput(BaseModel):
     memory_id: str = Field(..., min_length=1, max_length=256)
 
 
+# --- Phase 5: Cognitive Client Schemas ---
+
+class ObserveToolInput(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=256)
+    content: str = Field(..., min_length=1, max_length=100_000)
+    kind: str = Field(default="observation", max_length=64)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    tags: Optional[list[str]] = None
+
+class ContextToolInput(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=256)
+    limit: int = Field(default=16, ge=1, le=100)
+
+class EpisodeToolInput(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=256)
+    goal: str = Field(..., min_length=1, max_length=10_000)
+    context: Optional[str] = None
+
+
 class ToolResult(BaseModel):
     ok: bool
     data: Optional[Dict[str, Any]] = None

@@ -226,6 +226,14 @@ class SubconsciousAIConfig:
 
 
 @dataclass(frozen=True)
+class PulseConfig:
+    """Configuration for Phase 5 AGI Pulse Loop orchestrator."""
+    enabled: bool = True
+    interval_seconds: int = 30
+    max_agents_per_tick: int = 50
+    max_episodes_per_tick: int = 200
+
+@dataclass(frozen=True)
 class HAIMConfig:
     """Root configuration for the HAIM system."""
 
@@ -267,6 +275,7 @@ class HAIMConfig:
     anticipatory: AnticipatoryConfig = field(default_factory=AnticipatoryConfig)
     dream_loop: DreamLoopConfig = field(default_factory=DreamLoopConfig)
     subconscious_ai: SubconsciousAIConfig = field(default_factory=SubconsciousAIConfig)
+    pulse: PulseConfig = field(default_factory=PulseConfig)
 
 
 def _env_override(key: str, default):
@@ -581,6 +590,15 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         max_memories_per_cycle=_env_override("SUBCONSCIOUS_AI_MAX_MEMORIES_PER_CYCLE", sub_raw.get("max_memories_per_cycle", 10)),
     )
 
+    # Build pulse config (Phase 5.0)
+    pulse_raw = raw.get("pulse") or {}
+    pulse = PulseConfig(
+        enabled=_env_override("PULSE_ENABLED", pulse_raw.get("enabled", True)),
+        interval_seconds=_env_override("PULSE_INTERVAL_SECONDS", pulse_raw.get("interval_seconds", 30)),
+        max_agents_per_tick=_env_override("PULSE_MAX_AGENTS_PER_TICK", pulse_raw.get("max_agents_per_tick", 50)),
+        max_episodes_per_tick=_env_override("PULSE_MAX_EPISODES_PER_TICK", pulse_raw.get("max_episodes_per_tick", 200)),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
@@ -605,6 +623,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         anticipatory=anticipatory,
         dream_loop=dream_loop,
         subconscious_ai=subconscious_ai,
+        pulse=pulse,
     )
 
 

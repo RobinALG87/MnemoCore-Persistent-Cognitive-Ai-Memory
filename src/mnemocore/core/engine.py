@@ -39,6 +39,11 @@ from .gap_filler import GapFiller, GapFillerConfig
 from .synapse_index import SynapseIndex
 from .subconscious_ai import SubconsciousAIWorker
 
+# Phase 5 AGI Stores
+from .working_memory import WorkingMemoryService
+from .episodic_store import EpisodicStoreService
+from .semantic_store import SemanticStoreService
+
 # Phase 4.5: Recursive Synthesis Engine
 from .recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
 
@@ -71,6 +76,9 @@ class HAIMEngine:
         persist_path: Optional[str] = None,
         config: Optional[HAIMConfig] = None,
         tier_manager: Optional[TierManager] = None,
+        working_memory: Optional[WorkingMemoryService] = None,
+        episodic_store: Optional[EpisodicStoreService] = None,
+        semantic_store: Optional[SemanticStoreService] = None,
     ):
         """
         Initialize HAIMEngine with optional dependency injection.
@@ -80,6 +88,9 @@ class HAIMEngine:
             persist_path: Path to memory persistence file.
             config: Configuration object. If None, uses global get_config().
             tier_manager: TierManager instance. If None, creates a new one.
+            working_memory: Optional Phase 5 WM service.
+            episodic_store: Optional Phase 5 EM service.
+            semantic_store: Optional Phase 5 Semantic service.
         """
         self.config = config or get_config()
         self.dimension = self.config.dimensionality
@@ -89,6 +100,11 @@ class HAIMEngine:
 
         # Core Components
         self.tier_manager = tier_manager or TierManager(config=self.config)
+        
+        # Phase 5 Components
+        self.working_memory = working_memory
+        self.episodic_store = episodic_store
+        self.semantic_store = semantic_store
         self.binary_encoder = TextEncoder(self.dimension)
 
         # ── Phase 3.x: synapse raw dicts (kept for backward compat) ──
@@ -443,6 +459,35 @@ class HAIMEngine:
         # 3. Create and persist memory node
         node = await self._persist_memory(content, encoded_vec, updated_metadata)
 
+        # Phase 5.1: If agent_id in metadata, push to Working Memory and log Episode event
+        agent_id = updated_metadata.get("agent_id")
+        if agent_id:
+            if self.working_memory:
+                from .memory_model import WorkingMemoryItem
+                self.working_memory.push_item(
+                    agent_id, 
+                    WorkingMemoryItem(
+                        id=f"wm_{node.id[:8]}",
+                        agent_id=agent_id,
+                        created_at=datetime.utcnow(),
+                        ttl_seconds=3600,
+                        content=content,
+                        kind="observation",
+                        importance=node.epistemic_value or 0.5,
+                        tags=updated_metadata.get("tags", []),
+                        hdv=encoded_vec
+                    )
+                )
+            
+            episode_id = updated_metadata.get("episode_id")
+            if episode_id and self.episodic_store:
+                self.episodic_store.append_event(
+                    episode_id=episode_id,
+                    kind="observation",
+                    content=content,
+                    metadata=updated_metadata
+                )
+
         # 4. Trigger post-store processing
         await self._trigger_post_store(node, updated_metadata)
 
@@ -599,6 +644,21 @@ class HAIMEngine:
                     score = self.preference_store.bias_score(mem.hdv, score)
 
             scores[nid] = score
+
+        # Phase 5.1: Boost context matching Working Memory 
+        agent_id = metadata_filter.get("agent_id") if metadata_filter else None
+        if agent_id and self.working_memory:
+            wm_state = self.working_memory.get_state(agent_id)
+            if wm_state:
+                wm_texts = [item.content for item in wm_state.items]
+                if wm_texts:
+                    # Very lightweight lexical boost for items currently in working memory
+                    q_lower = query_text.lower()
+                    for nid in scores:
+                        mem = mem_map.get(nid) # Assuming already cached from chrono weighting
+                        if mem and mem.content:
+                            if any(w_text.lower() in mem.content.lower() for w_text in wm_texts):
+                                scores[nid] *= 1.15 # 15% boost for WM overlap
 
         # 2. Associative Spreading (via SynapseIndex for O(1) adjacency lookup)
         if associative_jump and self._synapse_index:
