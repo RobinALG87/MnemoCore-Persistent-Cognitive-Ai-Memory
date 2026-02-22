@@ -108,10 +108,7 @@ class HNSWIndexManager:
         self.VECTOR_PATH = data_dir / "mnemocore_hnsw_vectors.npy"
 
         if FAISS_AVAILABLE:
-            if self.INDEX_PATH.exists() and self.IDMAP_PATH.exists() and self.VECTOR_PATH.exists():
-                self._load()
-            else:
-                self._build_flat_index()
+            self._build_flat_index()
 
         self._initialized = True
 
@@ -195,7 +192,6 @@ class HNSWIndexManager:
                 return
 
             self._maybe_upgrade_to_hnsw()
-            self._save()
 
     def remove(self, node_id: str) -> None:
         """
@@ -234,7 +230,6 @@ class HNSWIndexManager:
                             self._vector_store = compact_vecs
                             self._stale_count = 0
                 
-                self._save()
             except ValueError:
                 pass
 
@@ -251,7 +246,7 @@ class HNSWIndexManager:
             return []
 
         # Fetch more to account for deleted (None) entries
-        k = min(top_k + self._stale_count, len(self._id_map))
+        k = min(top_k + self._stale_count + 50, len(self._id_map))
         if k <= 0:
             return []
 

@@ -153,7 +153,7 @@ async def lifespan(app: FastAPI):
     from mnemocore.core.tier_manager import TierManager
     tier_manager = TierManager(config=config, qdrant_store=container.qdrant_store)
     engine = HAIMEngine(
-        persist_path="./data/memory.jsonl",
+        persist_path=config.paths.memory_file,
         config=config,
         tier_manager=tier_manager,
         working_memory=container.working_memory,
@@ -572,6 +572,37 @@ async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_en
 async def get_stats(engine: HAIMEngine = Depends(get_engine)):
     """Get aggregate engine stats."""
     return await engine.get_stats()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Maintenance Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/maintenance/cleanup", dependencies=[Depends(get_api_key)])
+async def cleanup_maintenance(threshold: float = 0.1, engine: HAIMEngine = Depends(get_engine)):
+    """Remove decayed synapses and stale index nodes."""
+    await engine.cleanup_decay(threshold=threshold)
+    return {"ok": True, "message": f"Synapse cleanup triggered with threshold {threshold}"}
+
+
+@app.post("/maintenance/consolidate", dependencies=[Depends(get_api_key)])
+async def consolidate_maintenance(engine: HAIMEngine = Depends(get_engine)):
+    """Trigger manual semantic consolidation pulse."""
+    if not engine._semantic_worker:
+        raise HTTPException(status_code=503, detail="Consolidation worker not initialized")
+    
+    stats = await engine._semantic_worker.run_once()
+    return {"ok": True, "stats": stats}
+
+
+@app.post("/maintenance/sweep", dependencies=[Depends(get_api_key)])
+async def sweep_maintenance(engine: HAIMEngine = Depends(get_engine)):
+    """Trigger manual immunology sweep."""
+    if not engine._immunology:
+        raise HTTPException(status_code=503, detail="Immunology loop not initialized")
+    
+    stats = await engine._immunology.sweep()
+    return {"ok": True, "stats": stats}
 
 
 # Rate limit info endpoint

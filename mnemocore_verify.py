@@ -42,7 +42,7 @@ def setup_test_env():
 @pytest.mark.asyncio
 async def test_text_encoder_normalization():
     """Verify BUG-02: Text normalization fixes identical string variances"""
-    encoder = TextEncoder(dimension=1024)
+    encoder = TextEncoder(dimension=16384)
     hdv1 = encoder.encode("Hello World")
     hdv2 = encoder.encode("hello, world!")
     
@@ -51,14 +51,14 @@ async def test_text_encoder_normalization():
 def test_hnsw_singleton():
     """Verify BUG-08: HNSWIndexManager is a thread-safe singleton"""
     HNSWIndexManager._instance = None
-    idx1 = HNSWIndexManager(dimension=1024)
-    idx2 = HNSWIndexManager(dimension=1024)
+    idx1 = HNSWIndexManager(dimension=16384)
+    idx2 = HNSWIndexManager(dimension=16384)
     assert idx1 is idx2, "HNSWIndexManager is not a singleton"
 
 def test_hnsw_index_add_search():
     """Verify BUG-01 & BUG-03: Vector cache lost / Position mapping"""
     HNSWIndexManager._instance = None
-    idx = HNSWIndexManager(dimension=1024)
+    idx = HNSWIndexManager(dimension=16384)
     
     # Optional cleanup if it's reused
     idx._id_map = []
@@ -66,8 +66,8 @@ def test_hnsw_index_add_search():
     if idx._index:
         idx._index.reset()
         
-    vec1 = BinaryHDV.random(1024)
-    vec2 = BinaryHDV.random(1024)
+    vec1 = BinaryHDV.random(16384)
+    vec2 = BinaryHDV.random(16384)
     
     idx.add("test_node_1", vec1.data)
     idx.add("test_node_2", vec2.data)

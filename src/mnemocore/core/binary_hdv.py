@@ -404,9 +404,8 @@ class TextEncoder:
         Each token is bound with its position via XOR(token, permute(position_marker, i)).
         All position-bound tokens are bundled via majority vote.
         """
-        # BUG-02 Fix: strip punctuation and normalize spaces
-        normalized = re.sub(r'[^\w\s]', '', text).lower()
-        tokens = normalized.split()
+        # Improved Tokenization: consistent alphanumeric extraction
+        tokens = re.findall(r'\b\w+\b', text.lower())
         if not tokens:
             return BinaryHDV.random(self.dimension)
 

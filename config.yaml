@@ -13,7 +13,7 @@ haim:
   # Memory tier thresholds
   tiers:
     hot:
-      max_memories: 2000
+      max_memories: 3000
       ltp_threshold_min: 0.7
       eviction_policy: "lru"
 
@@ -135,12 +135,12 @@ haim:
   # =========================================================================
   subconscious_ai:
     # BETA FEATURE - Must be explicitly enabled
-    enabled: false
+    enabled: true
     beta_mode: true
 
     # Model configuration
     model_provider: "ollama"  # ollama | lm_studio | openai_api | anthropic_api
-    model_name: "phi3.5:3.8b"
+    model_name: "phi3.5:latest"
     model_url: "http://localhost:11434"
     # api_key: null  # For API providers
     # api_base_url: null
@@ -152,16 +152,16 @@ haim:
 
     # Resource management
     max_cpu_percent: 30.0
-    cycle_timeout_seconds: 30
+    cycle_timeout_seconds: 120
     rate_limit_per_hour: 50
 
     # Operations
     memory_sorting_enabled: true
     enhanced_dreaming_enabled: true
-    micro_self_improvement_enabled: false  # Initially disabled
+    micro_self_improvement_enabled: true  # Initially disabled
 
     # Safety
-    dry_run: true
+    dry_run: false
     log_all_decisions: true
     audit_trail_path: "./data/subconscious_audit.jsonl"
     max_memories_per_cycle: 10

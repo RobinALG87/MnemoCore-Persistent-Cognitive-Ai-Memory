@@ -545,17 +545,19 @@ class SubconsciousAIWorker:
 
         # Build prompt for categorization
         memories_text = "\n".join([
-            f"[{i+1}] {m.content[:200]}"
+            f"ID {i+1}: {m.content[:200]}"
             for i, m in enumerate(unsorted[:5])
         ])
 
-        prompt = f"""Categorize these memories into 2-3 broad categories and suggest tags for each.
+        prompt = f"""You are a memory sorting agent for Veristate Systems.
+Categorize these 5 memories into exactly 2 categories from this set: [Market Dynamics, Structural Integrity, Human Entropy, Digital Ascension, Strategic Intent].
+Output ONLY a valid JSON object. No explanation. No markdown.
+
+Format:
+{{"categories": ["category1", "category2"], "memory_tags": {{"1": ["tagA"], "2": ["tagB"], "3": ["tagC"], "4": ["tagD"], "5": ["tagE"]}}}}
 
 Memories:
-{memories_text}
-
-Return JSON format:
-{{"categories": ["cat1", "cat2"], "memory_tags": {{"1": ["tag1"], "2": ["tag2"]}}}}"""
+{memories_text}"""
 
         response = await self._model_client.generate(prompt, max_tokens=512)
         output = {"raw_response": response}
@@ -618,11 +620,12 @@ Return JSON format:
         """
         t_start = time.monotonic()
 
-        # Find memories with low LTP (weak connections)
-        recent = await self.engine.tier_manager.get_hot_recent(20)
+        # Find memories with low LTP (weak connections) or unanalyzed
+        recent = await self.engine.tier_manager.get_hot_recent(50)
+        # Phase 4.5 Tuning: Allow dreaming on nodes with LTP <= 0.5 (new nodes)
         weak_memories = [
             m for m in recent
-            if m.ltp_strength < 0.5 and not m.metadata.get("dream_analyzed")
+            if m.ltp_strength <= 0.5 and not m.metadata.get("dream_analyzed")
         ][:self.cfg.max_memories_per_cycle]
 
         if not weak_memories:
@@ -638,17 +641,18 @@ Return JSON format:
 
         # Build prompt for semantic bridging
         memories_text = "\n".join([
-            f"[{i+1}] {m.content[:150]} (LTP: {m.ltp_strength:.2f})"
+            f"ID {i+1}: {m.content[:150]}"
             for i, m in enumerate(weak_memories[:5])
         ])
 
-        prompt = f"""Analyze these memories and suggest semantic connections or bridging concepts.
+        prompt = f"""You are a semantic analysis agent. Suggest connection keywords for these 5 memories.
+Output ONLY a valid JSON object. No explanation. No markdown.
+
+Format:
+{{"bridges": {{"1": ["keyword1"], "2": ["keyword2"], "3": ["keyword3"], "4": ["keyword4"], "5": ["keyword5"]}}}}
 
 Memories:
-{memories_text}
-
-For each memory, suggest 2-3 keywords or concepts that could connect it to related memories.
-Return JSON: {{"bridges": {{"1": ["concept1", "concept2"], "2": ["concept3"]}}}}"""
+{memories_text}"""
 
         response = await self._model_client.generate(prompt, max_tokens=512)
         output = {"raw_response": response}

@@ -177,6 +177,10 @@ class TierManager:
         """Add a new memory node. New memories are always HOT initially."""
         node.tier = "hot"
 
+        # Delta 67.4: Ensure mutual exclusion. 
+        # If the node exists in WARM, remove it before adding to HOT.
+        await self._delete_from_warm(node.id)
+
         # Phase 1: Add to HOT tier under lock (no I/O)
         victim_to_evict = None
         async with self.lock:
@@ -444,9 +448,9 @@ class TierManager:
             try:
                 from qdrant_client import models
 
-                # Unpack binary vector for Qdrant storage
+                # Unpack binary vector for Qdrant storage (Bipolar Phase 4.5)
                 bits = np.unpackbits(node.hdv.data)
-                vector = bits.astype(float).tolist()
+                vector = (bits.astype(float) * 2.0 - 1.0).tolist()
 
                 point = models.PointStruct(
                     id=node.id,

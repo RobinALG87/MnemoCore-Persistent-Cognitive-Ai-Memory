@@ -9,6 +9,7 @@ Phase 4.3: Temporal Recall - supports time-based filtering and indexing.
 from typing import List, Any, Optional, Tuple, Dict
 from datetime import datetime
 import asyncio
+import numpy as np
 
 from qdrant_client import AsyncQdrantClient, models
 from loguru import logger
@@ -93,39 +94,36 @@ class QdrantStore:
                 )
             )
 
-        # Create HOT collection (optimized for latency)
-        if not await self.client.collection_exists(self.collection_hot):
-            logger.info(f"Creating HOT collection: {self.collection_hot}")
-            await self.client.create_collection(
-                collection_name=self.collection_hot,
-                vectors_config=models.VectorParams(
-                    size=self.dim,
-                    distance=models.Distance.MANHATTAN,
-                    on_disk=False
-                ),
-                quantization_config=quantization_config,
-                hnsw_config=models.HnswConfigDiff(
-                    m=self.hnsw_m,
-                    ef_construct=self.hnsw_ef_construct,
-                    on_disk=False
-                )
-            )
+        for collection_name, on_disk in [
+            (self.collection_hot, False),
+            (self.collection_warm, True)
+        ]:
+            if await self.client.collection_exists(collection_name):
+                # Check for distance mismatch (Phase 4.5 alignment)
+                info = await self.client.get_collection(collection_name)
+                current_distance = info.config.params.vectors.distance
+                if current_distance != models.Distance.DOT:
+                    logger.warning(
+                        f"Collection {collection_name} has distance {current_distance}, "
+                        f"but DOT is required. Recreating collection."
+                    )
+                    await self.client.delete_collection(collection_name)
+                else:
+                    continue
 
-        # Create WARM collection (optimized for scale/disk)
-        if not await self.client.collection_exists(self.collection_warm):
-            logger.info(f"Creating WARM collection: {self.collection_warm}")
+            logger.info(f"Creating collection: {collection_name} (DOT)")
             await self.client.create_collection(
-                collection_name=self.collection_warm,
+                collection_name=collection_name,
                 vectors_config=models.VectorParams(
                     size=self.dim,
-                    distance=models.Distance.MANHATTAN,
-                    on_disk=True
+                    distance=models.Distance.DOT,
+                    on_disk=on_disk
                 ),
                 quantization_config=quantization_config,
                 hnsw_config=models.HnswConfigDiff(
                     m=self.hnsw_m,
                     ef_construct=self.hnsw_ef_construct,
-                    on_disk=True
+                    on_disk=on_disk
                 )
             )
 
@@ -173,24 +171,15 @@ class QdrantStore:
     ) -> List[models.ScoredPoint]:
         """
         Async semantic search.
-
-        Args:
-            collection: Collection name to search.
-            query_vector: Query embedding vector.
-            limit: Maximum number of results.
-            score_threshold: Minimum similarity score.
-            time_range: Optional (start, end) datetime tuple for temporal filtering.
-                       Phase 4.3: Enables "memories from last 48 hours" queries.
-
-        Returns:
-            List of scored points (empty list on errors).
-
-        Note:
-            This method returns an empty list on errors rather than raising,
-            as search failures should not crash the calling code.
         """
         try:
+            # Transform query to bipolar if it's (0, 1) (Phase 4.5)
+            q_vec = np.array(query_vector)
+            if np.all((q_vec == 0) | (q_vec == 1)):
+                q_vec = q_vec * 2.0 - 1.0
+            
             must_conditions = []
+            query_filter = None
             if time_range:
                 start_ts = int(time_range[0].timestamp())
                 end_ts = int(time_range[1].timestamp())
@@ -213,7 +202,6 @@ class QdrantStore:
                         )
                     )
             
-            query_filter = None
             if must_conditions:
                 query_filter = models.Filter(must=must_conditions)
 
@@ -231,13 +219,29 @@ class QdrantStore:
             response = await qdrant_breaker.call(
                 self.client.query_points,
                 collection_name=collection,
-                query=query_vector,
+                query=q_vec.tolist(),
                 limit=limit,
-                score_threshold=score_threshold,
                 query_filter=query_filter,
                 search_params=search_params,
             )
-            return response.points
+            
+            # Normalize scores to [0, 1] range (Phase 4.5)
+            # For Bipolar DOT, score is in range [-D, D].
+            # Similarity = (score + D) / (2 * D) = 0.5 + (score / 2D)
+            normalized_points = []
+            for hit in response.points:
+                sim = 0.5 + (hit.score / (2.0 * self.dim))
+                
+                normalized_points.append(
+                    models.ScoredPoint(
+                        id=hit.id,
+                        version=hit.version,
+                        score=float(np.clip(sim, 0.0, 1.0)),
+                        payload=hit.payload,
+                        vector=hit.vector
+                    )
+                )
+            return normalized_points
         except CircuitOpenError:
             logger.warning(f"Qdrant search blocked for {collection}: circuit breaker open")
             return []
