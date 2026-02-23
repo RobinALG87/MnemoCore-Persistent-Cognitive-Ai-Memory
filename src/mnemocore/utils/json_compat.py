@@ -13,12 +13,16 @@ try:
 except ImportError:
     ORJSON_AVAILABLE = False
 
+JSONDecodeError = std_json.JSONDecodeError
+
 
 def loads(obj):
     if ORJSON_AVAILABLE:
         return orjson.loads(obj)
     if isinstance(obj, bytes):
         return std_json.loads(obj.decode('utf-8'))
+    return std_json.loads(obj)
+
 import numpy as np
 from datetime import datetime, date
 
