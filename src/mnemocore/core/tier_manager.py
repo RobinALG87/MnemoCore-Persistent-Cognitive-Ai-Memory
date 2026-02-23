@@ -197,7 +197,24 @@ class TierManager:
 
         # Phase 2: Perform I/O outside lock
         if victim_to_evict:
-            await self._save_to_warm(victim_to_evict)
+            try:
+                save_ok = await self._save_to_warm(victim_to_evict)
+                
+                # Step 3: Remove from HOT only after successful save to WARM (either Qdrant or FS)
+                if save_ok:
+                    async with self.lock:
+                        if victim_to_evict.id in self.hot:
+                            # Double check it still qualifies for eviction (wasn't promoted back)
+                            if self.hot[victim_to_evict.id].tier == "warm":
+                                del self.hot[victim_to_evict.id]
+                                self._remove_from_faiss(victim_to_evict.id)
+                                logger.debug(f"Confirmed eviction of {victim_to_evict.id} to WARM")
+                else:
+                    logger.error(f"Failed to evict {victim_to_evict.id} to WARM. Node remains in HOT.")
+                    victim_to_evict.tier = "hot"
+            except Exception as e:
+                logger.error(f"Critical error during eviction of {victim_to_evict.id}: {e}")
+                victim_to_evict.tier = "hot"
 
     def _add_to_faiss(self, node: MemoryNode):
         """Add node to the ANN index (HNSW preferred, legacy flat as fallback)."""
@@ -246,19 +263,32 @@ class TierManager:
         # If demotion is needed, save to WARM first, then remove from HOT
         # This occurs outside the lock to allow concurrency, but the node 
         # is already marked as "warm" (graceful degradation if save fails)
+        # If demotion is needed, save to WARM first, then remove from HOT
         if demote_candidate:
-            logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
-            
-            # Step 1: Save to WARM (I/O outside lock)
-            await self._save_to_warm(demote_candidate)
-            
-            # Step 2: Remove from HOT (under lock)
-            async with self.lock:
-                # Double-check: it might have been accessed again or removed
-                if demote_candidate.id in self.hot:
-                    del self.hot[demote_candidate.id]
-                    self._remove_from_faiss(demote_candidate.id)
-                    # node.tier is already "warm"
+            try:
+                logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
+                
+                # Step 1: Save to WARM (I/O outside lock)
+                save_ok = await self._save_to_warm(demote_candidate)
+                
+                # Step 2: Remove from HOT (under lock)
+                if save_ok:
+                    async with self.lock:
+                        # Double-check: it might have been accessed again (promoting it back) or removed
+                        if demote_candidate.id in self.hot:
+                            # Only delete if it's still marked as warm (wasn't promoted back by an 'access' call)
+                            if self.hot[demote_candidate.id].tier == "warm":
+                                del self.hot[demote_candidate.id]
+                                self._remove_from_faiss(demote_candidate.id)
+                                # Maintain inverted chain index
+                                if demote_candidate.previous_id:
+                                    self._next_chain.pop(demote_candidate.previous_id, None)
+                else:
+                    logger.error(f"Demotion of {demote_candidate.id} failed. Node remains in HOT.")
+                    demote_candidate.tier = "hot"
+            except Exception as e:
+                logger.error(f"Demotion of {demote_candidate.id} failed: {e}. Node remains in HOT.")
+                demote_candidate.tier = "hot"
 
         if result_node:
             return result_node
@@ -349,12 +379,16 @@ class TierManager:
         fid = self.node_id_to_faiss_id.get(node_id)
         if fid is not None:
             try:
-                ids_to_remove = np.array([fid], dtype='int64')
-                self.faiss_index.remove_ids(ids_to_remove)
+                # FAISS remove_ids is only available on some index types.
+                # For IndexBinaryIDMap it works. 
+                if hasattr(self.faiss_index, "remove_ids"):
+                    ids_to_remove = np.array([fid], dtype='int64')
+                    self.faiss_index.remove_ids(ids_to_remove)
+                
                 del self.faiss_id_map[fid]
                 del self.node_id_to_faiss_id[node_id]
             except Exception as e:
-                logger.error(f"Failed to remove node {node_id} from FAISS: {e}")
+                logger.warning(f"Failed to remove node {node_id} (FAISS ID {fid}) from index: {e}")
 
     async def _delete_from_warm(self, node_id: str) -> bool:
         """
@@ -421,28 +455,17 @@ class TierManager:
             return None
 
         victim = min(candidates, key=lambda n: n.ltp_strength)
-        logger.info(f"Evicting {victim.id} from HOT to WARM (LTP: {victim.ltp_strength:.4f})")
+        logger.info(f"Preparing eviction of {victim.id} from HOT (LTP: {victim.ltp_strength:.4f})")
 
-        # Remove from HOT structure (maintain inverted chain index)
-        if victim.previous_id:
-            self._next_chain.pop(victim.previous_id, None)
-        del self.hot[victim.id]
-        self._remove_from_faiss(victim.id)
-        
-        # Mark as warm for state consistency
+        # Prepare for removal (don't delete yet to prevent data loss if save fails)
         victim.tier = "warm"
         
         return victim
 
-    async def _save_to_warm(self, node: MemoryNode):
+    async def _save_to_warm(self, node: MemoryNode) -> bool:
         """
-        Save memory node to WARM tier (Qdrant or fallback).
-
-        Raises:
-            StorageError: If save fails (to allow caller to handle appropriately).
-
-        Note:
-            Falls back to filesystem if Qdrant save fails.
+        Save node to WARM tier (Qdrant + optional FS fallback).
+        Returns True if successful, False otherwise.
         """
         if self.use_qdrant:
             try:
@@ -477,7 +500,7 @@ class TierManager:
                     collection=self.config.qdrant.collection_warm,
                     points=[point]
                 )
-                return
+                return True
             except CircuitOpenError as e:
                 logger.warning(f"Cannot save {node.id} to Qdrant (circuit open), falling back to FS: {e}")
                 # Fall through to filesystem fallback
@@ -519,19 +542,19 @@ class TierManager:
             with open(meta_path, "w") as f:
                 json.dump(data, f)
 
-        await self._run_in_thread(_fs_save)
+        try:
+            await self._run_in_thread(_fs_save)
+            return True
+        except Exception as e:
+            logger.error(f"FS fallback failed for {node.id}: {e}")
+            return False
 
     async def _load_from_warm(self, node_id: str) -> Optional[MemoryNode]:
         """
-        Load memory node from WARM tier.
+        Load node from WARM tier (Qdrant or FS).
 
         Returns:
-            MemoryNode if found, None if not found.
-
-        Note:
-            Returns None for both "not found" and storage errors to maintain
-            backward compatibility. Storage errors are logged but don't propagate
-            to avoid disrupting higher-level operations.
+            MemoryNode if found, None otherwise.
         """
         if self.use_qdrant:
             try:

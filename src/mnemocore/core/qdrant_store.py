@@ -169,9 +169,7 @@ class QdrantStore:
         time_range: Optional[Tuple[datetime, datetime]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
     ) -> List[models.ScoredPoint]:
-        """
-        Async semantic search.
-        """
+        """Async semantic search."""
         try:
             # Transform query to bipolar if it's (0, 1) (Phase 4.5)
             q_vec = np.array(query_vector)
@@ -226,8 +224,6 @@ class QdrantStore:
             )
             
             # Normalize scores to [0, 1] range (Phase 4.5)
-            # For Bipolar DOT, score is in range [-D, D].
-            # Similarity = (score + D) / (2 * D) = 0.5 + (score / 2D)
             normalized_points = []
             for hit in response.points:
                 sim = 0.5 + (hit.score / (2.0 * self.dim))
@@ -247,7 +243,7 @@ class QdrantStore:
             return []
         except Exception as e:
             logger.error(f"Qdrant search failed for {collection}: {e}")
-            return []
+            raise wrap_storage_exception("qdrant", "search", e)
 
     async def get_point(self, collection: str, point_id: str) -> Optional[models.Record]:
         """
@@ -255,10 +251,6 @@ class QdrantStore:
 
         Returns:
             Record if found, None if not found.
-
-        Raises:
-            CircuitOpenError: If circuit breaker is open.
-            StorageConnectionError: If Qdrant connection fails.
         """
         try:
             records = await qdrant_breaker.call(
@@ -270,7 +262,7 @@ class QdrantStore:
             )
             if records:
                 return records[0]
-            return None  # Not found - expected case
+            return None
         except CircuitOpenError:
             logger.error(f"Qdrant get_point blocked for {point_id}: circuit breaker open")
             raise
@@ -279,10 +271,7 @@ class QdrantStore:
             raise wrap_storage_exception("qdrant", "get_point", e)
 
     async def get_collection_info(self, collection: str) -> Optional[Any]:
-        """
-        Get collection info (e.g. points count).
-        Wraps client.get_collection() with reliability and error handling.
-        """
+        """Get collection info."""
         try:
             return await qdrant_breaker.call(
                 self.client.get_collection,
@@ -293,7 +282,7 @@ class QdrantStore:
             return None
         except Exception as e:
             logger.error(f"Failed to get collection info for {collection}: {e}")
-            return None
+            raise wrap_storage_exception("qdrant", "get_collection_info", e)
 
     async def scroll(
         self,
@@ -302,16 +291,7 @@ class QdrantStore:
         offset: Any = None,
         with_vectors: bool = False
     ) -> Any:
-        """
-        Scroll/Iterate over collection (for consolidation).
-
-        Returns:
-            Tuple of (points, next_offset). Returns ([], None) on errors.
-
-        Note:
-            This method returns empty results on errors rather than raising,
-            as scroll is typically used for background operations.
-        """
+        """Scroll/Iterate over collection."""
         try:
             return await qdrant_breaker.call(
                 self.client.scroll,
@@ -326,16 +306,10 @@ class QdrantStore:
             return [], None
         except Exception as e:
             logger.error(f"Qdrant scroll failed for {collection}: {e}")
-            return [], None
+            raise wrap_storage_exception("qdrant", "scroll", e)
 
     async def delete(self, collection: str, point_ids: List[str]):
-        """
-        Delete points by ID.
-
-        Raises:
-            CircuitOpenError: If circuit breaker is open.
-            StorageConnectionError: If Qdrant connection fails.
-        """
+        """Delete points by ID."""
         try:
             await qdrant_breaker.call(
                 self.client.delete,
@@ -352,31 +326,14 @@ class QdrantStore:
     async def close(self):
         await self.client.close()
 
-    # Phase 4.3: Temporal utilities
-
     async def get_temporal_neighbors(
         self,
         collection: str,
         unix_timestamp: int,
         window: int = 2,
     ) -> List[models.Record]:
-        """
-        Get memories created within a time window around a timestamp.
-
-        Args:
-            collection: Collection name.
-            unix_timestamp: Central timestamp to search around.
-            window: Number of seconds to look before and after (default 2s).
-
-        Returns:
-            List of records ordered by timestamp.
-
-        Note:
-            This enables "what happened just before/after" queries for
-            sequential context window feature.
-        """
+        """Get memories created within a time window around a timestamp."""
         try:
-            # Look for memories in a small time window
             start_ts = unix_timestamp - window
             end_ts = unix_timestamp + window
 
@@ -384,10 +341,7 @@ class QdrantStore:
                 must=[
                     models.FieldCondition(
                         key="unix_timestamp",
-                        range=models.Range(
-                            gte=start_ts,
-                            lte=end_ts,
-                        ),
+                        range=models.Range(gte=start_ts, lte=end_ts),
                     ),
                 ]
             )
@@ -401,31 +355,19 @@ class QdrantStore:
                 query_filter=query_filter,
             )
 
-            # Sort by timestamp
             records = results[0] if results else []
             records.sort(key=lambda r: r.payload.get("unix_timestamp", 0))
-
             return records
-
         except Exception as e:
             logger.error(f"Failed to get temporal neighbors: {e}")
-            return []
+            raise wrap_storage_exception("qdrant", "get_temporal_neighbors", e)
 
     async def get_by_previous_id(
         self,
         collection: str,
         previous_id: str,
     ) -> Optional[models.Record]:
-        """
-        Get a memory that follows another (episodic chaining).
-
-        Args:
-            collection: Collection name.
-            previous_id: The previous_id to search for.
-
-        Returns:
-            The memory that has this previous_id, or None.
-        """
+        """Get a memory that follows another (episodic chaining)."""
         try:
             query_filter = models.Filter(
                 must=[
@@ -448,7 +390,6 @@ class QdrantStore:
             if results and results[0]:
                 return results[0][0]
             return None
-
         except Exception as e:
             logger.error(f"Failed to get by previous_id: {e}")
-            return None
+            raise wrap_storage_exception("qdrant", "get_by_previous_id", e)

@@ -65,16 +65,6 @@ class HNSWIndexManager:
      - IndexBinaryHNSW  (N ≥ FLAT_THRESHOLD — approx, faster for large N)
     """
 
-    _instance: "HNSWIndexManager | None" = None
-    _singleton_lock: Lock = Lock()
-
-    def __new__(cls, *args, **kwargs) -> "HNSWIndexManager":
-        with cls._singleton_lock:
-            if cls._instance is None:
-                obj = super().__new__(cls)
-                obj._initialized = False
-                cls._instance = obj
-        return cls._instance
 
     def __init__(
         self,
@@ -180,10 +170,13 @@ class HNSWIndexManager:
         if not FAISS_AVAILABLE or self._index is None:
             return
 
-        # Validate dimension to prevent FAISS add failures
         if hdv_data.shape[0] != self.dimension // 8:
-            logger.error(f"Dimension mismatch: got {hdv_data.shape[0]}, expected {self.dimension // 8}")
-            return
+            from .exceptions import DimensionMismatchError
+            raise DimensionMismatchError(
+                expected=self.dimension // 8,
+                actual=hdv_data.shape[0],
+                operation="HNSW.add"
+            )
 
         vec = np.ascontiguousarray(np.expand_dims(hdv_data, axis=0))
 

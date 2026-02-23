@@ -54,6 +54,11 @@ class StoreRequest(BaseModel):
                 raise ValueError(f'Metadata key "{key[:20]}..." too long (max 64 chars)')
             if not re.match(r'^[a-zA-Z0-9_\-\.]+$', key):
                 raise ValueError(f'Metadata key "{key}" contains invalid characters (only alphanumeric, underscore, hyphen, dot allowed)')
+            
+            # Phase 4.5: Restricted keys to prevent internal state pollution via API
+            if key.startswith('_') or key.startswith('internal_'):
+                raise ValueError(f'Metadata key "{key}" is reserved for internal engine use')
+
             # Metadata values can be Any, but limit strings
             if isinstance(value, str) and len(value) > 1000:
                 raise ValueError(f'Metadata value for "{key}" too long (max 1000 chars)')
