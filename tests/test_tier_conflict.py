@@ -27,8 +27,7 @@ async def test_get_memory_demotion_race_condition():
     async def slow_save(node):
         await asyncio.sleep(0.1) # Simulate IO delay
         save_event.set()
-        # We don't need to actually save for this test, just simulate the delay
-        pass
+        return True
         
     tier_manager._save_to_warm = AsyncMock(side_effect=slow_save)
     tier_manager._remove_from_faiss = MagicMock()

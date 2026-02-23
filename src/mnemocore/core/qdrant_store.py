@@ -217,7 +217,7 @@ class QdrantStore:
             response = await qdrant_breaker.call(
                 self.client.query_points,
                 collection_name=collection,
-                query=q_vec.tolist(),
+                query=q_vec,
                 limit=limit,
                 query_filter=query_filter,
                 search_params=search_params,

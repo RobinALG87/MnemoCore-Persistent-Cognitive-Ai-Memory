@@ -134,7 +134,11 @@ class TestTierManager:
         async with tier_manager.lock:
             victim = tier_manager._prepare_eviction_from_hot()
         if victim:
-            await tier_manager._save_to_warm(victim)
+            save_ok = await tier_manager._save_to_warm(victim)
+            if save_ok:
+                async with tier_manager.lock:
+                    if victim.id in tier_manager.hot:
+                        del tier_manager.hot[victim.id]
 
         assert "n1" not in tier_manager.hot
         assert "n2" in tier_manager.hot

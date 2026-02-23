@@ -19,7 +19,7 @@ All vectors use BinaryHDV (packed uint8 arrays).
 """
 
 import gzip
-import json
+from mnemocore.utils import json_compat as json
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
@@ -287,7 +287,10 @@ class TierManager:
                     logger.error(f"Demotion of {demote_candidate.id} failed. Node remains in HOT.")
                     demote_candidate.tier = "hot"
             except Exception as e:
-                logger.error(f"Demotion of {demote_candidate.id} failed: {e}. Node remains in HOT.")
+                import traceback
+                print(f"FAILED DEMOTION EXCEPTION: {type(e).__name__}: {e}")
+                traceback.print_exc()
+                logger.error(f"Demotion of {demote_candidate.id} failed. Node remains in HOT.")
                 demote_candidate.tier = "hot"
 
         if result_node:
@@ -472,8 +475,9 @@ class TierManager:
                 from qdrant_client import models
 
                 # Unpack binary vector for Qdrant storage (Bipolar Phase 4.5)
+                # Pass directly as NumPy array to save massive RAM (Qdrant natively supports it)
                 bits = np.unpackbits(node.hdv.data)
-                vector = (bits.astype(float) * 2.0 - 1.0).tolist()
+                vector = (bits.astype(float) * 2.0 - 1.0)
 
                 point = models.PointStruct(
                     id=node.id,
@@ -860,7 +864,7 @@ class TierManager:
                         if vec_data:
                             arr = np.array(vec_data) > 0.5
                             packed = np.packbits(arr.astype(np.uint8))
-                            payload["hdv_vector"] = packed.tolist()
+                            payload["hdv_vector"] = packed
 
                         await self._write_to_cold(payload)
                         ids_to_delete.append(pt.id)
@@ -943,7 +947,7 @@ class TierManager:
         warm_results = []
         if self.use_qdrant:
             try:
-                q_vec = np.unpackbits(query_vec.data).astype(float).tolist()
+                q_vec = np.unpackbits(query_vec.data).astype(float)
 
                 hits = await self.qdrant.search(
                     collection=self.config.qdrant.collection_warm,
@@ -1151,6 +1155,6 @@ class TierManager:
             return
 
         record = meta.copy()
-        record["hdv_vector"] = hdv_data.tolist()
+        record["hdv_vector"] = hdv_data
         await self._write_to_cold(record)
         await self._delete_from_warm(node_id)

@@ -14,7 +14,7 @@ from itertools import islice
 import numpy as np
 import hashlib
 import os
-import json
+from mnemocore.utils import json_compat as json
 import asyncio
 import functools
 import uuid

@@ -25,7 +25,7 @@ SynapticConnection + BayesianLTPUpdater from this package.
 
 from __future__ import annotations
 
-import json
+from mnemocore.utils import json_compat as json
 import os
 import math
 from dataclasses import dataclass

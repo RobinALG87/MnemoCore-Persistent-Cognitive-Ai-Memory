@@ -8,7 +8,7 @@ Integrates with Redis Subconscious Bus to publish insights.
 
 import asyncio
 import aiohttp
-import json
+from mnemocore.utils import json_compat as json
 import random
 import time
 from datetime import datetime, timezone

@@ -27,7 +27,7 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
-import json
+from mnemocore.utils import json_compat as json
 import time
 import os
 from collections import deque
@@ -411,6 +411,12 @@ class SubconsciousAIWorker:
         if self._running:
             logger.warning("SubconsciousAI already running")
             return
+
+        try:
+            from mnemocore.utils.process import lower_process_priority
+            lower_process_priority()
+        except ImportError:
+            pass
 
         self._running = True
         self._task = asyncio.create_task(self._pulse_loop())

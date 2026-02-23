@@ -27,6 +27,28 @@ import re
 from loguru import logger
 from .config import get_config
 
+# ------------------------------------------------------------------
+# Hardware Acceleration Detection (Tier 1: PyTorch, Tier 2: Numba)
+# ------------------------------------------------------------------
+try:
+    import torch
+    TORCH_AVAILABLE = True
+    if torch.cuda.is_available():
+        TORCH_DEVICE = torch.device('cuda')
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        TORCH_DEVICE = torch.device('mps')
+    else:
+        TORCH_DEVICE = torch.device('cpu')
+    _TORCH_POPCOUNT_TABLE: Optional[torch.Tensor] = None
+except ImportError:
+    TORCH_AVAILABLE = False
+    TORCH_DEVICE = None
+
+try:
+    from numba import njit, prange
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
 
 # Cached lookup table for popcount (bits set per byte value 0-255)
 _POPCOUNT_TABLE: Optional[np.ndarray] = None
@@ -40,6 +62,41 @@ def _build_popcount_table() -> np.ndarray:
             [bin(i).count("1") for i in range(256)], dtype=np.int32
         )
     return _POPCOUNT_TABLE
+
+def _get_torch_popcount_table():
+    global _TORCH_POPCOUNT_TABLE
+    if _TORCH_POPCOUNT_TABLE is None and TORCH_AVAILABLE:
+        _TORCH_POPCOUNT_TABLE = torch.tensor(
+            [bin(i).count("1") for i in range(256)], 
+            dtype=torch.int32, 
+            device=TORCH_DEVICE
+        )
+    return _TORCH_POPCOUNT_TABLE
+
+if NUMBA_AVAILABLE:
+    @njit(parallel=True, fastmath=True)
+    def _numba_batch_hamming(query_data, database, popcount_table):
+        N = database.shape[0]
+        distances = np.zeros(N, dtype=np.int32)
+        for i in prange(N):
+            dist = 0
+            for j in range(database.shape[1]):
+                dist += popcount_table[query_data[j] ^ database[i, j]]
+            distances[i] = dist
+        return distances
+    
+    @njit(parallel=True, fastmath=True)
+    def _numba_batch_hamming_matrix(database, popcount_table):
+        N = database.shape[0]
+        distances = np.zeros((N, N), dtype=np.int32)
+        for i in prange(N):
+            for j in range(i + 1, N):
+                dist = 0
+                for k in range(database.shape[1]):
+                    dist += popcount_table[database[i, k] ^ database[j, k]]
+                distances[i, j] = dist
+                distances[j, i] = dist
+        return distances
 
 
 class BinaryHDV:
@@ -251,24 +308,30 @@ def batch_hamming_distance(
 ) -> np.ndarray:
     """
     Compute Hamming distance between a query vector and all vectors in a database.
-
-    Args:
-        query: Single BinaryHDV query vector.
-        database: 2D array of shape (N, D//8) with dtype uint8, where each row
-                  is a packed binary vector.
-
-    Returns:
-        1D array of shape (N,) with Hamming distances (int).
+    Auto-scales from GPU (PyTorch) -> CPU JIT (Numba) -> CPU (NumPy).
     """
-    # XOR query with all database vectors: (N, D//8)
-    xor_result = np.bitwise_xor(database, query.data)
+    # Tier 1: PyTorch (GPU)
+    if TORCH_AVAILABLE and TORCH_DEVICE.type != 'cpu':
+        try:
+            q_t = torch.from_numpy(query.data).to(TORCH_DEVICE, non_blocking=True)
+            db_t = torch.from_numpy(database).to(TORCH_DEVICE, non_blocking=True)
+            xor_res = torch.bitwise_xor(db_t, q_t).to(torch.long)
+            bit_counts = _get_torch_popcount_table()[xor_res]
+            return bit_counts.sum(dim=1).cpu().numpy()
+        except Exception as e:
+            logger.debug(f"Torch batch_hamming failed, falling back: {e}")
 
-    # Popcount via lookup table — count bits set in each byte
-    # This is the fastest pure-NumPy approach for packed binary vectors
+    # Tier 2: Numba (JIT CPU)
+    if NUMBA_AVAILABLE:
+        try:
+            return _numba_batch_hamming(query.data, database, _build_popcount_table())
+        except Exception as e:
+            logger.debug(f"Numba batch_hamming failed, falling back: {e}")
+
+    # Tier 3: NumPy (Pure CPU Fallback)
+    xor_result = np.bitwise_xor(database, query.data)
     popcount_table = _build_popcount_table()
     bit_counts = popcount_table[xor_result]  # (N, D//8)
-
-    # Sum across bytes to get total Hamming distance per vector
     return bit_counts.sum(axis=1)
 
 
@@ -277,23 +340,38 @@ def batch_hamming_distance_matrix(
 ) -> np.ndarray:
     """
     Compute the full pairwise Hamming distance matrix for a database.
-
-    Args:
-        database: 2D array of shape (N, D//8) with dtype uint8.
-
-    Returns:
-        2D array of shape (N, N) with Hamming distances.
+    Auto-scales from GPU (PyTorch) -> CPU JIT (Numba) -> CPU (NumPy).
     """
+    # Tier 1: PyTorch (GPU)
+    if TORCH_AVAILABLE and TORCH_DEVICE.type != 'cpu':
+        try:
+            db_t = torch.from_numpy(database).to(TORCH_DEVICE, non_blocking=True)
+            N = database.shape[0]
+            # Expanding for pairwise XOR (can be memory intensive for huge N)
+            # Use chunks if N is very large, but for now standard tensor ops:
+            if N < 5000:
+                xor_res = torch.bitwise_xor(db_t.unsqueeze(1), db_t.unsqueeze(0)).to(torch.long)
+                bit_counts = _get_torch_popcount_table()[xor_res]
+                return bit_counts.sum(dim=2).cpu().numpy()
+        except Exception as e:
+            logger.debug(f"Torch batch matrix failed, falling back: {e}")
+
+    # Tier 2: Numba (JIT CPU)
+    if NUMBA_AVAILABLE:
+        try:
+            return _numba_batch_hamming_matrix(database, _build_popcount_table())
+        except Exception as e:
+            logger.debug(f"Numba batch matrix failed, falling back: {e}")
+
+    # Tier 3: NumPy (Pure CPU Fallback)
     N = database.shape[0]
     popcount_table = _build_popcount_table()
     distances = np.zeros((N, N), dtype=np.int32)
-
     for i in range(N):
         xor_result = np.bitwise_xor(database[i], database[i + 1 :])
         bit_counts = popcount_table[xor_result].sum(axis=1)
         distances[i, i + 1 :] = bit_counts
         distances[i + 1 :, i] = bit_counts
-
     return distances
 
 

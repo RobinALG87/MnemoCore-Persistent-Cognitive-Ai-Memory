@@ -7,7 +7,7 @@ LTP indexing, and event streaming (Subconscious Bus).
 Uses `redis.asyncio` for native asyncio support.
 """
 
-import json
+from mnemocore.utils import json_compat as json
 from typing import Dict, List, Optional, Any, Union
 
 import redis.asyncio as redis

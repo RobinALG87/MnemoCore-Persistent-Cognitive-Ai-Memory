@@ -118,6 +118,11 @@ class ConsolidationWorker:
                 await asyncio.sleep(5) # Backoff logic placeholder
 
     async def start(self):
+        try:
+            from mnemocore.utils.process import lower_process_priority
+            lower_process_priority()
+        except ImportError:
+            pass
         self.running = True
         logger.info(f"Starting Consolidation Worker ({self.consumer_name})...")
         await self.setup_stream()
