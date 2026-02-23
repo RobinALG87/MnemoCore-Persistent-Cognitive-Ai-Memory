@@ -50,6 +50,10 @@ data/warm_tier/*.json
 data/warm_tier/*.npy
 data/cold_archive/*.gz
 vector_core/corpus_ready.json
+data/*.sqlite
+data/*.faiss
+data/*_idmap.json
+data/*_vectors.npy
 
 # Logs
 *.log

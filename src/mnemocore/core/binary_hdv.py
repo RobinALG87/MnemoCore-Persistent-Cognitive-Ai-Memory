@@ -19,10 +19,13 @@ All batch operations are NumPy-vectorized (no Python loops for distance computat
 """
 
 import hashlib
+import sqlite3
 from typing import List, Optional, Tuple
 
 import numpy as np
 import re
+from loguru import logger
+from .config import get_config
 
 
 # Cached lookup table for popcount (bits set per byte value 0-255)
@@ -369,6 +372,64 @@ def top_k_nearest(
 
 
 # ======================================================================
+# Persistent Vector Cache (SQLite)
+# ======================================================================
+
+
+class PersistentVectorCache:
+    """
+    SQLite-backed persistent cache for BinaryHDV vectors.
+    Reduces redundant CPU-intensive encoding operations.
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """Ensure the vectors table exists."""
+        try:
+            # Create directories if they don't exist
+            db_dir = Path(self.db_path).parent
+            db_dir.mkdir(parents=True, exist_ok=True)
+            
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS vectors "
+                    "(key TEXT PRIMARY KEY, vector BLOB, dimension INTEGER)"
+                )
+                conn.execute("PRAGMA journal_mode=WAL")  # Better concurrency
+                conn.execute("PRAGMA synchronous=NORMAL")
+        except Exception as e:
+            logger.warning(f"Failed to initialize PersistentVectorCache at {self.db_path}: {e}")
+
+    def get(self, key: str, dimension: int) -> Optional[BinaryHDV]:
+        """Retrieve a vector from the cache."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                res = conn.execute(
+                    "SELECT vector FROM vectors WHERE key = ? AND dimension = ?",
+                    (key, dimension)
+                ).fetchone()
+                if res:
+                    return BinaryHDV.from_bytes(res[0], dimension=dimension)
+        except Exception as e:
+            logger.debug(f"Cache get failed for {key}: {e}")
+        return None
+
+    def set(self, key: str, vector: BinaryHDV):
+        """Store a vector in the cache."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10.0) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO vectors (key, vector, dimension) VALUES (?, ?, ?)",
+                    (key, vector.to_bytes(), vector.dimension)
+                )
+        except Exception as e:
+            logger.debug(f"Cache set failed for {key}: {e}")
+
+
+# ======================================================================
 # Text encoding pipeline
 # ======================================================================
 
@@ -389,12 +450,37 @@ class TextEncoder:
     def __init__(self, dimension: int = 16384):
         self.dimension = dimension
         self._token_cache: dict[str, BinaryHDV] = {}
+        
+        # Phase 4.6: Persistent Caching
+        config = get_config()
+        self.perf_config = getattr(config, 'performance', None)
+        self.persistent_cache = None
+        
+        if self.perf_config and self.perf_config.vector_cache_enabled:
+            cache_path = self.perf_config.vector_cache_path or "./data/vector_cache.sqlite"
+            self.persistent_cache = PersistentVectorCache(cache_path)
+            logger.info(f"Persistent vector cache enabled at {cache_path}")
 
     def get_token_vector(self, token: str) -> BinaryHDV:
         """Get or create a deterministic vector for a token."""
-        if token not in self._token_cache:
-            self._token_cache[token] = BinaryHDV.from_seed(token, self.dimension)
-        return self._token_cache[token]
+        if token in self._token_cache:
+            return self._token_cache[token]
+            
+        # Try persistent cache first
+        if self.persistent_cache:
+            cached = self.persistent_cache.get(f"token:{token}", self.dimension)
+            if cached:
+                self._token_cache[token] = cached
+                return cached
+        
+        # Generate and cache
+        vec = BinaryHDV.from_seed(token, self.dimension)
+        self._token_cache[token] = vec
+        
+        if self.persistent_cache:
+            self.persistent_cache.set(f"token:{token}", vec)
+            
+        return vec
 
     def encode(self, text: str) -> BinaryHDV:
         """
@@ -404,13 +490,25 @@ class TextEncoder:
         Each token is bound with its position via XOR(token, permute(position_marker, i)).
         All position-bound tokens are bundled via majority vote.
         """
+        # Try full-text cache first
+        if self.persistent_cache:
+            text_hash = hashlib.sha256(text.encode()).hexdigest()
+            cached = self.persistent_cache.get(f"text:{text_hash}", self.dimension)
+            if cached:
+                return cached
+
         # Improved Tokenization: consistent alphanumeric extraction
         tokens = re.findall(r'\b\w+\b', text.lower())
         if not tokens:
             return BinaryHDV.random(self.dimension)
 
         if len(tokens) == 1:
-            return self.get_token_vector(tokens[0])
+            vec = self.get_token_vector(tokens[0])
+            # Cache the single-token result too
+            if self.persistent_cache:
+                text_hash = hashlib.sha256(text.encode()).hexdigest()
+                self.persistent_cache.set(f"text:{text_hash}", vec)
+            return vec
 
         # Build position-bound token vectors (#27)
         # Optimized: Batch process data instead of multiple object instantiations
@@ -429,7 +527,14 @@ class TextEncoder:
         result_bits = np.zeros(self.dimension, dtype=np.uint8)
         result_bits[sums > threshold] = 1
 
-        return BinaryHDV(data=np.packbits(result_bits), dimension=self.dimension)
+        result_vec = BinaryHDV(data=np.packbits(result_bits), dimension=self.dimension)
+        
+        # Cache the result
+        if self.persistent_cache:
+            text_hash = hashlib.sha256(text.encode()).hexdigest()
+            self.persistent_cache.set(f"text:{text_hash}", result_vec)
+            
+        return result_vec
 
     def encode_with_context(
         self, text: str, context_hdv: BinaryHDV

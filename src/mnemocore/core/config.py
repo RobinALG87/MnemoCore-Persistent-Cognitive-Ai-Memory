@@ -226,6 +226,15 @@ class SubconsciousAIConfig:
 
 
 @dataclass(frozen=True)
+class PerformanceConfig:
+    """Configuration for CPU/resource optimization."""
+    background_rebuild_enabled: bool = True
+    process_priority_low: bool = True
+    vector_cache_enabled: bool = True
+    vector_cache_path: Optional[str] = "./data/vector_cache.sqlite"
+
+
+@dataclass(frozen=True)
 class PulseConfig:
     """Configuration for Phase 5 AGI Pulse Loop orchestrator."""
     enabled: bool = True
@@ -276,6 +285,7 @@ class HAIMConfig:
     dream_loop: DreamLoopConfig = field(default_factory=DreamLoopConfig)
     subconscious_ai: SubconsciousAIConfig = field(default_factory=SubconsciousAIConfig)
     pulse: PulseConfig = field(default_factory=PulseConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
 
 
 def _env_override(key: str, default):
@@ -599,6 +609,15 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         max_episodes_per_tick=_env_override("PULSE_MAX_EPISODES_PER_TICK", pulse_raw.get("max_episodes_per_tick", 200)),
     )
 
+    # Build performance config
+    perf_raw = raw.get("performance") or {}
+    performance = PerformanceConfig(
+        background_rebuild_enabled=_env_override("PERFORMANCE_BACKGROUND_REBUILD_ENABLED", perf_raw.get("background_rebuild_enabled", True)),
+        process_priority_low=_env_override("PERFORMANCE_PROCESS_PRIORITY_LOW", perf_raw.get("process_priority_low", True)),
+        vector_cache_enabled=_env_override("PERFORMANCE_VECTOR_CACHE_ENABLED", perf_raw.get("vector_cache_enabled", True)),
+        vector_cache_path=_env_override("PERFORMANCE_VECTOR_CACHE_PATH", perf_raw.get("vector_cache_path", "./data/vector_cache.sqlite")),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
@@ -624,6 +643,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         dream_loop=dream_loop,
         subconscious_ai=subconscious_ai,
         pulse=pulse,
+        performance=performance,
     )
 
 

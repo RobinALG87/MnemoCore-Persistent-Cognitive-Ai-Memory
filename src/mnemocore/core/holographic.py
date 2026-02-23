@@ -167,7 +167,7 @@ class ConceptualMemory:
         codebook_data = {}
         for k, v in self.symbols.items():
             codebook_data[k] = {
-                "data": list(v.data),  # Store as list of uint8
+                "data": v.data.tolist(),  # Store as standard Python ints
                 "dimension": v.dimension
             }
         with open(self.codebook_path, 'w') as f:
@@ -177,7 +177,7 @@ class ConceptualMemory:
         concepts_data = {}
         for k, v in self.concepts.items():
             concepts_data[k] = {
-                "data": list(v.data),
+                "data": v.data.tolist(),
                 "dimension": v.dimension
             }
         with open(self.concepts_path, 'w') as f:

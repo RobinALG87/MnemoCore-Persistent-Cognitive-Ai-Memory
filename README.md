@@ -1,3 +1,22 @@
+---
+title: MnemoCore
+emoji: 🧠
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+license: mit
+language:
+  - en
+tags:
+  - memory
+  - vector-database
+  - cognitive-architecture
+  - agents
+  - hyperdimensional-computing
+  - vsa
+---
+
 # MnemoCore
 
 ### Infrastructure for Persistent Cognitive Memory
