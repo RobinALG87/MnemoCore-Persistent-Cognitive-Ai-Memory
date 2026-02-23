@@ -1,6 +1,9 @@
 """
 Benchmark for MnemoCore with up to 100k memories.
 
+LEGACY: This file is kept for backward compatibility.
+New benchmarks should use the comprehensive suite in benchmarks/.
+
 Measures:
 - actual HAIMEngine.store() latency (P50, P95, P99)
 - actual HAIMEngine.query() latency (P50, P95, P99)

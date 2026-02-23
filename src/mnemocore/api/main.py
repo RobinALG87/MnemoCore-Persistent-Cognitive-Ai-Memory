@@ -51,7 +51,16 @@ from mnemocore.api.models import (
     AnalogyResult,
     HealthResponse,
     RootResponse,
-    ErrorResponse
+    ErrorResponse,
+    # Phase 6.0: Association models
+    AssociationsQueryRequest,
+    AssociationsQueryResponse,
+    AssociationsPathRequest,
+    AssociationsPathResponse,
+    GraphMetricsResponse,
+    ReinforceAssociationRequest,
+    ReinforceAssociationResponse,
+    AssociatedMemoryModel,
 )
 from mnemocore.core.logging_config import configure_logging
 from mnemocore.core.exceptions import (
@@ -1088,12 +1097,477 @@ async def get_knowledge_gaps(engine: HAIMEngine = Depends(get_engine)):
     """Retrieve detected knowledge gaps from the GapDetector."""
     if not hasattr(engine, "gap_detector"):
         return {"ok": True, "gaps": [], "count": 0}
-    
+
     gaps = engine.gap_detector.list_gaps()
     return {
-        "ok": True, 
+        "ok": True,
         "gaps": [g.to_dict() if hasattr(g, "to_dict") else g for g in gaps],
         "count": len(gaps)
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5.0 — Advanced Synthesis, Dream & Export Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DreamRequest(BaseModel):
+    """Request model for triggering a dream session."""
+    max_cycles: int = Field(default=1, ge=1, le=10, description="Number of dream cycles to run")
+    force_insight: bool = Field(default=False, description="Force generation of a meta-insight")
+
+
+class DreamResponse(BaseModel):
+    """Response model for dream session."""
+    ok: bool
+    cycles_completed: int
+    insights_generated: int
+    concepts_extracted: int
+    parallels_found: int
+    memories_processed: int
+    message: str
+
+
+@app.post(
+    "/dream",
+    response_model=DreamResponse,
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Dream Loop"],
+    summary="Trigger a dream session",
+)
+async def trigger_dream(
+    req: DreamRequest,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Manually trigger a dream session (SubconsciousDaemon cycle).
+
+    The dream loop performs:
+    - Concept extraction from recent memories
+    - Parallel drawing (finding unexpected connections)
+    - Memory re-evaluation and valuation
+    - Meta-insight generation
+
+    This endpoint runs the daemon synchronously for the requested number of cycles
+    and returns the results immediately.
+    """
+    try:
+        # Import here to avoid circular dependency
+        from mnemocore.subconscious.daemon import SubconsciousDaemon
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Dream loop not available: {e}"
+        )
+
+    # Get all hot memories for processing
+    memories = list(engine.tier_manager.hot.values())
+
+    if not memories:
+        return {
+            "ok": True,
+            "cycles_completed": 0,
+            "insights_generated": 0,
+            "concepts_extracted": 0,
+            "parallels_found": 0,
+            "memories_processed": 0,
+            "message": "No memories to process",
+        }
+
+    # Create a temporary daemon instance for this session
+    daemon = SubconsciousDaemon(config=get_config())
+    daemon.engine = engine
+
+    # Run the requested number of cycles
+    total_insights = 0
+    total_concepts = 0
+    total_parallels = 0
+
+    for cycle in range(req.max_cycles):
+        daemon.cycle_count += 1
+
+        # 1. Extract concepts (every 5 cycles or forced)
+        if cycle % 5 == 0 or req.force_insight:
+            concepts = await daemon.extract_concepts(memories)
+            for concept in concepts:
+                if "name" in concept:
+                    attrs = {k: str(v) for k, v in concept.items() if k != "name"}
+                    engine.define_concept(concept["name"], attrs)
+                    total_concepts += 1
+
+        # 2. Draw parallels (every 3 cycles)
+        if cycle % 3 == 0:
+            parallels = await daemon.draw_parallels(memories)
+            for p in parallels:
+                # Store parallel as new memory
+                await asyncio.to_thread(
+                    engine.store,
+                    f"[PARALLEL] {p}",
+                    metadata={"type": "insight", "source": "dream_loop"}
+                )
+                total_insights += 1
+                total_parallels += 1
+
+        # 3. Generate meta-insight (every 7 cycles or forced)
+        if cycle % 7 == 0 or req.force_insight:
+            insight = await daemon.generate_insight(memories)
+            if insight:
+                await asyncio.to_thread(
+                    engine.store,
+                    f"[META-INSIGHT] {insight}",
+                    metadata={"type": "meta", "source": "dream_loop"}
+                )
+                total_insights += 1
+
+    return {
+        "ok": True,
+        "cycles_completed": req.max_cycles,
+        "insights_generated": total_insights,
+        "concepts_extracted": total_concepts,
+        "parallels_found": total_parallels,
+        "memories_processed": len(memories),
+        "message": f"Completed {req.max_cycles} dream cycles",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6.0 — Association Network Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/associations/{node_id}",
+    response_model=AssociationsQueryResponse,
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 6.0 — Associations"],
+    summary="Get associations for a memory node",
+)
+async def get_associations(
+    node_id: str,
+    max_results: int = 10,
+    min_strength: float = 0.1,
+    include_content: bool = True,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Retrieve memories associated with the given node.
+
+    Associations are formed through co-retrieval and represent
+    Hebbian learning patterns in the memory network.
+    """
+    results = await engine.get_associated_memories(
+        node_id=node_id,
+        max_results=max_results,
+        min_strength=min_strength,
+        include_content=include_content,
+    )
+
+    return AssociationsQueryResponse(
+        ok=True,
+        node_id=node_id,
+        associations=[
+            AssociatedMemoryModel(
+                id=r["id"],
+                content=r.get("content", ""),
+                strength=r["strength"],
+                association_type=r["association_type"],
+                fire_count=r["fire_count"],
+                metadata=r.get("metadata"),
+            )
+            for r in results
+        ],
+    )
+
+
+@app.post(
+    "/associations/path",
+    response_model=AssociationsPathResponse,
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 6.0 — Associations"],
+    summary="Find association paths between memories",
+)
+async def find_association_path(
+    req: AssociationsPathRequest,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Find paths connecting two memory nodes through the association network.
+
+    Useful for discovering indirect relationships between memories.
+    """
+    if not hasattr(engine, "associations"):
+        raise HTTPException(
+            status_code=503,
+            detail="Association network not available"
+        )
+
+    paths = engine.associations.find_associations_path(
+        source_id=req.from_id,
+        target_id=req.to_id,
+        max_hops=req.max_hops,
+        min_strength=req.min_strength,
+    )
+
+    return AssociationsPathResponse(
+        ok=True,
+        from_id=req.from_id,
+        to_id=req.to_id,
+        paths=paths,
+    )
+
+
+@app.get(
+    "/associations/{node_id}/clusters",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 6.0 — Associations"],
+    summary="Get clusters containing a memory node",
+)
+async def get_node_clusters(
+    node_id: str,
+    min_cluster_size: int = 3,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Find clusters (groups of strongly associated memories) that contain this node.
+    """
+    if not hasattr(engine, "associations"):
+        raise HTTPException(
+            status_code=503,
+            detail="Association network not available"
+        )
+
+    clusters = engine.associations.find_clusters(
+        min_cluster_size=min_cluster_size,
+        min_strength=0.2,
+    )
+
+    # Filter clusters that contain the node
+    node_clusters = [c for c in clusters if node_id in c]
+
+    return {
+        "ok": True,
+        "node_id": node_id,
+        "clusters": [
+            {"size": len(c), "nodes": list(c)}
+            for c in node_clusters
+        ],
+        "count": len(node_clusters),
+    }
+
+
+@app.get(
+    "/associations/metrics",
+    response_model=GraphMetricsResponse,
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 6.0 — Associations"],
+    summary="Get association network metrics",
+)
+async def get_association_metrics(
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Get structural metrics about the association network.
+
+    Includes node count, edge count, density, clustering coefficient,
+    and other graph-theoretic measures.
+    """
+    if not hasattr(engine, "associations"):
+        raise HTTPException(
+            status_code=503,
+            detail="Association network not available"
+        )
+
+    metrics = engine.associations.compute_metrics()
+
+    from mnemocore.api.models import GraphMetricsModel
+    return GraphMetricsResponse(
+        ok=True,
+        metrics=GraphMetricsModel(
+            node_count=metrics.node_count,
+            edge_count=metrics.edge_count,
+            avg_degree=metrics.avg_degree,
+            density=metrics.density,
+            avg_clustering=metrics.avg_clustering,
+            connected_components=metrics.connected_components,
+            largest_component_size=metrics.largest_component_size,
+        ),
+    )
+
+
+@app.post(
+    "/associations/reinforce",
+    response_model=ReinforceAssociationResponse,
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 6.0 — Associations"],
+    summary="Manually reinforce an association",
+)
+async def reinforce_association(
+    req: ReinforceAssociationRequest,
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Manually reinforce the association between two memory nodes.
+
+    This can be used to explicitly encode domain knowledge about
+    relationships between memories.
+    """
+    if not hasattr(engine, "associations"):
+        raise HTTPException(
+            status_code=503,
+            detail="Association network not available"
+        )
+
+    from mnemocore.cognitive.associations import AssociationType
+
+    edge = engine.associations.reinforce(
+        node_a=req.node_a,
+        node_b=req.node_b,
+        association_type=AssociationType(req.association_type),
+    )
+
+    if edge:
+        from mnemocore.api.models import AssociationEdgeModel
+        return ReinforceAssociationResponse(
+            ok=True,
+            edge=AssociationEdgeModel(
+                source_id=edge.source_id,
+                target_id=edge.target_id,
+                strength=edge.strength,
+                association_type=edge.association_type.value,
+                created_at=edge.created_at.isoformat(),
+                last_strengthened=edge.last_strengthened.isoformat(),
+                fire_count=edge.fire_count,
+            ),
+            message=f"Reinforced association between {req.node_a[:8]} and {req.node_b[:8]}",
+        )
+    else:
+        return ReinforceAssociationResponse(
+            ok=False,
+            edge=None,
+            message="Failed to reinforce association (nodes may not exist)",
+        )
+
+
+@app.get(
+    "/associations/visualize",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 6.0 — Associations"],
+    summary="Get association network visualization",
+)
+async def visualize_associations(
+    max_nodes: int = 100,
+    min_strength: float = 0.1,
+    layout: str = "spring",
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Generate an HTML visualization of the association network.
+
+    Returns HTML that can be rendered in a browser.
+    """
+    if not hasattr(engine, "associations"):
+        raise HTTPException(
+            status_code=503,
+            detail="Association network not available"
+        )
+
+    html = engine.associations.visualize(
+        max_nodes=max_nodes,
+        min_strength=min_strength,
+        layout=layout,
+    )
+
+    if html is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Visualization not available (Plotly not installed or no data)"
+        )
+
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
+
+
+class ExportResponse(BaseModel):
+    """Response model for memory export."""
+    ok: bool
+    count: int
+    format: str
+    memories: List[Dict[str, Any]]
+
+
+@app.get(
+    "/export",
+    response_model=ExportResponse,
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 — Export"],
+    summary="Export memories as JSON",
+)
+async def export_memories(
+    agent_id: Optional[str] = None,
+    tier: Optional[str] = None,
+    limit: int = 100,
+    include_metadata: bool = True,
+    format: str = "json",
+    engine: HAIMEngine = Depends(get_engine),
+):
+    """
+    Export memories for backup, analysis, or migration.
+
+    Returns memories in the requested format with optional filtering by
+    agent_id or tier.
+    """
+    # Validate tier
+    valid_tiers = {"hot", "warm", "cold", "soul"}
+    if tier and tier not in valid_tiers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid tier. Must be one of: {', '.join(valid_tiers)}"
+        )
+
+    # Validate format
+    if format not in ("json", "jsonl"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid format. Must be 'json' or 'jsonl'"
+        )
+
+    # Collect memories based on tier filter
+    memories_to_export = []
+
+    if tier == "hot" or tier is None:
+        for node in engine.tier_manager.hot.values():
+            if agent_id is None or node.metadata.get("agent_id") == agent_id:
+                memories_to_export.append(node)
+
+    if tier == "warm" or tier is None:
+        # For warm tier, we need to fetch from Qdrant
+        if hasattr(engine.tier_manager, "qdrant_store") and engine.tier_manager.qdrant_store:
+            from mnemocore.core.qdrant_store import QdrantStore
+            qdrant: QdrantStore = engine.tier_manager.qdrant_store
+            # This would need a proper list method in QdrantStore
+            # For now, we skip warm tier export or add the method
+            pass
+
+    # Apply limit
+    memories_to_export = memories_to_export[:limit]
+
+    # Format output
+    exported = []
+    for node in memories_to_export:
+        mem_dict = {
+            "id": node.id,
+            "content": node.content,
+            "created_at": node.created_at.isoformat(),
+            "ltp_strength": node.ltp_strength,
+            "tier": getattr(node, "tier", "hot"),
+        }
+        if include_metadata:
+            mem_dict["metadata"] = node.metadata
+        exported.append(mem_dict)
+
+    return {
+        "ok": True,
+        "count": len(exported),
+        "format": format,
+        "memories": exported,
     }
 
 

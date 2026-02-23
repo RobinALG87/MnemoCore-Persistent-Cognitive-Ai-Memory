@@ -287,19 +287,10 @@ embedding_checksum: str  # validering
 
 ## 6. Säkerhet, Privacy \& GDPR
 
-### 6.1 Selektiv Amnesi (GDPR Right to be Forgotten)
-
-**Åtgärd — ny fil: `privacy_manager.py`**
-
-- [ ] `forget(memory_id)` — permanent radering inklusive vektorer och metadata
-- [ ] `forget_user(user_id)` — radera alla minnen kopplade till en användare
-- [ ] `anonymize(user_id)` — ersätt PII med pseudonymer men behåll struktur
-- [ ] Audit trail för alla raderingsbegäranden (ironiskt nog — spara vad som raderades)
-- [ ] Verifierbart radering via kryptografisk proof-of-deletion
 
 ---
 
-### 6.2 Kryptering
+### 6.1 Kryptering
 
 - [ ] **At-rest encryption**: AES-256 för alla minnesnoder i Qdrant
 - [ ] **In-transit encryption**: mTLS för all kommunikation
@@ -309,7 +300,7 @@ embedding_checksum: str  # validering
 
 ---
 
-### 6.3 Access Control
+### 6.2 Access Control
 
 - [ ] `MemoryACL` — Access Control List per minnesnod
 - [ ] RBAC (Role-Based): `reader | writer | admin | owner`
@@ -319,7 +310,7 @@ embedding_checksum: str  # validering
 
 ---
 
-### 6.4 Säkerhetsaudit
+### 6.3 Säkerhetsaudit
 
 - [ ] Dependency scanning (Dependabot / Snyk) i CI/CD
 - [ ] SAST (Static Application Security Testing) — Bandit för Python
@@ -332,16 +323,16 @@ embedding_checksum: str  # validering
 
 ### 7.1 Komplettera MCP-verktyg
 
-**Problem:** `mcp/`-katalogen är inte fullt exponerad.
+**Nuläge:** `mcp/server.py` exponerar redan flera viktiga verktyg (bl.a. `memory_store`, `memory_query`, `memory_delete`, `memory_stats`), men de drömspecifika och exporterande funktionerna saknas.
 
 **Åtgärd — kompletta MCP tool definitions:**
 
-- [ ] `memory_store` — lagra ett minne med full metadata
-- [ ] `memory_recall` — semantisk sökning med filter
-- [ ] `memory_forget` — radera specificerat minne
+- [x] `memory_store` — lagra ett minne med full metadata (Redan implementerad)
+- [x] `memory_recall` (som `memory_query`) — semantisk sökning (Redan implementerad)
+- [x] `memory_forget` (som `memory_delete`) — radera specificerat minne (Redan implementerad)
+- [x] `memory_stats` — returnera statistik om minnessystemet (Redan implementerad)
 - [ ] `memory_synthesize` — trigga explicit syntes
 - [ ] `memory_dream` — manuellt trigga en dream-session
-- [ ] `memory_stats` — returnera statistik om minnessystemet
 - [ ] `memory_export` — exportera minnen som JSON
 - [ ] MCP-dokumentation för alla verktyg i `/docs/mcp-tools.md`
 
@@ -429,11 +420,13 @@ embedding_checksum: str  # validering
 
 ### 9.1 Python SDK
 
-- [ ] `pip install mnemocore` — standalone Python-paket
-- [ ] Typed client med autocomplete
-- [ ] Async-first design (`await client.recall(...)`)
+**Nuläge:** MnemoCore (v4.5.1) finns redan uppsatt som Python-paket via `pyproject.toml` och pybreaker/hatchling är konfigurerat. Paketet har publicerats.
+
+- [x] `pip install mnemocore` — standalone Python-paket (Redan implementerat och paketeringsklart)
+- [x] Publishera till PyPI (Konfigurerat och publicerat)
+- [ ] Typed client med autocomplete (Skapa en dedicerad `MnemoCoreClient` wrapper)
+- [ ] Async-first design (`await client.recall(...)`) i klienten
 - [ ] Context manager: `async with MnemoCore() as mc:`
-- [ ] Publishera till PyPI med GitHub Actions
 
 ---
 
@@ -476,15 +469,14 @@ embedding_checksum: str  # validering
 | 3 | Hybrid search (dense+sparse) | 🔴 Kritisk | Hög | Låg | S1 |
 | 4 | Embedding version registry | 🔴 Kritisk | Hög | Medium | S1 |
 | 5 | Context Window Prioritizer | 🟠 Hög | Hög | Medium | S2 |
-| 6 | GDPR / `forget()` API | 🟠 Hög | Hög | Medium | S2 |
 | 7 | Dream Scheduler + Pipeline | 🟠 Hög | Unik | Medium | S2 |
 | 8 | Dela subconscious_ai.py | 🟠 Hög | Medium | Medium | S2 |
-| 9 | MCP-verktyg komplettering | 🟠 Hög | Hög | Låg | S2 |
+| 9 | Nya MCP-verktyg (Dream/Synthesize) | 🟠 Hög | Hög | Låg | S2 |
 | 10 | Kryptering at-rest | 🟠 Hög | Hög | Medium | S2 |
 | 11 | Rekonstruktivt minne | 🟡 Medium | Hög | Hög | S3 |
 | 12 | Grafbaserade associationer | 🟡 Medium | Hög | Hög | S3 |
 | 13 | Multi-agent shared memory | 🟡 Medium | Hög | Hög | S3 |
-| 14 | Python SDK (pip) | 🟡 Medium | Adoption | Låg | S3 |
+| 14 | Python SDK (Klientförbättringar) | 🟡 Medium | Adoption | Låg | S3 |
 | 15 | Webhook/Event system | 🟡 Medium | Medium | Medium | S3 |
 | 16 | Episodic Future Thinking | 🟢 Låg | Unik | Hög | S4 |
 | 17 | GraphQL endpoint | 🟢 Låg | Medium | Medium | S4 |

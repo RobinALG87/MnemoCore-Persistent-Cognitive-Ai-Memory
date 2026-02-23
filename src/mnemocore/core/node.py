@@ -19,6 +19,7 @@ class MemoryNode:
     Uses BinaryHDV for efficient storage and computation.
 
     Phase 4.3: Temporal Recall - supports episodic chaining and time-based indexing.
+    Phase 6.0: Embedding Version Registry - tracks embedding model version.
     """
 
     id: str
@@ -48,6 +49,12 @@ class MemoryNode:
     # Starts at 1.0; increases logarithmically on access.
     stability: float = 1.0
     review_candidate: bool = False  # Set by ForgettingCurveManager when near decay threshold
+
+    # Phase 6.0 — Embedding Version Registry
+    # Tracks which embedding model version generated this vector
+    embedding_model_id: str = "binary_hdv"  # Model identifier
+    embedding_version: int = 1  # Model version number
+    embedding_checksum: str = ""  # SHA-256 checksum of model config (empty = unknown/default)
 
     def access(self, update_weights: bool = True):
         """Retrieve memory (reconsolidation)"""
@@ -135,3 +142,89 @@ class MemoryNode:
         # Default sort by ID is fine, but for priority queues we might want LTP.
         # Let's keep ID for stability and use key= attr for sorting.
         return self.id < other.id
+
+    # ------------------------------------------------------------------
+    # Phase 6.0: Embedding Version Management
+    # ------------------------------------------------------------------
+
+    def get_embedding_info(self) -> Dict[str, Any]:
+        """
+        Get embedding version information as a dictionary.
+
+        Returns:
+            Dict with embedding_model_id, embedding_version, embedding_checksum
+        """
+        return {
+            "embedding_model_id": self.embedding_model_id,
+            "embedding_version": self.embedding_version,
+            "embedding_checksum": self.embedding_checksum,
+        }
+
+    def is_embedding_compatible(
+        self,
+        target_model_id: str,
+        target_version: int,
+        target_checksum: Optional[str] = None
+    ) -> bool:
+        """
+        Check if this node's embedding is compatible with a target model.
+
+        Args:
+            target_model_id: Target model identifier
+            target_version: Target model version
+            target_checksum: Optional target checksum for exact match
+
+        Returns:
+            True if the embedding matches the target specification
+        """
+        if self.embedding_model_id != target_model_id:
+            return False
+        if self.embedding_version != target_version:
+            return False
+        if target_checksum is not None and self.embedding_checksum:
+            return self.embedding_checksum == target_checksum
+        return True
+
+    def needs_migration(self, target_spec: "EmbeddingModelSpec") -> bool:
+        """
+        Check if this node needs to be migrated to a target model.
+
+        Args:
+            target_spec: Target EmbeddingModelSpec
+
+        Returns:
+            True if migration is needed
+        """
+        return not self.is_embedding_compatible(
+            target_spec.model_id,
+            target_spec.version,
+            target_spec.checksum
+        )
+
+    def update_embedding_info(
+        self,
+        model_id: str,
+        version: int,
+        checksum: str
+    ):
+        """
+        Update embedding version information (after re-embedding).
+
+        Args:
+            model_id: New embedding model ID
+            version: New embedding version
+            checksum: New embedding checksum
+        """
+        self.embedding_model_id = model_id
+        self.embedding_version = version
+        self.embedding_checksum = checksum
+
+    @property
+    def embedding_qualified_id(self) -> str:
+        """
+        Get the full qualified embedding identifier.
+
+        Returns: "{model_id}:v{version}:{checksum[:8]}"
+        """
+        checksum_short = self.embedding_checksum[:8] if self.embedding_checksum else "unknown"
+        return f"{self.embedding_model_id}:v{self.embedding_version}:{checksum_short}"

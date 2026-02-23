@@ -4,8 +4,9 @@ MnemoCore MCP Server
 MCP bridge exposing MnemoCore API tools for agent clients.
 """
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
+import asyncio
 
 from mnemocore.core.config import get_config, HAIMConfig
 from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
@@ -168,6 +169,122 @@ def build_server(config: HAIMConfig | None = None):
         def get_self_improvement_proposals() -> Dict[str, Any]:
             return with_error_handling(adapter.get_self_improvement_proposals)
 
+    # --- Phase 4.5 & 5.0: Advanced Synthesis & Export Tools ---
+
+    def register_memory_synthesize() -> None:
+        @server.tool()
+        def memory_synthesize(
+            query: str,
+            top_k: int = 10,
+            max_depth: int = 3,
+            context_text: str | None = None,
+            project_id: str | None = None,
+        ) -> Dict[str, Any]:
+            """
+            Phase 4.5: Recursive Synthesis Engine.
+
+            Decomposes complex queries into sub-questions, searches MnemoCore
+            in parallel, and synthesizes a comprehensive answer using the
+            Recursive Language Model (RLM) paradigm.
+
+            Args:
+                query: The complex query to synthesize (can be multi-topic)
+                top_k: Number of final results to return (1-50)
+                max_depth: Maximum recursion depth (0-5)
+                context_text: Optional external text for RippleContext search
+                project_id: Optional project scope for isolation masking
+            """
+            # Input validation
+            if not query or len(query.strip()) < 3:
+                return _result_error("Query must be at least 3 characters")
+            if not 1 <= top_k <= 50:
+                return _result_error("top_k must be between 1 and 50")
+            if not 0 <= max_depth <= 5:
+                return _result_error("max_depth must be between 0 and 5")
+
+            payload = {
+                "query": query,
+                "top_k": top_k,
+                "max_depth": max_depth,
+            }
+            if context_text:
+                payload["context_text"] = context_text
+            if project_id:
+                payload["project_id"] = project_id
+
+            return with_error_handling(lambda: adapter.synthesize(payload))
+
+    def register_memory_dream() -> None:
+        @server.tool()
+        def memory_dream(
+            max_cycles: int = 1,
+            force_insight: bool = False,
+        ) -> Dict[str, Any]:
+            """
+            Manually trigger a dream session (SubconsciousDaemon cycle).
+
+            The dream loop performs:
+            - Concept extraction from recent memories
+            - Parallel drawing (finding unexpected connections)
+            - Memory re-evaluation and valuation
+            - Meta-insight generation
+
+            Args:
+                max_cycles: Number of dream cycles to run (1-10)
+                force_insight: Force generation of a meta-insight
+
+            Returns:
+                Dict with cycle results including insights generated.
+            """
+            # Input validation
+            if not 1 <= max_cycles <= 10:
+                return _result_error("max_cycles must be between 1 and 10")
+
+            payload = {
+                "max_cycles": max_cycles,
+                "force_insight": force_insight,
+            }
+            return with_error_handling(lambda: adapter.dream(payload))
+
+    def register_memory_export() -> None:
+        @server.tool()
+        def memory_export(
+            agent_id: str | None = None,
+            tier: str | None = None,
+            limit: int = 100,
+            include_metadata: bool = True,
+            format: str = "json",
+        ) -> Dict[str, Any]:
+            """
+            Export memories as JSON for backup, analysis, or migration.
+
+            Args:
+                agent_id: Optional filter by agent_id
+                tier: Optional filter by tier ("hot", "warm", "cold")
+                limit: Maximum number of memories to export (1-1000)
+                include_metadata: Include full metadata in export
+                format: Export format ("json" or "jsonl")
+
+            Returns:
+                Dict with exported memories count and data.
+            """
+            # Input validation
+            if not 1 <= limit <= 1000:
+                return _result_error("limit must be between 1 and 1000")
+            if tier and tier not in ("hot", "warm", "cold", "soul"):
+                return _result_error("tier must be one of: hot, warm, cold, soul")
+            if format not in ("json", "jsonl"):
+                return _result_error("format must be 'json' or 'jsonl'")
+
+            payload = {
+                "agent_id": agent_id,
+                "tier": tier,
+                "limit": limit,
+                "include_metadata": include_metadata,
+                "format": format,
+            }
+            return with_error_handling(lambda: adapter.export(payload))
+
     register_tool("memory_store", register_memory_store)
     register_tool("memory_query", register_memory_query)
     register_tool("memory_get", register_memory_get)
@@ -182,6 +299,9 @@ def build_server(config: HAIMConfig | None = None):
     register_tool("search_procedures", register_search_procedures)
     register_tool("procedure_feedback", register_procedure_feedback)
     register_tool("get_self_improvement_proposals", register_get_self_improvement_proposals)
+    register_tool("memory_synthesize", register_memory_synthesize)
+    register_tool("memory_dream", register_memory_dream)
+    register_tool("memory_export", register_memory_export)
 
     return server
 

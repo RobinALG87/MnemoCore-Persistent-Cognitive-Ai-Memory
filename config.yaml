@@ -123,6 +123,16 @@ haim:
   attention_masking:
     enabled: true  # Enable/disable project-based memory isolation
 
+  # Phase 4.6: Hybrid Search (Dense + Sparse)
+  search:
+    mode: "hybrid"  # "dense" | "sparse" | "hybrid"
+    hybrid_alpha: 0.7  # Weight for dense search in hybrid mode (0.0-1.0)
+    rrf_k: 60  # RRF constant for rank fusion (higher = more ranking focused)
+    sparse_model: "bm25"  # "bm25" or SPLADE model path
+    enable_query_expansion: true  # Enable query expansion for better recall
+    min_dense_score: 0.0  # Minimum dense score threshold
+    min_sparse_score: 0.0  # Minimum sparse score threshold
+
   # =========================================================================
   # Subconscious AI - BETA FEATURE
   # =========================================================================
@@ -165,3 +175,52 @@ haim:
     log_all_decisions: true
     audit_trail_path: "./data/subconscious_audit.jsonl"
     max_memories_per_cycle: 10
+
+  # =========================================================================
+  # Dream Scheduler - Phase 6.0: Offline Consolidation
+  # =========================================================================
+  # Manages dream sessions during idle periods for memory consolidation.
+  # The scheduler detects inactivity and triggers multi-stage consolidation
+  # including episodic clustering, pattern extraction, and synthesis.
+  # =========================================================================
+  dreaming:
+    # Master switch for the dreaming system
+    enabled: true
+
+    # Idle detection
+    idle_threshold_seconds: 300  # 5 minutes of inactivity before considering idle
+    min_idle_duration: 60  # Must be idle for 1 minute before dreaming
+    max_cpu_percent: 25.0  # Don't dream if CPU is busy
+
+    # Scheduling (cron-like)
+    # Formats: "minute hour day month dow"
+    # Special values: "nightly", "hourly", "daily", "weekly", "never"
+    schedules:
+      - name: "nightly"
+        cron_expression: "0 2 * * *"  # 2 AM daily
+        enabled: true
+
+    # Session configuration
+    session:
+      max_duration_seconds: 600  # 10 minutes max per dream session
+      max_memories_to_process: 1000
+
+      # Pipeline stages
+      enable_episodic_clustering: true
+      enable_pattern_extraction: true
+      enable_recursive_synthesis: true
+      enable_contradiction_resolution: true
+      enable_semantic_promotion: true
+      enable_dream_report: true
+
+      # Stage-specific settings
+      cluster_time_window_hours: 24.0  # Group memories within 24h
+      pattern_min_frequency: 2  # Min occurrences to be a pattern
+      synthesis_max_depth: 3  # Recursive synthesis depth
+      auto_resolve_contradictions: false  # Require manual review
+      promotion_ltp_threshold: 0.7  # LTP strength for WARM promotion
+
+    # Reporting
+    persist_reports: true
+    report_path: "./data/dream_reports"
+    report_include_memory_details: false  # Privacy: don't include full content in reports

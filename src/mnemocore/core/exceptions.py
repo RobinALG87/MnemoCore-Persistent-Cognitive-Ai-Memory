@@ -417,6 +417,89 @@ class DependencyMissingError(IrrecoverableError):
 
 
 # =============================================================================
+# Backup & Import/Export Errors
+# =============================================================================
+
+
+class BackupError(StorageError):
+    """Base exception for backup-related errors."""
+    error_code = "BACKUP_ERROR"
+
+    def __init__(self, operation: str, message: str = "", context: Optional[dict] = None):
+        ctx = {"operation": operation}
+        if context:
+            ctx.update(context)
+        msg = f"Backup {operation} failed"
+        if message:
+            msg += f": {message}"
+        super().__init__(msg, ctx)
+        self.operation = operation
+
+
+class SnapshotError(BackupError):
+    """Raised when snapshot creation or restoration fails."""
+    error_code = "SNAPSHOT_ERROR"
+
+    def __init__(self, snapshot_id: str, reason: str, context: Optional[dict] = None):
+        ctx = {"snapshot_id": snapshot_id}
+        if context:
+            ctx.update(context)
+        super().__init__("snapshot", f"{reason} for snapshot '{snapshot_id}'", ctx)
+        self.snapshot_id = snapshot_id
+
+
+class SnapshotCorruptionError(IrrecoverableError, StorageError):
+    """Raised when a snapshot is corrupted or invalid."""
+    error_code = "SNAPSHOT_CORRUPTION_ERROR"
+    category = ErrorCategory.STORAGE
+
+    def __init__(self, snapshot_id: str, reason: str = "Snapshot verification failed", context: Optional[dict] = None):
+        ctx = {"snapshot_id": snapshot_id}
+        if context:
+            ctx.update(context)
+        super().__init__(f"{reason} for snapshot '{snapshot_id}'", ctx)
+        self.snapshot_id = snapshot_id
+
+
+class ImportError(IrrecoverableError):
+    """Raised when memory import fails."""
+    error_code = "IMPORT_ERROR"
+    category = ErrorCategory.STORAGE
+
+    def __init__(self, source: str, reason: str, records_processed: int = 0, context: Optional[dict] = None):
+        ctx = {"source": source, "records_processed": records_processed}
+        if context:
+            ctx.update(context)
+        super().__init__(f"Import from '{source}' failed: {reason}", ctx)
+        self.source = source
+        self.records_processed = records_processed
+
+
+class ExportError(StorageError):
+    """Raised when memory export fails."""
+    error_code = "EXPORT_ERROR"
+
+    def __init__(self, collection: str, reason: str, context: Optional[dict] = None):
+        ctx = {"collection": collection}
+        if context:
+            ctx.update(context)
+        super().__init__(f"Export from '{collection}' failed: {reason}", ctx)
+        self.collection = collection
+
+
+class DeduplicationError(ImportError):
+    """Raised when deduplication fails during import."""
+    error_code = "DEDUPLICATION_ERROR"
+
+    def __init__(self, source: str, duplicate_id: str, context: Optional[dict] = None):
+        ctx = {"duplicate_id": duplicate_id}
+        if context:
+            ctx.update(context)
+        super().__init__(source, f"Duplicate ID detected: '{duplicate_id}'", 0, ctx)
+        self.duplicate_id = duplicate_id
+
+
+# =============================================================================
 # Utility Functions
 # =============================================================================
 
@@ -493,6 +576,13 @@ __all__ = [
     "UnsupportedProviderError",
     "UnsupportedTransportError",
     "DependencyMissingError",
+    # Backup & Import/Export
+    "BackupError",
+    "SnapshotError",
+    "SnapshotCorruptionError",
+    "ImportError",
+    "ExportError",
+    "DeduplicationError",
     # Utilities
     "wrap_storage_exception",
     "is_debug_mode",

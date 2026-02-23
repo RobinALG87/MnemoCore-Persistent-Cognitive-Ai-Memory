@@ -41,6 +41,32 @@ class EpisodeToolInput(BaseModel):
     context: Optional[str] = None
 
 
+# --- Phase 4.5 & 5.0: Advanced Synthesis & Export Schemas ---
+
+class SynthesizeToolInput(BaseModel):
+    """Input for memory_synthesize tool (Phase 4.5 Recursive Synthesis)."""
+    query: str = Field(..., min_length=3, max_length=4096, description="Complex query to synthesize")
+    top_k: int = Field(default=10, ge=1, le=50, description="Final results to return")
+    max_depth: int = Field(default=3, ge=0, le=5, description="Maximum recursion depth")
+    context_text: Optional[str] = Field(None, max_length=500_000, description="Optional external context")
+    project_id: Optional[str] = Field(None, max_length=128, description="Optional project scope")
+
+
+class DreamToolInput(BaseModel):
+    """Input for memory_dream tool (SubconsciousDaemon cycle)."""
+    max_cycles: int = Field(default=1, ge=1, le=10, description="Number of dream cycles")
+    force_insight: bool = Field(default=False, description="Force meta-insight generation")
+
+
+class ExportToolInput(BaseModel):
+    """Input for memory_export tool."""
+    agent_id: Optional[str] = Field(None, max_length=256, description="Filter by agent_id")
+    tier: Optional[str] = Field(None, pattern="^(hot|warm|cold|soul)$", description="Filter by tier")
+    limit: int = Field(default=100, ge=1, le=1000, description="Max memories to export")
+    include_metadata: bool = Field(default=True, description="Include full metadata")
+    format: str = Field(default="json", pattern="^(json|jsonl)$", description="Export format")
+
+
 class ToolResult(BaseModel):
     ok: bool
     data: Optional[Dict[str, Any]] = None

@@ -35,6 +35,14 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+# Events integration
+try:
+    from ..events import integration as event_integration
+    EVENTS_AVAILABLE = True
+except ImportError:
+    EVENTS_AVAILABLE = False
+    event_integration = None  # type: ignore
+
 if TYPE_CHECKING:
     from .node import MemoryNode
 
@@ -132,11 +140,13 @@ class ContradictionDetector:
         similarity_threshold: float = SIMILARITY_THRESHOLD,
         top_k: int = 5,
         use_llm: bool = True,
+        event_bus: Optional[Any] = None,
     ) -> None:
         self.engine = engine
         self.similarity_threshold = similarity_threshold
         self.top_k = top_k
         self.use_llm = use_llm
+        self.event_bus = event_bus
         self.registry = ContradictionRegistry()
 
     # ---- Similarity helpers -------------------------------------- #
@@ -288,6 +298,19 @@ class ContradictionDetector:
                     f"⚠️  Contradiction detected: {new_node.id[:8]} ↔ {cand.id[:8]} "
                     f"(sim={sim:.3f}, llm_confirmed={llm_confirmed}, group={record.group_id})"
                 )
+
+                # Emit contradiction.detected event
+                if EVENTS_AVAILABLE and event_integration:
+                    await event_integration.emit_contradiction_detected(
+                        event_bus=self.event_bus,
+                        group_id=record.group_id,
+                        memory_a_id=new_node.id,
+                        memory_b_id=cand.id,
+                        similarity_score=sim,
+                        llm_confirmed=llm_confirmed,
+                        llm_confidence=conf if self.use_llm else None,
+                    )
+
                 return record
 
         return None

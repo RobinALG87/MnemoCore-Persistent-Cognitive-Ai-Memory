@@ -4,9 +4,10 @@ Qdrant Vector Store Layer
 Provides async access to Qdrant for vector storage and similarity search.
 
 Phase 4.3: Temporal Recall - supports time-based filtering and indexing.
+Phase 4.6: Hybrid Search - integrated dense + sparse retrieval.
 """
 
-from typing import List, Any, Optional, Tuple, Dict
+from typing import List, Any, Optional, Tuple, Dict, Union
 from datetime import datetime
 import asyncio
 import numpy as np
@@ -20,11 +21,16 @@ from .exceptions import (
     StorageConnectionError,
     wrap_storage_exception,
 )
+from .hybrid_search import (
+    HybridSearchEngine,
+    HybridSearchConfig,
+    SearchResult,
+)
 
 
 class QdrantStore:
     """
-    Qdrant Vector Store Layer.
+    Qdrant Vector Store Layer with Hybrid Search support.
     No longer a singleton - instances should be created via dependency injection.
     """
 
@@ -39,6 +45,8 @@ class QdrantStore:
         always_ram: bool = True,
         hnsw_m: int = 16,
         hnsw_ef_construct: int = 100,
+        hybrid_search_config: Optional[HybridSearchConfig] = None,
+        enable_hybrid_search: bool = True,
     ):
         self.url = url
         self.api_key = api_key
@@ -50,6 +58,22 @@ class QdrantStore:
         self.hnsw_m = hnsw_m
         self.hnsw_ef_construct = hnsw_ef_construct
         self.client = AsyncQdrantClient(url=url, api_key=api_key)
+
+        # Phase 4.6: Hybrid Search integration
+        self.enable_hybrid_search = enable_hybrid_search
+        self.hybrid_search_config = hybrid_search_config or HybridSearchConfig()
+        self._hybrid_engine: Optional[HybridSearchEngine] = None
+
+        # Sparse document registry for hybrid search
+        self._sparse_docs_hot: Dict[str, str] = {}
+        self._sparse_docs_warm: Dict[str, str] = {}
+
+    @property
+    def hybrid_engine(self) -> Optional[HybridSearchEngine]:
+        """Lazy initialization of hybrid search engine."""
+        if self._hybrid_engine is None and self.enable_hybrid_search:
+            self._hybrid_engine = HybridSearchEngine(self.hybrid_search_config)
+        return self._hybrid_engine
 
     async def ensure_collections(self):
         """
@@ -141,9 +165,28 @@ class QdrantStore:
                 if "already exists" not in str(e).lower():
                     logger.debug(f"Timestamp index on {collection_name}: {e}")
 
+        # Phase 6.0: Create payload indexes for embedding version filtering
+        for collection_name in [self.collection_hot, self.collection_warm]:
+            for field_name, field_type in [
+                ("embedding_model_id", models.PayloadSchemaType.KEYWORD),
+                ("embedding_version", models.PayloadSchemaType.INTEGER),
+            ]:
+                try:
+                    await self.client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field_name,
+                        field_schema=field_type,
+                    )
+                    logger.info(f"Created {field_name} index on {collection_name}")
+                except Exception as e:
+                    if "already exists" not in str(e).lower():
+                        logger.debug(f"Index {field_name} on {collection_name}: {e}")
+
     async def upsert(self, collection: str, points: List[models.PointStruct]):
         """
         Async batch upsert.
+
+        Phase 4.6: Also indexes documents for sparse search when hybrid is enabled.
 
         Raises:
             CircuitOpenError: If circuit breaker is open.
@@ -153,12 +196,48 @@ class QdrantStore:
             await qdrant_breaker.call(
                 self.client.upsert, collection_name=collection, points=points
             )
+
+            # Phase 4.6: Index for sparse search
+            if self.enable_hybrid_search and self.hybrid_engine is not None:
+                sparse_registry = (
+                    self._sparse_docs_hot if collection == self.collection_hot
+                    else self._sparse_docs_warm
+                )
+                for point in points:
+                    doc_id = str(point.id)
+                    # Extract text content from payload for sparse indexing
+                    payload = point.payload or {}
+                    text_content = self._extract_text_for_sparse_index(payload)
+                    if text_content:
+                        self.hybrid_engine.index_document(doc_id, text_content)
+                        sparse_registry[doc_id] = text_content
+
         except CircuitOpenError:
             logger.error(f"Qdrant upsert blocked for {collection}: circuit breaker open")
             raise
         except Exception as e:
             logger.exception(f"Qdrant upsert failed for {collection}")
             raise wrap_storage_exception("qdrant", "upsert", e)
+
+    def _extract_text_for_sparse_index(self, payload: Dict[str, Any]) -> str:
+        """
+        Extract text content from payload for sparse search indexing.
+
+        Looks for common text fields in order of preference.
+        """
+        text_fields = ["content", "text", "description", "summary", "memory"]
+
+        for field in text_fields:
+            if field in payload and isinstance(payload[field], str):
+                return payload[field]
+
+        # Fallback: concatenate all string values
+        text_parts = []
+        for v in payload.values():
+            if isinstance(v, str) and len(v) < 1000:  # Avoid huge payloads
+                text_parts.append(v)
+
+        return " ".join(text_parts) if text_parts else ""
 
     async def search(
         self,
@@ -244,6 +323,147 @@ class QdrantStore:
         except Exception as e:
             logger.error(f"Qdrant search failed for {collection}: {e}")
             raise wrap_storage_exception("qdrant", "search", e)
+
+    async def hybrid_search(
+        self,
+        collection: str,
+        query_vector: List[float],
+        query_text: str,
+        limit: int = 5,
+        score_threshold: float = 0.0,
+        time_range: Optional[Tuple[datetime, datetime]] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        use_rrf: bool = False,
+    ) -> List[Union[models.ScoredPoint, SearchResult]]:
+        """
+        Phase 4.6: Hybrid search combining dense (vector) and sparse (text) retrieval.
+
+        Args:
+            collection: Collection name to search
+            query_vector: Dense query vector for semantic search
+            query_text: Query text for sparse/lexical search
+            limit: Maximum number of results
+            score_threshold: Minimum score threshold
+            time_range: Optional time range filter
+            metadata_filter: Optional metadata filter
+            use_rrf: If True, use Reciprocal Rank Fusion; otherwise use alpha blending
+
+        Returns:
+            List of SearchResult with combined dense + sparse scores
+        """
+        if not self.enable_hybrid_search or self.hybrid_engine is None:
+            # Fall back to dense-only search
+            logger.debug("Hybrid search disabled, falling back to dense-only")
+            return await self.search(
+                collection=collection,
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                time_range=time_range,
+                metadata_filter=metadata_filter,
+            )
+
+        # Perform dense search
+        dense_results = await self.search(
+            collection=collection,
+            query_vector=query_vector,
+            limit=limit * 2,  # Fetch more for better fusion
+            score_threshold=score_threshold,
+            time_range=time_range,
+            metadata_filter=metadata_filter,
+        )
+
+        # Convert to (doc_id, score) format
+        dense_scores = [(str(hit.id), hit.score) for hit in dense_results]
+
+        # Build payloads dict
+        payloads = {str(hit.id): hit.payload or {} for hit in dense_results}
+
+        # Perform hybrid fusion
+        if use_rrf:
+            hybrid_results = await self.hybrid_engine.search_rrf(
+                query=query_text,
+                dense_results=dense_scores,
+                payloads=payloads,
+                limit=limit,
+            )
+        else:
+            hybrid_results = await self.hybrid_engine.search(
+                query=query_text,
+                dense_results=dense_scores,
+                dense_payloads=payloads,
+                limit=limit,
+            )
+
+        # Convert SearchResult back to ScoredPoint format for compatibility
+        return [
+            models.ScoredPoint(
+                id=result.id,
+                version=None,
+                score=result.score,
+                payload=result.payload,
+                vector=None,
+            )
+            for result in hybrid_results
+        ]
+
+    async def rebuild_sparse_index(self, collection: str) -> int:
+        """
+        Phase 4.6: Rebuild the sparse search index from a collection.
+
+        Fetches all documents and rebuilds the BM25 index.
+
+        Returns:
+            Number of documents indexed
+        """
+        if not self.enable_hybrid_search or self.hybrid_engine is None:
+            logger.warning("Hybrid search disabled, cannot rebuild sparse index")
+            return 0
+
+        logger.info(f"Rebuilding sparse index for collection: {collection}")
+        documents = []
+
+        offset = None
+        batch_size = 100
+        total_indexed = 0
+
+        while True:
+            records, offset = await self.scroll(
+                collection=collection,
+                limit=batch_size,
+                offset=offset,
+                with_vectors=False,
+            )
+
+            if not records:
+                break
+
+            for record in records:
+                doc_id = str(record.id)
+                payload = record.payload or {}
+                text = self._extract_text_for_sparse_index(payload)
+                if text:
+                    documents.append((doc_id, text))
+
+            total_indexed += len(records)
+
+            if offset is None:
+                break
+
+        # Rebuild sparse encoder
+        self.hybrid_engine.index_batch(documents)
+
+        # Update local registry
+        sparse_registry = (
+            self._sparse_docs_hot if collection == self.collection_hot
+            else self._sparse_docs_warm
+        )
+        sparse_registry.clear()
+        for doc_id, text in documents:
+            sparse_registry[doc_id] = text
+
+        logger.info(f"Rebuilt sparse index with {len(documents)} documents")
+        return len(documents)
 
     async def get_point(self, collection: str, point_id: str) -> Optional[models.Record]:
         """

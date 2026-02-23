@@ -265,3 +265,90 @@ class RootResponse(BaseModel):
     version: str
     phase: str
     timestamp: str
+
+
+# ======================================================================
+# Phase 6.0: Association Network Models
+# ======================================================================
+
+class AssociationEdgeModel(BaseModel):
+    """Model for an association edge."""
+    source_id: str
+    target_id: str
+    strength: float
+    association_type: str
+    created_at: str
+    last_strengthened: str
+    fire_count: int
+
+
+class AssociatedMemoryModel(BaseModel):
+    """Model for an associated memory in query results."""
+    id: str
+    content: str
+    strength: float
+    association_type: str
+    fire_count: int
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class GraphMetricsModel(BaseModel):
+    """Model for graph metrics."""
+    node_count: int
+    edge_count: int
+    avg_degree: float
+    density: float
+    avg_clustering: float
+    connected_components: int
+    largest_component_size: int
+
+
+class AssociationsQueryRequest(BaseModel):
+    """Request model for associations query."""
+    node_id: str = Field(..., description="The ID of the node to find associations for")
+    max_results: int = Field(default=10, ge=1, le=100, description="Maximum results to return")
+    min_strength: float = Field(default=0.1, ge=0.0, le=1.0, description="Minimum association strength")
+    include_content: bool = Field(default=True, description="Include memory content in results")
+
+
+class AssociationsQueryResponse(BaseModel):
+    """Response model for associations query."""
+    ok: bool = True
+    node_id: str
+    associations: List[AssociatedMemoryModel]
+
+
+class AssociationsPathRequest(BaseModel):
+    """Request model for finding association path."""
+    from_id: str = Field(..., description="Starting node ID")
+    to_id: str = Field(..., description="Target node ID")
+    max_hops: int = Field(default=3, ge=1, le=10, description="Maximum path length")
+    min_strength: float = Field(default=0.1, ge=0.0, le=1.0, description="Minimum edge strength")
+
+
+class AssociationsPathResponse(BaseModel):
+    """Response model for association path query."""
+    ok: bool = True
+    from_id: str
+    to_id: str
+    paths: List[Dict[str, Any]]
+
+
+class GraphMetricsResponse(BaseModel):
+    """Response model for graph metrics."""
+    ok: bool = True
+    metrics: GraphMetricsModel
+
+
+class ReinforceAssociationRequest(BaseModel):
+    """Request model for reinforcing an association."""
+    node_a: str = Field(..., description="First node ID")
+    node_b: str = Field(..., description="Second node ID")
+    association_type: str = Field(default="co_occurrence", description="Type of association")
+
+
+class ReinforceAssociationResponse(BaseModel):
+    """Response model for reinforce operation."""
+    ok: bool = True
+    edge: Optional[AssociationEdgeModel] = None
+    message: str

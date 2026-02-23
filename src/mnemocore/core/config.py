@@ -69,6 +69,18 @@ class GPUConfig:
 
 
 @dataclass(frozen=True)
+class SearchConfig:
+    """Configuration for hybrid search (Phase 4.6)."""
+    mode: str = "hybrid"  # "dense" | "sparse" | "hybrid"
+    hybrid_alpha: float = 0.7  # Weight for dense search in hybrid mode
+    rrf_k: int = 60  # RRF constant for rank fusion
+    sparse_model: str = "bm25"  # "bm25" or SPLADE model path
+    enable_query_expansion: bool = True
+    min_dense_score: float = 0.0
+    min_sparse_score: float = 0.0
+
+
+@dataclass(frozen=True)
 class SecurityConfig:
     api_key: Optional[str] = None
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
@@ -242,6 +254,198 @@ class PulseConfig:
     max_agents_per_tick: int = 50
     max_episodes_per_tick: int = 200
 
+
+@dataclass(frozen=True)
+class EmbeddingRegistryConfig:
+    """Configuration for Phase 6.0: Embedding Version Registry."""
+    enabled: bool = True
+    registry_db_path: Optional[str] = None  # Defaults to data/embedding_registry.sqlite
+    auto_migrate: bool = False  # Auto-migrate on model switch
+    migration_batch_size: int = 100
+    migration_throttle_ms: int = 10
+    max_parallel_workers: int = 2
+    backup_old_vectors: bool = True  # Enable rollback support
+    max_retries: int = 3
+    worker_enabled: bool = True  # Background re-embedding worker
+
+
+@dataclass(frozen=True)
+class DreamingConfig:
+    """Configuration for Phase 6.0: Dream Scheduler and Pipeline."""
+    # Master switch
+    enabled: bool = True
+
+    # Idle detection
+    idle_threshold_seconds: float = 300.0  # 5 minutes
+    min_idle_duration: float = 60.0  # 1 minute
+    max_cpu_percent: float = 25.0
+
+    # Scheduling (cron-like)
+    schedules: list = field(default_factory=lambda: [
+        {"name": "nightly", "cron_expression": "0 2 * * *", "enabled": True}
+    ])
+
+    # Session configuration
+    session_max_duration_seconds: float = 600.0  # 10 minutes
+    session_max_memories: int = 1000
+
+    # Pipeline stages
+    enable_episodic_clustering: bool = True
+    enable_pattern_extraction: bool = True
+    enable_recursive_synthesis: bool = True
+    enable_contradiction_resolution: bool = True
+    enable_semantic_promotion: bool = True
+    enable_dream_report: bool = True
+
+    # Stage-specific
+    cluster_time_window_hours: float = 24.0
+    pattern_min_frequency: int = 2
+    synthesis_max_depth: int = 3
+    auto_resolve_contradictions: bool = False
+    promotion_ltp_threshold: float = 0.7
+
+    # Reporting
+    persist_reports: bool = True
+    report_path: str = "./data/dream_reports"
+    report_include_memory_details: bool = False
+
+
+@dataclass(frozen=True)
+class BackupConfig:
+    """
+    Configuration for automated backup and snapshotting.
+
+    Controls Qdrant snapshots, WAL (Write-Ahead Log), and retention policies.
+    """
+    # Snapshot settings
+    enabled: bool = True
+    auto_snapshot_enabled: bool = True
+    snapshot_interval_hours: int = 24
+    max_snapshots: int = 7
+    compression_enabled: bool = True
+
+    # WAL settings
+    wal_enabled: bool = True
+    wal_flush_interval_seconds: int = 300  # 5 minutes
+    wal_max_size_mb: int = 100
+
+    # Storage settings
+    backup_dir: str = "./backups"
+    verify_checksums: bool = True
+
+    # Retention policy
+    retention_days: int = 30
+    keep_daily: int = 7
+    keep_weekly: int = 4
+    keep_monthly: int = 12
+
+    # Recovery settings
+    restore_timeout_seconds: int = 300
+    verify_after_restore: bool = True
+
+
+@dataclass(frozen=True)
+class VectorCompressionConfig:
+    """
+    Configuration for Phase 6: Vector Compression Layer.
+
+    Controls Product Quantization (PQ) and Scalar Quantization (INT8)
+    for memory optimization.
+    """
+    enabled: bool = True
+    pq_n_subvectors: int = 32  # Number of subvectors for PQ
+    pq_n_bits: int = 8  # Bits per PQ code (256 centroids)
+    int8_threshold_confidence: float = 0.4  # Use INT8 for low-confidence memories
+    age_threshold_hours: float = 24.0  # Compress memories older than this
+    compression_interval_seconds: int = 3600  # Background compression scan interval
+    max_batch_size: int = 1000  # Max vectors to compress per batch
+    storage_path: str = "./data/vector_compression.db"
+    hot_tier_compression: bool = False  # Keep hot tier uncompressed for speed
+    warm_tier_compression: bool = True  # Compress warm tier
+    cold_tier_compression: bool = True  # Aggressively compress cold tier
+
+
+@dataclass(frozen=True)
+class EFTConfig:
+    """
+    Configuration for Phase 7.0: Episodic Future Thinking.
+
+    Controls scenario generation, decay, and attention integration.
+    """
+    enabled: bool = True
+
+    # Scenario generation
+    max_scenarios_per_simulation: int = 5
+    min_similarity_threshold: float = 0.55
+    temporal_horizon_hours: float = 24.0
+    branching_factor: int = 3
+
+    # Decay parameters
+    scenario_decay_lambda: float = 0.05
+    scenario_half_life_hours: float = 12.0
+    min_scenario_confidence: float = 0.1
+
+    # Attention integration
+    attention_boost_factor: float = 0.2
+    scenario_attention_weight: float = 0.15
+
+    # Storage
+    max_stored_scenarios: int = 100
+    persist_scenarios: bool = True
+
+
+@dataclass(frozen=True)
+class WebhookRetryConfig:
+    """Retry configuration for webhook deliveries."""
+    max_attempts: int = 5
+    base_delay_seconds: float = 1.0
+    max_delay_seconds: float = 300.0  # 5 minutes
+    timeout_seconds: float = 30.0
+
+
+@dataclass(frozen=True)
+class WebhookConfig:
+    """
+    Configuration for webhook event delivery.
+
+    Controls how MnemoCore delivers events to external HTTP endpoints.
+    """
+    enabled: bool = True
+    persistence_path: str = "./data/webhooks.json"
+    max_history_size: int = 10000
+
+    # Default retry configuration
+    retry: WebhookRetryConfig = field(default_factory=WebhookRetryConfig)
+
+    # Event type subscriptions for convenience
+    # Pre-configured webhooks for common events
+    on_consolidation_url: Optional[str] = None
+    on_contradiction_url: Optional[str] = None
+    on_dream_complete_url: Optional[str] = None
+    on_memory_created_url: Optional[str] = None
+
+    # Default headers for all webhooks
+    default_headers: dict = field(default_factory=lambda: {
+        "User-Agent": "MnemoCore-Webhook/1.0"
+    })
+
+
+@dataclass(frozen=True)
+class EventsConfig:
+    """
+    Configuration for the internal event system.
+
+    Controls EventBus and internal event handling.
+    """
+    enabled: bool = True
+    max_queue_size: int = 10000
+    delivery_timeout: float = 30.0
+    history_size: int = 1000
+
+    # Which events to enable (empty = all enabled)
+    disabled_events: list = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class HAIMConfig:
     """Root configuration for the HAIM system."""
@@ -286,6 +490,14 @@ class HAIMConfig:
     subconscious_ai: SubconsciousAIConfig = field(default_factory=SubconsciousAIConfig)
     pulse: PulseConfig = field(default_factory=PulseConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+    embedding_registry: EmbeddingRegistryConfig = field(default_factory=EmbeddingRegistryConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
+    dreaming: DreamingConfig = field(default_factory=DreamingConfig)
+    vector_compression: VectorCompressionConfig = field(default_factory=VectorCompressionConfig)
+    backup: BackupConfig = field(default_factory=BackupConfig)
+    eft: EFTConfig = field(default_factory=EFTConfig)
+    webhook: WebhookConfig = field(default_factory=WebhookConfig)
+    events: EventsConfig = field(default_factory=EventsConfig)
 
 
 def _env_override(key: str, default):
@@ -618,6 +830,113 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         vector_cache_path=_env_override("PERFORMANCE_VECTOR_CACHE_PATH", perf_raw.get("vector_cache_path", "./data/vector_cache.sqlite")),
     )
 
+    # Build embedding registry config (Phase 6.0)
+    embed_raw = raw.get("embedding_registry") or {}
+    embedding_registry = EmbeddingRegistryConfig(
+        enabled=_env_override("EMBEDDING_REGISTRY_ENABLED", embed_raw.get("enabled", True)),
+        registry_db_path=_env_override("EMBEDDING_REGISTRY_DB_PATH", embed_raw.get("registry_db_path")),
+        auto_migrate=_env_override("EMBEDDING_REGISTRY_AUTO_MIGRATE", embed_raw.get("auto_migrate", False)),
+        migration_batch_size=_env_override("EMBEDDING_REGISTRY_MIGRATION_BATCH_SIZE", embed_raw.get("migration_batch_size", 100)),
+        migration_throttle_ms=_env_override("EMBEDDING_REGISTRY_MIGRATION_THROTTLE_MS", embed_raw.get("migration_throttle_ms", 10)),
+        max_parallel_workers=_env_override("EMBEDDING_REGISTRY_MAX_PARALLEL_WORKERS", embed_raw.get("max_parallel_workers", 2)),
+        backup_old_vectors=_env_override("EMBEDDING_REGISTRY_BACKUP_OLD_VECTORS", embed_raw.get("backup_old_vectors", True)),
+        max_retries=_env_override("EMBEDDING_REGISTRY_MAX_RETRIES", embed_raw.get("max_retries", 3)),
+        worker_enabled=_env_override("EMBEDDING_REGISTRY_WORKER_ENABLED", embed_raw.get("worker_enabled", True)),
+    )
+
+    # Build search config (Phase 4.6)
+    search_raw = raw.get("search") or {}
+    search = SearchConfig(
+        mode=_env_override("SEARCH_MODE", search_raw.get("mode", "hybrid")),
+        hybrid_alpha=_env_override("SEARCH_HYBRID_ALPHA", search_raw.get("hybrid_alpha", 0.7)),
+        rrf_k=_env_override("SEARCH_RRF_K", search_raw.get("rrf_k", 60)),
+        sparse_model=_env_override("SEARCH_SPARSE_MODEL", search_raw.get("sparse_model", "bm25")),
+        enable_query_expansion=_env_override("SEARCH_ENABLE_QUERY_EXPANSION", search_raw.get("enable_query_expansion", True)),
+        min_dense_score=_env_override("SEARCH_MIN_DENSE_SCORE", search_raw.get("min_dense_score", 0.0)),
+        min_sparse_score=_env_override("SEARCH_MIN_SPARSE_SCORE", search_raw.get("min_sparse_score", 0.0)),
+    )
+
+    # Build dreaming config (Phase 6.0)
+    dream_raw = raw.get("dreaming") or {}
+    session_raw = dream_raw.get("session", {})
+    dreaming = DreamingConfig(
+        enabled=_env_override("DREAMING_ENABLED", dream_raw.get("enabled", True)),
+        idle_threshold_seconds=_env_override("DREAMING_IDLE_THRESHOLD_SECONDS", dream_raw.get("idle_threshold_seconds", 300.0)),
+        min_idle_duration=_env_override("DREAMING_MIN_IDLE_DURATION", dream_raw.get("min_idle_duration", 60.0)),
+        max_cpu_percent=_env_override("DREAMING_MAX_CPU_PERCENT", dream_raw.get("max_cpu_percent", 25.0)),
+        schedules=dream_raw.get("schedules", [{"name": "nightly", "cron_expression": "0 2 * * *", "enabled": True}]),
+        session_max_duration_seconds=_env_override("DREAMING_SESSION_MAX_DURATION_SECONDS", session_raw.get("max_duration_seconds", 600.0)),
+        session_max_memories=_env_override("DREAMING_SESSION_MAX_MEMORIES", session_raw.get("max_memories_to_process", 1000)),
+        enable_episodic_clustering=_env_override("DREAMING_ENABLE_EPISODIC_CLUSTERING", session_raw.get("enable_episodic_clustering", True)),
+        enable_pattern_extraction=_env_override("DREAMING_ENABLE_PATTERN_EXTRACTION", session_raw.get("enable_pattern_extraction", True)),
+        enable_recursive_synthesis=_env_override("DREAMING_ENABLE_RECURSIVE_SYNTHESIS", session_raw.get("enable_recursive_synthesis", True)),
+        enable_contradiction_resolution=_env_override("DREAMING_ENABLE_CONTRADICTION_RESOLUTION", session_raw.get("enable_contradiction_resolution", True)),
+        enable_semantic_promotion=_env_override("DREAMING_ENABLE_SEMANTIC_PROMOTION", session_raw.get("enable_semantic_promotion", True)),
+        enable_dream_report=_env_override("DREAMING_ENABLE_DREAM_REPORT", session_raw.get("enable_dream_report", True)),
+        cluster_time_window_hours=_env_override("DREAMING_CLUSTER_TIME_WINDOW_HOURS", session_raw.get("cluster_time_window_hours", 24.0)),
+        pattern_min_frequency=_env_override("DREAMING_PATTERN_MIN_FREQUENCY", session_raw.get("pattern_min_frequency", 2)),
+        synthesis_max_depth=_env_override("DREAMING_SYNTHESIS_MAX_DEPTH", session_raw.get("synthesis_max_depth", 3)),
+        auto_resolve_contradictions=_env_override("DREAMING_AUTO_RESOLVE_CONTRADICTIONS", session_raw.get("auto_resolve_contradictions", False)),
+        promotion_ltp_threshold=_env_override("DREAMING_PROMOTION_LTP_THRESHOLD", session_raw.get("promotion_ltp_threshold", 0.7)),
+        persist_reports=_env_override("DREAMING_PERSIST_REPORTS", dream_raw.get("persist_reports", True)),
+        report_path=_env_override("DREAMING_REPORT_PATH", dream_raw.get("report_path", "./data/dream_reports")),
+        report_include_memory_details=_env_override("DREAMING_REPORT_INCLUDE_MEMORY_DETAILS", dream_raw.get("report_include_memory_details", False)),
+    )
+
+    # Build vector compression config (Phase 6)
+    vc_raw = raw.get("vector_compression") or {}
+    vector_compression = VectorCompressionConfig(
+        enabled=_env_override("VECTOR_COMPRESSION_ENABLED", vc_raw.get("enabled", True)),
+        pq_n_subvectors=_env_override("VECTOR_COMPRESSION_PQ_N_SUBVECTORS", vc_raw.get("pq_n_subvectors", 32)),
+        pq_n_bits=_env_override("VECTOR_COMPRESSION_PQ_N_BITS", vc_raw.get("pq_n_bits", 8)),
+        int8_threshold_confidence=_env_override("VECTOR_COMPRESSION_INT8_THRESHOLD_CONFIDENCE", vc_raw.get("int8_threshold_confidence", 0.4)),
+        age_threshold_hours=_env_override("VECTOR_COMPRESSION_AGE_THRESHOLD_HOURS", vc_raw.get("age_threshold_hours", 24.0)),
+        compression_interval_seconds=_env_override("VECTOR_COMPRESSION_INTERVAL_SECONDS", vc_raw.get("compression_interval_seconds", 3600)),
+        max_batch_size=_env_override("VECTOR_COMPRESSION_MAX_BATCH_SIZE", vc_raw.get("max_batch_size", 1000)),
+        storage_path=_env_override("VECTOR_COMPRESSION_STORAGE_PATH", vc_raw.get("storage_path", "./data/vector_compression.db")),
+        hot_tier_compression=_env_override("VECTOR_COMPRESSION_HOT_TIER", vc_raw.get("hot_tier_compression", False)),
+        warm_tier_compression=_env_override("VECTOR_COMPRESSION_WARM_TIER", vc_raw.get("warm_tier_compression", True)),
+        cold_tier_compression=_env_override("VECTOR_COMPRESSION_COLD_TIER", vc_raw.get("cold_tier_compression", True)),
+    )
+
+    # Build backup config
+    backup_raw = raw.get("backup") or {}
+    backup = BackupConfig(
+        enabled=_env_override("BACKUP_ENABLED", backup_raw.get("enabled", True)),
+        auto_snapshot_enabled=_env_override("BACKUP_AUTO_SNAPSHOT_ENABLED", backup_raw.get("auto_snapshot_enabled", True)),
+        snapshot_interval_hours=_env_override("BACKUP_SNAPSHOT_INTERVAL_HOURS", backup_raw.get("snapshot_interval_hours", 24)),
+        max_snapshots=_env_override("BACKUP_MAX_SNAPSHOTS", backup_raw.get("max_snapshots", 7)),
+        compression_enabled=_env_override("BACKUP_COMPRESSION_ENABLED", backup_raw.get("compression_enabled", True)),
+        wal_enabled=_env_override("BACKUP_WAL_ENABLED", backup_raw.get("wal_enabled", True)),
+        wal_flush_interval_seconds=_env_override("BACKUP_WAL_FLUSH_INTERVAL_SECONDS", backup_raw.get("wal_flush_interval_seconds", 300)),
+        wal_max_size_mb=_env_override("BACKUP_WAL_MAX_SIZE_MB", backup_raw.get("wal_max_size_mb", 100)),
+        backup_dir=_env_override("BACKUP_DIR", backup_raw.get("backup_dir", "./backups")),
+        verify_checksums=_env_override("BACKUP_VERIFY_CHECKSUMS", backup_raw.get("verify_checksums", True)),
+        retention_days=_env_override("BACKUP_RETENTION_DAYS", backup_raw.get("retention_days", 30)),
+        keep_daily=_env_override("BACKUP_KEEP_DAILY", backup_raw.get("keep_daily", 7)),
+        keep_weekly=_env_override("BACKUP_KEEP_WEEKLY", backup_raw.get("keep_weekly", 4)),
+        keep_monthly=_env_override("BACKUP_KEEP_MONTHLY", backup_raw.get("keep_monthly", 12)),
+        restore_timeout_seconds=_env_override("BACKUP_RESTORE_TIMEOUT_SECONDS", backup_raw.get("restore_timeout_seconds", 300)),
+        verify_after_restore=_env_override("BACKUP_VERIFY_AFTER_RESTORE", backup_raw.get("verify_after_restore", True)),
+    )
+
+    # Build EFT config (Phase 7.0: Episodic Future Thinking)
+    eft_raw = raw.get("eft") or {}
+    eft = EFTConfig(
+        enabled=_env_override("EFT_ENABLED", eft_raw.get("enabled", True)),
+        max_scenarios_per_simulation=_env_override("EFT_MAX_SCENARIOS", eft_raw.get("max_scenarios_per_simulation", 5)),
+        min_similarity_threshold=_env_override("EFT_MIN_SIMILARITY", eft_raw.get("min_similarity_threshold", 0.55)),
+        temporal_horizon_hours=_env_override("EFT_TEMPORAL_HORIZON", eft_raw.get("temporal_horizon_hours", 24.0)),
+        branching_factor=_env_override("EFT_BRANCHING_FACTOR", eft_raw.get("branching_factor", 3)),
+        scenario_decay_lambda=_env_override("EFT_DECAY_LAMBDA", eft_raw.get("scenario_decay_lambda", 0.05)),
+        scenario_half_life_hours=_env_override("EFT_HALF_LIFE", eft_raw.get("scenario_half_life_hours", 12.0)),
+        min_scenario_confidence=_env_override("EFT_MIN_CONFIDENCE", eft_raw.get("min_scenario_confidence", 0.1)),
+        attention_boost_factor=_env_override("EFT_ATTENTION_BOOST", eft_raw.get("attention_boost_factor", 0.2)),
+        scenario_attention_weight=_env_override("EFT_ATTENTION_WEIGHT", eft_raw.get("scenario_attention_weight", 0.15)),
+        max_stored_scenarios=_env_override("EFT_MAX_STORED", eft_raw.get("max_stored_scenarios", 100)),
+        persist_scenarios=_env_override("EFT_PERSIST", eft_raw.get("persist_scenarios", True)),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
@@ -644,6 +963,12 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         subconscious_ai=subconscious_ai,
         pulse=pulse,
         performance=performance,
+        embedding_registry=embedding_registry,
+        search=search,
+        dreaming=dreaming,
+        vector_compression=vector_compression,
+        backup=backup,
+        eft=eft,
     )
 
 

@@ -9,6 +9,7 @@ Subconscious bus consumer that:
 
 import asyncio
 import time
+import uuid
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
@@ -16,12 +17,22 @@ from .async_storage import AsyncRedisStorage
 from .config import get_config, HAIMConfig
 from .tier_manager import TierManager
 
+# Events integration
+try:
+    from ..events import integration as event_integration
+    EVENTS_AVAILABLE = True
+except ImportError:
+    EVENTS_AVAILABLE = False
+    event_integration = None  # type: ignore
+
+
 class ConsolidationWorker:
     def __init__(
         self,
         config: Optional[HAIMConfig] = None,
         storage: Optional[AsyncRedisStorage] = None,
         tier_manager: Optional[TierManager] = None,
+        event_bus: Optional[Any] = None,
     ):
         """
         Initialize ConsolidationWorker with optional dependency injection.
@@ -30,10 +41,12 @@ class ConsolidationWorker:
             config: Configuration object. If None, uses global get_config().
             storage: AsyncRedisStorage instance. If None, creates one from config.
             tier_manager: TierManager instance. If None, creates one.
+            event_bus: Optional EventBus for emitting consolidation events.
         """
         self.config = config or get_config()
         self.storage = storage
         self.tier_manager = tier_manager or TierManager(config=self.config)
+        self.event_bus = event_bus
         self.running = False
         self.consumer_group = "haim_workers"
         self.consumer_name = f"worker_{int(time.time())}"
@@ -72,13 +85,63 @@ class ConsolidationWorker:
     async def run_consolidation_cycle(self):
         """Execute periodic WARM -> COLD consolidation."""
         logger.info("Running WARM -> COLD consolidation cycle...")
+
+        cycle_id = f"consolidation_{uuid.uuid4().hex[:12]}"
+        start_time = time.time()
+
+        # Track consolidation metrics
+        memories_processed = 0
+        memories_consolidated = 0
+        hot_to_warm = 0
+        warm_to_cold = 0
+
         try:
             # Sync call in thread executor if blocking
             # But TierManager.consolidate_warm_to_cold is sync (file I/O + Qdrant sync)
             # asyncio.to_thread is good here
-            await asyncio.to_thread(self.tier_manager.consolidate_warm_to_cold)
+            result = await asyncio.to_thread(self.tier_manager.consolidate_warm_to_cold)
+
+            # Extract metrics from result if available
+            if isinstance(result, dict):
+                memories_processed = result.get("processed", 0)
+                memories_consolidated = result.get("consolidated", 0)
+                hot_to_warm = result.get("hot_to_warm", 0)
+                warm_to_cold = result.get("warm_to_cold", 0)
+            else:
+                memories_consolidated = result if isinstance(result, int) else 0
+
         except Exception as e:
             logger.error(f"Consolidation cycle failed: {e}")
+            # Emit failure event
+            if EVENTS_AVAILABLE and event_integration:
+                await event_integration.emit_event(
+                    event_bus=self.event_bus,
+                    event_type="consolidation.failed",
+                    data={
+                        "cycle_id": cycle_id,
+                        "error": str(e),
+                        "duration_seconds": time.time() - start_time,
+                    },
+                )
+            return
+
+        duration = time.time() - start_time
+        logger.info(
+            f"Consolidation cycle completed in {duration:.2f}s: "
+            f"{memories_consolidated} memories consolidated"
+        )
+
+        # Emit consolidation.completed event
+        if EVENTS_AVAILABLE and event_integration:
+            await event_integration.emit_consolidation_completed(
+                event_bus=self.event_bus,
+                cycle_id=cycle_id,
+                duration_seconds=duration,
+                memories_processed=memories_processed,
+                memories_consolidated=memories_consolidated,
+                hot_to_warm=hot_to_warm,
+                warm_to_cold=warm_to_cold,
+            )
 
     async def consume_loop(self):
         """Main event loop."""

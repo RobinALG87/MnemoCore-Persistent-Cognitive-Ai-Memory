@@ -112,3 +112,27 @@ class MnemoCoreAPIAdapter:
     def get_self_improvement_proposals(self) -> Dict[str, Any]:
         return self._request("GET", "/meta/proposals")
 
+    # --- Phase 4.5 & 5.0: Advanced Synthesis & Export ---
+
+    def synthesize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Phase 4.5: Recursive synthesis query."""
+        return self._request("POST", "/rlm/query", payload)
+
+    def dream(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Trigger a dream session (SubconsciousDaemon cycle)."""
+        return self._request("POST", "/dream", payload)
+
+    def export(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Export memories as JSON."""
+        # Build query string for export parameters
+        params = []
+        if payload.get("agent_id"):
+            params.append(f"agent_id={payload['agent_id']}")
+        if payload.get("tier"):
+            params.append(f"tier={payload['tier']}")
+        params.append(f"limit={payload['limit']}")
+        params.append(f"include_metadata={str(payload['include_metadata']).lower()}")
+        params.append(f"format={payload['format']}")
+        query_string = "&".join(params)
+        return self._request("GET", f"/export?{query_string}")
+

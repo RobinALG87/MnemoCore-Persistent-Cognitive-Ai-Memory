@@ -35,6 +35,54 @@ from .gap_filler import GapFiller, GapFillerConfig
 from .hnsw_index import HNSWIndexManager
 from .synapse_index import SynapseIndex
 
+# ── Phase 6 Refactor ──────────────────────────────────────────────────
+from .tier_manager import TierManager
+from .tier_storage import (
+    TierInterface,
+    HotTierStorage,
+    WarmTierStorage,
+    ColdTierStorage,
+)
+from .tier_eviction import (
+    EvictionPolicy,
+    EvictionStrategy,
+    LRUEvictionStrategy,
+    LTPEvictionStrategy,
+    ImportanceEvictionStrategy,
+    DecayTriggeredStrategy,
+    TierEvictionManager,
+)
+from .tier_scoring import (
+    TierScore,
+    SearchResult,
+    LTPCalculator,
+    RecencyScorer,
+    ImportanceScorer,
+    TierScoringManager,
+    TemporalScorer,
+    SearchScorer,
+)
+
+# ── Phase 6.0: Embedding Version Registry ───────────────────────────────
+from .embedding_registry import (
+    EmbeddingModelSpec,
+    MigrationTask,
+    MigrationPlan,
+    MigrationStatus,
+    Priority,
+    EmbeddingRegistry,
+    MigrationPlanner,
+    ReEmbeddingWorker,
+    EmbeddingVersionManager,
+    create_vector_metadata,
+    verify_vector_compatibility,
+)
+
+# ── Phase 6.0: Engine Refactor Modules ──────────────────────────────────
+from .engine_core import EngineCoreOperations
+from .engine_lifecycle import EngineLifecycleManager
+from .engine_coordinator import EngineCoordinator
+
 __all__ = [
     "BinaryHDV",
     "HDV",
@@ -71,4 +119,41 @@ __all__ = [
     "GapFillerConfig",
     "HNSWIndexManager",
     "SynapseIndex",
+    # Phase 6 Refactor
+    "TierManager",
+    "TierInterface",
+    "HotTierStorage",
+    "WarmTierStorage",
+    "ColdTierStorage",
+    "EvictionPolicy",
+    "EvictionStrategy",
+    "LRUEvictionStrategy",
+    "LTPEvictionStrategy",
+    "ImportanceEvictionStrategy",
+    "DecayTriggeredStrategy",
+    "TierEvictionManager",
+    "TierScore",
+    "SearchResult",
+    "LTPCalculator",
+    "RecencyScorer",
+    "ImportanceScorer",
+    "TierScoringManager",
+    "TemporalScorer",
+    "SearchScorer",
+    # Phase 6.0: Embedding Version Registry
+    "EmbeddingModelSpec",
+    "MigrationTask",
+    "MigrationPlan",
+    "MigrationStatus",
+    "Priority",
+    "EmbeddingRegistry",
+    "MigrationPlanner",
+    "ReEmbeddingWorker",
+    "EmbeddingVersionManager",
+    "create_vector_metadata",
+    "verify_vector_compatibility",
+    # Phase 6.0: Engine Refactor Modules
+    "EngineCoreOperations",
+    "EngineLifecycleManager",
+    "EngineCoordinator",
 ]
