@@ -180,6 +180,11 @@ class HNSWIndexManager:
         if not FAISS_AVAILABLE or self._index is None:
             return
 
+        # Validate dimension to prevent FAISS add failures
+        if hdv_data.shape[0] != self.dimension // 8:
+            logger.error(f"Dimension mismatch: got {hdv_data.shape[0]}, expected {self.dimension // 8}")
+            return
+
         vec = np.ascontiguousarray(np.expand_dims(hdv_data, axis=0))
 
         with self._write_lock:
