@@ -68,3 +68,74 @@ class MetaMemoryService:
                 return [p for p in self._proposals.values() if p.status == status]
             return list(self._proposals.values())
 
+    async def generate_proposals_from_metrics(self, engine) -> Optional[str]:
+        """
+        Analyze recent metrics. Only invoke the LLM (SubconsciousAI) if anomalies are detected,
+        ensuring minimal CPU overhead.
+        """
+        # 1. Analyze for anomalies (cheap operation to save CPU)
+        anomalies = []
+        with self._lock:
+            # Check last 50 metrics
+            recent = self._metrics[-50:]
+            for m in recent:
+                if "failure_rate" in m.name and m.value > 0.1:
+                    anomalies.append(f"High failure rate: {m.value*100}% in {m.window}")
+                elif "hit_rate" in m.name and m.value < 0.5:
+                    anomalies.append(f"Low cache hit rate: {m.value*100}% in {m.window}")
+                elif "latency" in m.name and m.value > 1000:
+                    anomalies.append(f"High latency spike: {m.value}ms in {m.window}")
+                    
+        # Remove duplicates
+        anomalies = list(set(anomalies))
+        
+        # 2. If no issues, skip heavy LLM processing
+        if not anomalies:
+            return None
+            
+        # 3. If we have the engine and LLM subsystem, generate proposal
+        if not hasattr(engine, "subconscious") or not engine.subconscious:
+            logger.debug("SubconsciousAI unavailable for meta-reflection.")
+            return None
+            
+        prompt = (
+            "You are the Meta-Cognitive module of MnemoCore. Analyze these anomalies "
+            f"and propose an architectural or configuration improvement:\n{anomalies}\n"
+            "Respond in strictly structured JSON: {\"title\": \"...\", \"rationale\": \"...\", \"expected_effect\": \"...\"}"
+        )
+        
+        try:
+            # We use analyze_dream directly to bypass store tracking, just a raw LLM inference
+            response = await engine.subconscious.analyze_dream(prompt, [])
+            if not response:
+                return None
+                
+            import json as _json
+            import re
+            import uuid
+            
+            match = re.search(r"\{.*\}", response, re.DOTALL)
+            if not match:
+                return None
+                
+            parsed = _json.loads(match.group())
+            
+            proposal = SelfImprovementProposal(
+                id=f"prop_{uuid.uuid4().hex[:8]}",
+                created_at=datetime.now(timezone.utc),
+                author="system",
+                title=parsed.get("title", "Optimization Proposal"),
+                description=str(anomalies),
+                rationale=parsed.get("rationale", "Address observed anomalies."),
+                expected_effect=parsed.get("expected_effect", "Stabilize metrics."),
+                status="pending",
+                metadata={"anomalies": anomalies}
+            )
+            
+            return self.create_proposal(proposal)
+            
+        except Exception as e:
+            logger.error(f"Failed to generate meta-proposal: {e}")
+            return None
+
+

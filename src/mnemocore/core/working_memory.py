@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorkingMemoryService:
-    def __init__(self, max_items_per_agent: int = 64):
+    def __init__(self, max_items_per_agent: int = 32):
         self.max_items_per_agent = max_items_per_agent
         self._states: Dict[str, WorkingMemoryState] = {}
         self._lock = threading.RLock()
@@ -54,12 +54,17 @@ class WorkingMemoryService:
         with self._lock:
             if agent_id in self._states:
                 self._states[agent_id].items.clear()
+                # Phase 5.4 Optimization: Garbage collect empty states
+                del self._states[agent_id]
 
     def prune_all(self) -> None:
         """Prune TTL-expired items and overflows across all agents. Typically called by Pulse."""
         with self._lock:
             for agent_id in list(self._states.keys()):
                 self._prune(agent_id)
+                # Phase 5.4 Optimization: Garbage collect empty states to minimize RAM footprint
+                if agent_id in self._states and not self._states[agent_id].items:
+                    del self._states[agent_id]
 
     def _prune(self, agent_id: str) -> None:
         """Internal method to prune a specific agent's state based on TTL and capacity limits."""

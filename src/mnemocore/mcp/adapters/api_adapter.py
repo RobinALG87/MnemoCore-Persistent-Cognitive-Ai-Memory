@@ -93,5 +93,22 @@ class MnemoCoreAPIAdapter:
 
     def start_episode(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/episodes/start", payload)
+        
     def get_knowledge_gaps(self) -> Dict[str, Any]:
         return self._request("GET", "/gaps")
+        
+    def get_subtle_thoughts(self, agent_id: str, limit: int = 5) -> Dict[str, Any]:
+        return self._request("GET", f"/agents/{agent_id}/subtle-thoughts?limit={limit}")
+        
+    def search_procedures(self, query: str, agent_id: Optional[str] = None, top_k: int = 5) -> Dict[str, Any]:
+        url = f"/procedures/search?query={query}&top_k={top_k}"
+        if agent_id:
+            url += f"&agent_id={agent_id}"
+        return self._request("GET", url)
+        
+    def procedure_feedback(self, proc_id: str, success: bool) -> Dict[str, Any]:
+        return self._request("POST", f"/procedures/{proc_id}/feedback", {"success": success})
+
+    def get_self_improvement_proposals(self) -> Dict[str, Any]:
+        return self._request("GET", "/meta/proposals")
+

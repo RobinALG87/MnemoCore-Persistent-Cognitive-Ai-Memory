@@ -37,7 +37,6 @@ from .immunology import ImmunologyLoop, ImmunologyConfig
 from .gap_detector import GapDetector, GapDetectorConfig
 from .gap_filler import GapFiller, GapFillerConfig
 from .synapse_index import SynapseIndex
-from .subconscious_ai import SubconsciousAIWorker
 
 # Phase 5 AGI Stores
 from .working_memory import WorkingMemoryService
@@ -200,11 +199,15 @@ class HAIMEngine:
         self._immunology = ImmunologyLoop(self)
         await self._immunology.start()
 
-        # ── Phase 4.4: start subconscious AI worker (if enabled) ──────
+        # ── Phase 4.4: start subconscious AI worker (Phase 5.4: lazy loaded to save RAM) ──
         if self.config.subconscious_ai.enabled:
-            self._subconscious_ai = SubconsciousAIWorker(self, self.config.subconscious_ai)
-            await self._subconscious_ai.start()
+            # Phase 5.4 Optimization: Lazy load heavy SubconsciousAI modules only when enabled
+            from .subconscious_ai import SubconsciousAIWorker
+            self.subconscious = SubconsciousAIWorker(self, self.config.subconscious_ai)
+            await self.subconscious.start()
             logger.info("Phase 4.4 SubconsciousAI worker started (BETA).")
+        else:
+            self.subconscious = None
 
         logger.info("Phase 4.0 background workers started (consolidation + immunology).")
 
@@ -1178,3 +1181,78 @@ class HAIMEngine:
 
     async def inspect_concept(self, name: str, attr: str):
         return await self._run_in_thread(self.soul.extract_attribute, name, attr)
+
+    # --- Phase 5.2: Association Engine ("Subtle Thoughts") ---
+
+    async def generate_subtle_thoughts(self, agent_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Generate "subtle thoughts" (associations) for an agent based on their active
+        working memory context and recent episodic history.
+
+        Returns a list of CandidateAssociation dictionaries.
+        """
+        if not self.episodic_store and not self.working_memory:
+            return []
+            
+        context_texts = []
+        source_episode_ids = []
+        
+        # 1. Gather context from WM
+        if self.working_memory:
+            wm_state = self.working_memory.get_state(agent_id)
+            if wm_state and wm_state.items:
+                # Use top 3 most important WM items as seed
+                top_items = sorted(wm_state.items, key=lambda x: x.importance, reverse=True)[:3]
+                for item in top_items:
+                    context_texts.append(item.content)
+                    
+        # 2. Gather context from recent episodes
+        if self.episodic_store:
+            recent_episodes = self.episodic_store.get_recent(agent_id, limit=2)
+            for ep in recent_episodes:
+                source_episode_ids.append(ep.id)
+                if ep.goal:
+                    context_texts.append(f"Goal: {ep.goal}")
+                # Add content from last 2 events
+                for ev in ep.events[-2:]:
+                    context_texts.append(ev.content)
+                    
+        if not context_texts:
+            return []
+            
+        # Combine context to form a query
+        unified_query = " ".join(context_texts)
+        
+        # 3. Perform a semantic query (k-NN) to find related concepts/memories
+        # Increase limit slightly to filter out exact matches from WM/EM
+        search_results = await self.query(unified_query, top_k=limit + 3)
+        
+        associations = []
+        import uuid
+        
+        for mem_id, score in search_results:
+            # Skip if this memory is too recent or identical to context (pseudo-heuristic)
+            # In a full implementation, we'd check if mem_id is in source_episode_ids etc.
+            if score < 0.2:
+                continue
+                
+            node = await self.get_memory(mem_id)
+            if not node:
+                continue
+                
+            associations.append({
+                "id": f"assoc_{uuid.uuid4().hex[:8]}",
+                "agent_id": agent_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "source_episode_ids": source_episode_ids,
+                "related_concept_ids": [mem_id],
+                "suggestion_text": node.content,
+                "confidence": float(score),
+                "tier": getattr(node, "tier", "unknown")
+            })
+            
+            if len(associations) >= limit:
+                break
+                
+        return associations
+

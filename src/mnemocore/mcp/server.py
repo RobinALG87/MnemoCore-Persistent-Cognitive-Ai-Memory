@@ -148,6 +148,26 @@ def build_server(config: HAIMConfig | None = None):
         def get_knowledge_gaps() -> Dict[str, Any]:
             return with_error_handling(adapter.get_knowledge_gaps)
 
+    def register_get_subtle_thoughts() -> None:
+        @server.tool()
+        def get_subtle_thoughts(agent_id: str, limit: int = 5) -> Dict[str, Any]:
+            return with_error_handling(lambda: adapter.get_subtle_thoughts(agent_id, limit))
+
+    def register_search_procedures() -> None:
+        @server.tool()
+        def search_procedures(query: str, agent_id: str | None = None, top_k: int = 5) -> Dict[str, Any]:
+            return with_error_handling(lambda: adapter.search_procedures(query, agent_id, top_k))
+
+    def register_procedure_feedback() -> None:
+        @server.tool()
+        def procedure_feedback(proc_id: str, success: bool) -> Dict[str, Any]:
+            return with_error_handling(lambda: adapter.procedure_feedback(proc_id, success))
+
+    def register_get_self_improvement_proposals() -> None:
+        @server.tool()
+        def get_self_improvement_proposals() -> Dict[str, Any]:
+            return with_error_handling(adapter.get_self_improvement_proposals)
+
     register_tool("memory_store", register_memory_store)
     register_tool("memory_query", register_memory_query)
     register_tool("memory_get", register_memory_get)
@@ -158,6 +178,10 @@ def build_server(config: HAIMConfig | None = None):
     register_tool("recall_context", register_recall_context)
     register_tool("start_episode", register_start_episode)
     register_tool("get_knowledge_gaps", register_get_knowledge_gaps)
+    register_tool("get_subtle_thoughts", register_get_subtle_thoughts)
+    register_tool("search_procedures", register_search_procedures)
+    register_tool("procedure_feedback", register_procedure_feedback)
+    register_tool("get_self_improvement_proposals", register_get_self_improvement_proposals)
 
     return server
 

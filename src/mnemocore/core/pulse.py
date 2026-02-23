@@ -105,6 +105,24 @@ class PulseLoop:
         logger.debug(f"Pulse: [{PulseTick.PROCEDURE_REFINEMENT.value}] Stubbed.")
 
     async def _meta_self_reflection(self) -> None:
-        """Collate macro anomalies and submit SelfImprovementProposals."""
-        logger.debug(f"Pulse: [{PulseTick.META_SELF_REFLECTION.value}] Stubbed.")
+        """Collate macro anomalies and submit SelfImprovementProposals. Throttled to save CPU."""
+        if not getattr(self, "_meta_tick_count", None):
+            self._meta_tick_count = 0
+            
+        self._meta_tick_count += 1
+        
+        # Only run heavy reflection every 10 ticks (e.g., every 5 minutes) to save compute
+        if self._meta_tick_count % 10 != 0:
+            return
+            
+        meta_memory = getattr(self.container, "meta_memory", None)
+        engine = getattr(self.container, "engine", None) # The DI container in API sets this, or we fallback
+        
+        if meta_memory and engine:
+            logger.debug(f"Pulse: [{PulseTick.META_SELF_REFLECTION.value}] Executing resource-aware reflection.")
+            # engine might be accessible via app.state depending on how DI is wired, 
+            # assuming `engine` is passed somehow, otherwise we gracefully skip.
+            await meta_memory.generate_proposals_from_metrics(engine)
+        else:
+            logger.debug(f"Pulse: [{PulseTick.META_SELF_REFLECTION.value}] Skipped (missing dependencies).")
 
