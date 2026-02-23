@@ -11,7 +11,7 @@ import threading
 import asyncio
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class PulseLoop:
         logger.info(f"Starting AGI Pulse Loop (interval={interval}s).")
 
         while self._running:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             try:
                 await self.tick()
             except asyncio.CancelledError:
@@ -57,7 +57,7 @@ class PulseLoop:
             except Exception as e:
                 logger.error(f"Error during Pulse tick: {e}", exc_info=True)
 
-            elapsed = (datetime.utcnow() - start_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
             sleep_time = max(0.1, interval - elapsed)
             await asyncio.sleep(sleep_time)
 

@@ -469,7 +469,7 @@ class HAIMEngine:
                     WorkingMemoryItem(
                         id=f"wm_{node.id[:8]}",
                         agent_id=agent_id,
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(timezone.utc),
                         ttl_seconds=3600,
                         content=content,
                         kind="observation",

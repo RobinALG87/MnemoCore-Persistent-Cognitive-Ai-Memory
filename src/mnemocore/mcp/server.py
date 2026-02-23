@@ -143,6 +143,11 @@ def build_server(config: HAIMConfig | None = None):
             ).model_dump(exclude_none=True)
             return with_error_handling(lambda: adapter.start_episode(payload))
 
+    def register_get_knowledge_gaps() -> None:
+        @server.tool()
+        def get_knowledge_gaps() -> Dict[str, Any]:
+            return with_error_handling(adapter.get_knowledge_gaps)
+
     register_tool("memory_store", register_memory_store)
     register_tool("memory_query", register_memory_query)
     register_tool("memory_get", register_memory_get)
@@ -152,6 +157,7 @@ def build_server(config: HAIMConfig | None = None):
     register_tool("store_observation", register_store_observation)
     register_tool("recall_context", register_recall_context)
     register_tool("start_episode", register_start_episode)
+    register_tool("get_knowledge_gaps", register_get_knowledge_gaps)
 
     return server
 

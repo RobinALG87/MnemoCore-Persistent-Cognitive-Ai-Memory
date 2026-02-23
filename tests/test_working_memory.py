@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from mnemocore.core.working_memory import WorkingMemoryService
 from mnemocore.core.memory_model import WorkingMemoryItem
 
@@ -9,7 +9,7 @@ def test_working_memory_push_and_get():
     item = WorkingMemoryItem(
         id="wm_123",
         agent_id="agent1",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         ttl_seconds=3600,
         content="Testing working memory",
         importance=0.8,
@@ -31,7 +31,7 @@ def test_working_memory_eviction():
         item = WorkingMemoryItem(
             id=f"wm_{i}",
             agent_id="agent1",
-            created_at=datetime.utcnow() + timedelta(milliseconds=i*50),
+            created_at=datetime.now(timezone.utc) + timedelta(milliseconds=i*50),
             ttl_seconds=3600,
             content=f"Test {i}",
             importance=0.5,
@@ -53,7 +53,7 @@ def test_working_memory_clear():
     item = WorkingMemoryItem(
         id="wm_123",
         agent_id="agent1",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         ttl_seconds=3600,
         content="Testing working memory",
         importance=0.8,
@@ -74,7 +74,7 @@ def test_working_memory_prune():
     item = WorkingMemoryItem(
         id="wm_expired",
         agent_id="agent1",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         ttl_seconds=-1, # Expired
         content="Expired memory",
         importance=0.1,

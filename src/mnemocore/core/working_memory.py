@@ -6,7 +6,7 @@ Provides fast caching, item eviction (via LRU + importance), and contextual focu
 """
 
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 import logging
 
@@ -67,7 +67,7 @@ class WorkingMemoryService:
         if not state:
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         active_items = []
 
         # 1. Filter out expired items based on TTL
@@ -99,6 +99,6 @@ class WorkingMemoryService:
                 if item.id == item_id:
                     item.importance = min(1.0, item.importance + bonus)
                     # Extend TTL window by effectively refreshing created_at (LRU-like behavior)
-                    item.created_at = datetime.utcnow()
+                    item.created_at = datetime.now(timezone.utc)
                     break
 

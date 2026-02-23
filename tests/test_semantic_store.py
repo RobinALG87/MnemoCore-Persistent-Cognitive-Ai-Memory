@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from mnemocore.core.semantic_store import SemanticStoreService
 from mnemocore.core.memory_model import SemanticConcept
@@ -22,7 +22,7 @@ def test_semantic_store_upsert_and_get(mock_qdrant):
         prototype_hdv=mock_hdv,
         support_episode_ids=[],
         reliability=1.0,
-        last_updated_at=datetime.utcnow(),
+        last_updated_at=datetime.now(timezone.utc),
         metadata={"legs": 4, "sound": "bark"}
     )
     

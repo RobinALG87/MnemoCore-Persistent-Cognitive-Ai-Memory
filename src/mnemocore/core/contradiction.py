@@ -182,8 +182,16 @@ class ContradictionDetector:
                 f"Statement B: {content_b[:500]}"
             )
             raw = await subcon.generate(prompt, max_tokens=64)
+            
+            # Robust JSON extraction
             import json as _json
-            parsed = _json.loads(raw.strip())
+            import re
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not match:
+                logger.debug(f"No JSON found in LLM response: {raw}")
+                return False, 0.0
+                
+            parsed = _json.loads(match.group())
             return bool(parsed.get("contradiction", False)), float(parsed.get("confidence", 0.0))
         except Exception as exc:
             logger.debug(f"LLM contradiction check failed: {exc}")
@@ -247,42 +255,42 @@ class ContradictionDetector:
         if not high_sim_candidates:
             return None
 
-        # Stage 2: LLM confirmation for the highest-similarity candidate
+        # Stage 2: LLM confirmation for high-similarity candidates
         high_sim_candidates.sort(key=lambda x: x[1], reverse=True)
-        top_cand, top_sim = high_sim_candidates[0]
-
-        is_contradiction = False
-        llm_confirmed = False
-
-        if self.use_llm:
-            is_contradiction, conf = await self._llm_contradicts(
-                new_node.content, top_cand.content
-            )
-            llm_confirmed = is_contradiction and conf >= LLM_CONFIRM_MIN_SCORE
-        else:
-            # Without LLM, use high similarity as a soft contradiction signal
-            is_contradiction = top_sim >= 0.90
+        
+        for cand, sim in high_sim_candidates:
+            is_contradiction = False
             llm_confirmed = False
 
-        if not is_contradiction:
-            return None
+            if self.use_llm:
+                is_contradiction, conf = await self._llm_contradicts(
+                    new_node.content, cand.content
+                )
+                llm_confirmed = is_contradiction and conf >= LLM_CONFIRM_MIN_SCORE
+            else:
+                # Without LLM, use very high similarity as a soft contradiction signal
+                is_contradiction = sim >= 0.92
+                llm_confirmed = False
 
-        # Register the contradiction
-        record = ContradictionRecord(
-            memory_a_id=new_node.id,
-            memory_b_id=top_cand.id,
-            similarity_score=top_sim,
-            llm_confirmed=llm_confirmed,
-        )
-        self.registry.register(record)
-        self._flag_node(new_node, record.group_id)
-        self._flag_node(top_cand, record.group_id)
+            if is_contradiction:
+                # Register the contradiction
+                record = ContradictionRecord(
+                    memory_a_id=new_node.id,
+                    memory_b_id=cand.id,
+                    similarity_score=sim,
+                    llm_confirmed=llm_confirmed,
+                )
+                self.registry.register(record)
+                self._flag_node(new_node, record.group_id)
+                self._flag_node(cand, record.group_id)
 
-        logger.warning(
-            f"⚠️  Contradiction detected: {new_node.id[:8]} ↔ {top_cand.id[:8]} "
-            f"(sim={top_sim:.3f}, llm_confirmed={llm_confirmed}, group={record.group_id})"
-        )
-        return record
+                logger.warning(
+                    f"⚠️  Contradiction detected: {new_node.id[:8]} ↔ {cand.id[:8]} "
+                    f"(sim={sim:.3f}, llm_confirmed={llm_confirmed}, group={record.group_id})"
+                )
+                return record
+
+        return None
 
     async def scan(self, nodes: "List[MemoryNode]") -> List[ContradictionRecord]:
         """

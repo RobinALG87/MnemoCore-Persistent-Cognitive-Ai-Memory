@@ -12,7 +12,7 @@ def test_meta_memory_metrics():
     assert len([m for m in meta.list_metrics() if m.name == "token_count"]) == 1
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from mnemocore.core.meta_memory import MetaMemoryService
 from mnemocore.core.memory_model import SelfImprovementProposal
 
@@ -21,7 +21,7 @@ def test_meta_memory_proposals():
     
     proposal = SelfImprovementProposal(
         id="prop1",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         author="system",
         title="Reduce Temp",
         description="Agent repeats tools too often",

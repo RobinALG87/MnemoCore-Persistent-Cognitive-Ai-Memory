@@ -7,7 +7,7 @@ Allows multiple independent agents to interact cleanly without memory namespace 
 
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 import logging
 
@@ -42,12 +42,12 @@ class AgentProfileService:
                     id=agent_id,
                     name=name,
                     description=f"Auto-generated profile for {agent_id}",
-                    created_at=datetime.utcnow(),
-                    last_active=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
+                    last_active=datetime.now(timezone.utc)
                 )
             
             profile = self._profiles[agent_id]
-            profile.last_active = datetime.utcnow()
+            profile.last_active = datetime.now(timezone.utc)
             return profile
 
     def update_preferences(self, agent_id: str, new_preferences: dict[str, Any]) -> None:

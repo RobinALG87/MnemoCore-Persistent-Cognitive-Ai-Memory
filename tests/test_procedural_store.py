@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from mnemocore.core.procedural_store import ProceduralStoreService
 from mnemocore.core.memory_model import Procedure
 
@@ -10,8 +10,8 @@ def test_procedural_store_add_and_get():
         name="extract_information",
         description="Extracts names and dates from text",
         created_by_agent="system",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
         steps=["Read text", "Regex match", "Return JSON"],
         trigger_pattern=".*",
         success_count=0,
@@ -33,8 +33,8 @@ def test_procedural_store_outcome():
         name="API_Call",
         description="GET request",
         created_by_agent="system",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
         steps=["Requests.get"],
         trigger_pattern=".*",
         success_count=0,
@@ -61,11 +61,11 @@ def test_procedural_store_find():
     store = ProceduralStoreService()
     proc1 = Procedure(
         id="p1", name="search_web", description="Find info online", steps=[],
-        created_by_agent="system", created_at=datetime.utcnow(), updated_at=datetime.utcnow(), trigger_pattern="search", success_count=0, failure_count=0, reliability=1.0, tags=[]
+        created_by_agent="system", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc), trigger_pattern="search", success_count=0, failure_count=0, reliability=1.0, tags=[]
     )
     proc2 = Procedure(
         id="p2", name="calculate_math", description="Evaluate math expression", steps=[],
-        created_by_agent="system", created_at=datetime.utcnow(), updated_at=datetime.utcnow(), trigger_pattern="math", success_count=0, failure_count=0, reliability=1.0, tags=[]
+        created_by_agent="system", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc), trigger_pattern="math", success_count=0, failure_count=0, reliability=1.0, tags=[]
     )
     
     store.store_procedure(proc1)

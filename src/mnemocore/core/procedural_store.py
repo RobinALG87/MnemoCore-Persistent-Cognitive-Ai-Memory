@@ -8,7 +8,7 @@ Validates triggering patterns and tracks execution success rates dynamically.
 from typing import Dict, List, Optional
 import threading
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .memory_model import Procedure
 
@@ -25,7 +25,7 @@ class ProceduralStoreService:
     def store_procedure(self, proc: Procedure) -> None:
         """Save a new or refined procedure into memory."""
         with self._lock:
-            proc.updated_at = datetime.utcnow()
+            proc.updated_at = datetime.now(timezone.utc)
             self._procedures[proc.id] = proc
             logger.info(f"Stored procedure {proc.id} ('{proc.name}')")
 
@@ -63,7 +63,7 @@ class ProceduralStoreService:
             if not proc:
                 return
 
-            proc.updated_at = datetime.utcnow()
+            proc.updated_at = datetime.now(timezone.utc)
             if success:
                 proc.success_count += 1
                 # Increase reliability slightly on success

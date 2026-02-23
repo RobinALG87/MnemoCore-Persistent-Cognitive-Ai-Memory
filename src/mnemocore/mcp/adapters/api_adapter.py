@@ -93,3 +93,5 @@ class MnemoCoreAPIAdapter:
 
     def start_episode(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/episodes/start", payload)
+    def get_knowledge_gaps(self) -> Dict[str, Any]:
+        return self._request("GET", "/gaps")

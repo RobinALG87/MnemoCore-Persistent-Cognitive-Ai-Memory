@@ -12,7 +12,6 @@ import sys
 import os
 import asyncio
 import secrets
-from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Security, Depends
 from fastapi.responses import JSONResponse
@@ -1020,6 +1019,20 @@ async def verify_prediction(pred_id: str, req: VerifyPredictionRequest):
     if pred is None:
         raise HTTPException(status_code=404, detail=f"Prediction {pred_id!r} not found.")
     return {"ok": True, "prediction": pred.to_dict()}
+
+
+@app.get("/gaps", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 — Autonomy"])
+async def get_knowledge_gaps(engine: HAIMEngine = Depends(get_engine)):
+    """Retrieve detected knowledge gaps from the GapDetector."""
+    if not hasattr(engine, "gap_detector"):
+        return {"ok": True, "gaps": [], "count": 0}
+    
+    gaps = engine.gap_detector.list_gaps()
+    return {
+        "ok": True, 
+        "gaps": [g.to_dict() if hasattr(g, "to_dict") else g for g in gaps],
+        "count": len(gaps)
+    }
 
 
 if __name__ == "__main__":

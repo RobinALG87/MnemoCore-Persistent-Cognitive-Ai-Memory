@@ -45,13 +45,13 @@ class CognitiveMemoryClient:
         Push a new observation or thought directly into the agent's short-term Working Memory.
         """
         import uuid
-        from datetime import datetime
+        from datetime import datetime, timezone
         item_id = f"wm_{uuid.uuid4().hex[:8]}"
         
         item = WorkingMemoryItem(
             id=item_id,
             agent_id=agent_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             ttl_seconds=3600, # 1 hour default
             content=content,
             kind=kind, # type: ignore

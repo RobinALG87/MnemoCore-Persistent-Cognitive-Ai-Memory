@@ -6,7 +6,7 @@ Provides the foundation for episodic recall and narrative tracking over time.
 """
 
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 import uuid
 import logging
@@ -41,7 +41,7 @@ class EpisodicStoreService:
             new_ep = Episode(
                 id=ep_id,
                 agent_id=agent_id,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
                 ended_at=None,
                 goal=goal,
                 context=context,
@@ -78,7 +78,7 @@ class EpisodicStoreService:
                 return
 
             event = EpisodeEvent(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 kind=kind, # type: ignore
                 content=content,
                 metadata=metadata or {},
@@ -94,7 +94,7 @@ class EpisodicStoreService:
                 logger.warning(f"Attempted to end inactive or not found episode: {episode_id}")
                 return
 
-            ep.ended_at = datetime.utcnow()
+            ep.ended_at = datetime.now(timezone.utc)
             ep.outcome = outcome # type: ignore
             ep.reward = reward
 

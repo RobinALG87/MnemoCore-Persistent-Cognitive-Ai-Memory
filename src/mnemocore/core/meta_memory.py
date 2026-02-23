@@ -8,7 +8,7 @@ Plays a crucial role in enabling an AGI system to observe and upgrade its own th
 from typing import Dict, List, Optional
 import threading
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .memory_model import SelfMetric, SelfImprovementProposal
 
@@ -26,7 +26,7 @@ class MetaMemoryService:
         with self._lock:
             # We strictly bind this to metrics history for Subconscious AI trend analysis.
             metric = SelfMetric(
-                name=name, value=value, window=window, updated_at=datetime.utcnow()
+                name=name, value=value, window=window, updated_at=datetime.now(timezone.utc)
             )
             self._metrics.append(metric)
 
