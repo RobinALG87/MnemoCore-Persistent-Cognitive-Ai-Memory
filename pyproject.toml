@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnemocore"
-version = "4.5.0"
+version = "4.5.1"
 description = "MnemoCore – Infrastructure for Persistent Cognitive Memory. A hierarchical AI memory engine with hot/warm/cold tiers, vector search, and subconscious consolidation."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -70,9 +70,9 @@ viz = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory"
-Repository = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory"
-"Bug Tracker" = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory/issues"
+Homepage = "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory"
+Repository = "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory"
+"Bug Tracker" = "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory/issues"
 
 [project.scripts]
 mnemocore = "mnemocore.api.main:app"
