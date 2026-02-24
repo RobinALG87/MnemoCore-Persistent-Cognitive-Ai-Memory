@@ -12,7 +12,7 @@ Tests the SynapticConnection class including:
 import pytest
 import time
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from mnemocore.core.synapse import SynapticConnection
 
@@ -309,8 +309,9 @@ class TestSynapsePropertyBased:
         """is_active should correctly implement threshold logic."""
         synapse = SynapticConnection("a", "b", initial_strength=strength)
 
-        # No decay
-        result = synapse.is_active(threshold=threshold)
+        # Avoid decay flakiness by forcing the current strength
+        with patch.object(synapse, 'get_current_strength', return_value=strength):
+            result = synapse.is_active(threshold=threshold)
 
         if strength >= threshold:
             assert result is True

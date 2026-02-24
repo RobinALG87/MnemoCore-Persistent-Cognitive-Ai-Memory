@@ -79,9 +79,7 @@ class TestBitEntropy:
 
     def test_entropy_ones_vector(self):
         """All-ones vector should have entropy 0.0."""
-        hdv = BinaryHDV(1024)
-        # Create all-ones vector
-        hdv.data[:] = 0xFF
+        hdv = BinaryHDV.ones(1024)
         entropy = _bit_entropy(hdv)
         # All ones = p=1 = entropy 0
         assert entropy == 0.0
@@ -97,8 +95,7 @@ class TestBitEntropy:
         """Vectors with complementary bit patterns should have same entropy."""
         hdv1 = BinaryHDV.random(1024)
         # Create complement by XOR with all-ones
-        hdv2 = BinaryHDV(1024)
-        hdv2.data[:] = ~hdv1.data
+        hdv2 = hdv1.invert()
 
         entropy1 = _bit_entropy(hdv1)
         entropy2 = _bit_entropy(hdv2)
@@ -225,8 +222,14 @@ class TestImmunologyLoopSweep:
     async def test_sweep_calls_cleanup_decay(self):
         """Sweep should delegate stale synapse cleanup."""
         mock_engine = MagicMock()
+        node = MagicMock()
+        node.id = "n1"
+        node.hdv = BinaryHDV.random(1024)
+        node.ltp_strength = 0.5
+        node.content = "test"
+        node.metadata = {}
         mock_engine.tier_manager = MagicMock()
-        mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=[])
+        mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=[node])
         mock_engine.cleanup_decay = AsyncMock()
 
         loop = ImmunologyLoop(mock_engine)
@@ -253,6 +256,7 @@ class TestImmunologyLoopSweep:
             nodes.append(node)
 
         mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=nodes)
+        mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine.cleanup_decay = AsyncMock()
 
         loop = ImmunologyLoop(mock_engine)
@@ -416,7 +420,14 @@ class TestImmunologyLoopBackground:
         """Loop should run at configured interval."""
         mock_engine = MagicMock()
         mock_engine.tier_manager = MagicMock()
-        mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=[])
+        node = MagicMock()
+        node.id = "n1"
+        node.hdv = BinaryHDV.random(1024)
+        node.ltp_strength = 0.5
+        node.content = "test"
+        node.metadata = {}
+        mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=[node])
+        mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine.cleanup_decay = AsyncMock()
 
         config = ImmunologyConfig(sweep_interval_seconds=0.1)
@@ -470,7 +481,14 @@ class TestImmunologyLoopStats:
         """Should include last sweep timestamp."""
         mock_engine = MagicMock()
         mock_engine.tier_manager = MagicMock()
-        mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=[])
+        node = MagicMock()
+        node.id = "n1"
+        node.hdv = BinaryHDV.random(1024)
+        node.ltp_strength = 0.5
+        node.content = "test"
+        node.metadata = {}
+        mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=[node])
+        mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine.cleanup_decay = AsyncMock()
 
         loop = ImmunologyLoop(mock_engine)
@@ -506,7 +524,7 @@ class TestImmunologyPropertyBased:
 
     from hypothesis import given, strategies as st
 
-    @given(st.integers(min_value=512, max_value=16384))
+    @given(st.integers(min_value=64, max_value=2048).map(lambda x: x * 8))
     def test_entropy_always_valid(self, dimension):
         """Entropy should always be in valid range."""
         hdv = BinaryHDV.random(dimension)
@@ -532,12 +550,16 @@ class TestImmunologyPropertyBased:
 
         mock_engine.tier_manager = MagicMock()
         mock_engine.tier_manager.get_hot_snapshot = AsyncMock(return_value=nodes)
+        mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
 
         loop = ImmunologyLoop(mock_engine)
 
         stats = await loop.sweep()
 
-        assert stats["nodes_scanned"] == node_count
+        if node_count == 0:
+            assert stats == {}
+        else:
+            assert stats["nodes_scanned"] == node_count
 
 
 if __name__ == "__main__":

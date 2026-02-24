@@ -51,7 +51,7 @@ class RippleChunk:
         total_terms = sum(self.term_freq.values()) or 1
         score = 0.0
         for term in query_terms:
-            tf = self.term_freq.get(term, 0)
+            tf = self.term_freq.get(term.lower(), 0)
             if tf > 0:
                 # Normalized TF with saturation (BM25-style)
                 k1 = 1.5

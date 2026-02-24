@@ -211,9 +211,9 @@ async def test_tier_manager_search_applies_hot_time_range_filter(isolated_engine
         content="new",
         created_at=now,
     )
-
-    tm.hot = {"old": old_node, "new": new_node}
-    tm.search_hot = lambda query_vec, top_k=5: [("old", 0.95), ("new", 0.90)]
+    tm.hot.clear()
+    tm.hot["old"] = old_node
+    tm.hot["new"] = new_node
 
     query_vec = BinaryHDV.random(engine.dimension)
     results = await tm.search(

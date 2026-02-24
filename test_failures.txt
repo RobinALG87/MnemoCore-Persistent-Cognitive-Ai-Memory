@@ -1,0 +1,675 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-8.4.2, pluggy-1.6.0 -- C:\Users\Robin\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.11.0, hypothesis-6.151.9, langsmith-0.4.32, locust-2.43.0, asyncio-1.2.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 410 items / 356 deselected / 54 selected
+run-last-failure: rerun previous 54 failures (skipped 54 files)
+
+tests/test_anticipatory.py::test_anticipatory_memory FAILED              [  1%]
+tests/test_attention_extended.py::TestXORAttentionPropertyBased::test_alpha_beta_valid_combinations FAILED [  3%]
+tests/test_attention_extended.py::TestXORAttentionPropertyBased::test_various_dimensions FAILED [  5%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_get_node_state_creates_new FAILED [  7%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_get_node_state_no_attributes FAILED [  9%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_retrieval_helpful FAILED [ 11%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_retrieval_not_helpful FAILED [ 12%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_with_eig_signal FAILED [ 14%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_node_ltp_ucb FAILED [ 16%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_synapse_to_dict FAILED [ 18%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_synapse_learning_sequence FAILED [ 20%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_uncertainty_decreases_with_evidence FAILED [ 22%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_ucb_exploration_bonus FAILED [ 24%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_node_retrieval_learning FAILED [ 25%]
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_beta_mean_in_range FAILED [ 27%]
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_beta_variance_non_negative FAILED [ 29%]
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_beta_upper_credible_bounds FAILED [ 31%]
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_bayesian_state_mean_after_observe FAILED [ 33%]
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_synapse_learning_converges FAILED [ 35%]
+tests/test_binary_hdv.py::TestTextEncoder::test_token_caching FAILED     [ 37%]
+tests/test_consolidation_extended.py::TestMergeCluster::test_empty_cluster FAILED [ 38%]
+tests/test_eviction_reliability.py::test_eviction_reliability_on_failure FAILED [ 40%]
+tests/test_eviction_reliability.py::test_demotion_reliability_with_concurrent_access FAILED [ 42%]
+tests/test_immunology.py::TestBitEntropy::test_entropy_ones_vector FAILED [ 44%]
+tests/test_immunology.py::TestBitEntropy::test_entropy_symmetric FAILED  [ 46%]
+tests/test_immunology.py::TestImmunologyLoopSweep::test_sweep_calls_cleanup_decay FAILED [ 48%]
+tests/test_immunology.py::TestImmunologyLoopSweep::test_sweep_returns_stats FAILED [ 50%]
+tests/test_immunology.py::TestImmunologyLoopBackground::test_loop_runs_periodically FAILED [ 51%]
+tests/test_immunology.py::TestImmunologyLoopStats::test_stats_includes_last_sweep_time FAILED [ 53%]
+tests/test_immunology.py::TestImmunologyPropertyBased::test_entropy_always_valid FAILED [ 55%]
+tests/test_immunology.py::TestImmunologyPropertyBased::test_sweep_handles_various_node_counts FAILED [ 57%]
+tests/test_metrics.py::TestTrackLatencyDecorator::test_track_latency_sync_function FAILED [ 59%]
+tests/test_metrics.py::TestTrackAsyncLatencyDecorator::test_track_async_latency FAILED [ 61%]
+tests/test_metrics.py::TestTimerDecorator::test_timer_records_errors FAILED [ 62%]
+tests/test_phase43_regressions.py::test_tier_manager_search_applies_hot_time_range_filter FAILED [ 64%]
+tests/test_recursive_synthesizer_extended.py::TestHeuristicDecomposeExtended::test_multiple_conjunctions FAILED [ 66%]
+tests/test_recursive_synthesizer_extended.py::TestSynthesizerWithSyncLLM::test_sync_llm_synthesis FAILED [ 68%]
+tests/test_reliability.py::TestNativeCircuitBreaker::test_call_raises_when_open FAILED [ 70%]
+tests/test_reliability.py::TestCircuitBreakerDecorators::test_sync_decorator_in_async_context PASSED [ 72%]
+tests/test_ripple_context.py::TestRippleChunk::test_score_query_case_insensitive FAILED [ 74%]
+tests/test_router.py::TestCognitiveRouterInitialization::test_custom_threshold FAILED [ 75%]
+tests/test_router.py::TestSystem2Reasoning::test_reasoning_with_results FAILED [ 77%]
+tests/test_router.py::TestSystem2Reasoning::test_reasoning_empty_results FAILED [ 79%]
+tests/test_router.py::TestRouting::test_route_to_system_1 FAILED         [ 81%]
+tests/test_router.py::TestRouting::test_route_to_system_2 FAILED         [ 83%]
+tests/test_router.py::TestRouting::test_route_with_context FAILED        [ 85%]
+tests/test_router.py::TestRouterEdgeCases::test_very_long_query FAILED   [ 87%]
+tests/test_router.py::TestRouterPropertyBased::test_route_never_crashes FAILED [ 88%]
+tests/test_synapse.py::TestSynapseStrengthDecay::test_zero_half_life FAILED [ 90%]
+tests/test_synapse.py::TestSynapsePropertyBased::test_activation_threshold_logic FAILED [ 92%]
+tests/test_tier_conflict.py::test_get_memory_demotion_race_condition FAILED [ 94%]
+tests/test_tier_manager.py::TestTierManager::test_eviction_to_warm FAILED [ 96%]
+tests/test_tier_manager.py::TestTierManager::test_retrieval_promotes_from_warm FAILED [ 98%]
+tests/test_tier_manager.py::TestTierManager::test_consolidation_to_cold FAILED [100%]
+
+================================== FAILURES ===================================
+__________________________ test_anticipatory_memory ___________________________
+tests\test_anticipatory.py:61: in test_anticipatory_memory
+    await test_engine.tier_manager._save_to_warm(mem_b_obj)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+---------------------------- Captured stderr setup ----------------------------
+2026-02-24 21:30:01.387 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=1024, M=16)
+2026-02-24 21:30:01.391 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+2026-02-24 21:30:01.402 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 21:30:02.397 | INFO     | mnemocore.core.synapse_index:load_from_file:335 - SynapseIndex loaded 400 edges from ./data/synapses.json\n2026-02-24 21:30:02.398 | INFO     | mnemocore.core.semantic_consolidation:start:157 - SemanticConsolidationWorker started \u2014 runs at 03:00 UTC\n2026-02-24 21:30:02.399 | INFO     | mnemocore.core.immunology:start:121 - ImmunologyLoop started \u2014 sweep every 300.0s\n2026-02-24 21:30:02.401 | INFO     | mnemocore.core.subconscious_ai:__init__:364 - SubconsciousAIWorker created (provider=ollama, model=phi3.5:latest, enabled=True)\n2026-02-24 21:30:02.402 | DEBUG    | mnemocore.utils.process:lower_process_priority:18 - Lowered Windows process priority to BELOW_NORMAL\n2026-02-24 21:30:02.403 | INFO     | mnemocore.core.subconscious_ai:start:423 - [Phase 4.4 BETA] SubconsciousAI started (interval=120s, dry_run=False)\n2026-02-24 21:30:02.403 | INFO     | mnemocore.core.engine_lifecycle:initialize:114 - Phase 4.4 SubconsciousAI worker started (BETA).\n2026-02-24 21:30:02.403 | INFO     | mnemocore.core.engine_lifecycle:initialize:118 - Phase 4.0 background workers started (consolidation + immunology).\n2026-02-24 21:30:02.403 | DEBUG    | mnemocore.core.semantic_consolidation:_schedule_loop:179 - Next semantic consolidation in 6.5h\n2026-02-24 21:30:02.504 | DEBUG    | mnemocore.core.subconscious_ai:check_cpu:274 - CPU 31.0% > threshold 30.0%\n2026-02-24 21:30:02.504 | DEBUG    | mnemocore.core.subconscious_ai:_run_cycle:471 - Skipping cycle: CPU threshold exceeded\n2026-02-24 21:30:02.551 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.0000\n2026-02-24 21:30:02.551 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 1 co-retrieved memories\n2026-02-24 21:30:02.553 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.0000\n2026-02-24 21:30:02.553 | DEBUG    | mnemocore.core.engine_core:event_bus:197 - [EngineCore] EventBus initialized\n2026-02-24 21:30:02.553 | DEBUG    | mnemocore.core.engine_core:store:529 - Added memory 60e0324d-5ba6-463c-9ee2-31941bf63029 to association network\n2026-02-24 21:30:02.553 | INFO     | mnemocore.core.engine_core:store:536 - Stored memory 60e0324d-5ba6-463c-9ee2-31941bf63029 (EIG: 0.4805)\n2026-02-24 21:30:02.554 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 1 co-retrieved memories\n2026-02-24 21:30:02.667 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.2510\n2026-02-24 21:30:02.667 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 2 co-retrieved memories\n2026-02-24 21:30:02.670 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.2510\n2026-02-24 21:30:02.670 | DEBUG    | mnemocore.core.synapse_index:add_or_fire:100 - Synapse created: 4fe07c01 \u2194 60e0324d\n2026-02-24 21:30:02.670 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:168 - Synapse (4fe07c01\u219460e0324d) Bayesian update \u2014 success=True \u03b1=2.00 \u03b2=2.00 \u2192 p_mean=0.5000 \xb1 0.2236\n2026-02-24 21:30:02.670 | DEBUG    | mnemocore.core.anticipatory:predict_and_preload:48 - Anticipatory engine pre-loading 1 predicted nodes.\n2026-02-24 21:30:02.670 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 2 co-retrieved memories\n2026-02-24 21:30:02.674 | DEBUG    | mnemocore.core.engine_core:store:529 - Added memory 4fe07c01-091a-4768-83fc-e47157d0d45e to association network\n2026-02-24 21:30:02.674 | INFO     | mnemocore.core.engine_core:store:536 - Stored memory 4fe07c01-091a-4768-83fc-e47157d0d45e (EIG: 0.5039)\n2026-02-24 21:30:02.674 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:168 - Synapse (4fe07c01\u219460e0324d) Bayesian update \u2014 success=True \u03b1=3.00 \u03b2=2.00 \u2192 p_mean=0.6000 \xb1 0.2000
+______ TestXORAttentionPropertyBased.test_alpha_beta_valid_combinations _______
+tests\test_attention_extended.py:399: in test_alpha_beta_valid_combinations
+    st.floats(min_value=0.0, max_value=1.0))
+        ^^^^^^^
+tests\test_attention_extended.py:402: in test_alpha_beta_valid_combinations
+    assume(0.0 <= alpha <= 1.0)
+    ^^^^^^
+E   NameError: name 'assume' is not defined
+E   Falsifying example: test_alpha_beta_valid_combinations(
+E       self=<tests.test_attention_extended.TestXORAttentionPropertyBased object at 0x000001CD52C2B250>,
+E       alpha=0.0,
+E       beta=0.0,
+E   )
+____________ TestXORAttentionPropertyBased.test_various_dimensions ____________
+tests\test_attention_extended.py:410: in test_various_dimensions
+    def test_various_dimensions(self, dim):
+               ^^^^^^^
+tests\test_attention_extended.py:413: in test_various_dimensions
+    query = BinaryHDV.random(dim)
+            ^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\binary_hdv.py:137: in random
+    assert dimension % 8 == 0, "Dimension must be multiple of 8"
+           ^^^^^^^^^^^^^^^^^^
+E   AssertionError: Dimension must be multiple of 8
+E   Falsifying example: test_various_dimensions(
+E       self=<tests.test_attention_extended.TestXORAttentionPropertyBased object at 0x000001CD52C64D60>,
+E       dim=513,
+E   )
+___________ TestBayesianLTPUpdater.test_get_node_state_creates_new ____________
+tests\test_bayesian_ltp.py:277: in test_get_node_state_creates_new
+    node = MemoryNode("test_id", "test content", BinaryHDV.random(1024))
+                                                 ^^^^^^^^^
+E   NameError: name 'BinaryHDV' is not defined
+__________ TestBayesianLTPUpdater.test_get_node_state_no_attributes ___________
+tests\test_bayesian_ltp.py:289: in test_get_node_state_no_attributes
+    node = MemoryNode("test_id", "test content", BinaryHDV.random(1024))
+                                                 ^^^^^^^^^
+E   NameError: name 'BinaryHDV' is not defined
+_________ TestBayesianLTPUpdater.test_observe_node_retrieval_helpful __________
+tests\test_bayesian_ltp.py:304: in test_observe_node_retrieval_helpful
+    new_strength = updater.observe_node_retrieval(
+src\mnemocore\core\bayesian_ltp.py:219: in observe_node_retrieval
+    f"eig={eig_signal:.3f} \u2192 ltp={node.ltp_strength:.4f}"
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+_______ TestBayesianLTPUpdater.test_observe_node_retrieval_not_helpful ________
+tests\test_bayesian_ltp.py:320: in test_observe_node_retrieval_not_helpful
+    new_strength = updater.observe_node_retrieval(
+src\mnemocore\core\bayesian_ltp.py:219: in observe_node_retrieval
+    f"eig={eig_signal:.3f} \u2192 ltp={node.ltp_strength:.4f}"
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+__________ TestBayesianLTPUpdater.test_observe_node_with_eig_signal ___________
+tests\test_bayesian_ltp.py:336: in test_observe_node_with_eig_signal
+    updater.observe_node_retrieval(node, helpful=True, eig_signal=0.9)
+src\mnemocore\core\bayesian_ltp.py:219: in observe_node_retrieval
+    f"eig={eig_signal:.3f} \u2192 ltp={node.ltp_strength:.4f}"
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+__________________ TestBayesianLTPUpdater.test_node_ltp_ucb ___________________
+tests\test_bayesian_ltp.py:360: in test_node_ltp_ucb
+    assert ucb >= state.mean
+           ^^^^^^^^^^^^^^^^^
+E   TypeError: '>=' not supported between instances of 'MagicMock' and 'MagicMock'
+_________________ TestBayesianLTPUpdater.test_synapse_to_dict _________________
+tests\test_bayesian_ltp.py:370: in test_synapse_to_dict
+    updater.observe_synapse(synapse, success=True)
+src\mnemocore\core\bayesian_ltp.py:171: in observe_synapse
+    f"\u03b1={state.alpha:.2f} \u03b2={state.beta_count:.2f} "
+        ^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+______ TestBayesianLTPUpdaterIntegration.test_synapse_learning_sequence _______
+tests\test_bayesian_ltp.py:405: in test_synapse_learning_sequence
+    updater.observe_synapse(synapse, success=outcome)
+src\mnemocore\core\bayesian_ltp.py:171: in observe_synapse
+    f"\u03b1={state.alpha:.2f} \u03b2={state.beta_count:.2f} "
+        ^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+_ TestBayesianLTPUpdaterIntegration.test_uncertainty_decreases_with_evidence __
+tests\test_bayesian_ltp.py:424: in test_uncertainty_decreases_with_evidence
+    updater.observe_synapse(synapse, success=True)
+src\mnemocore\core\bayesian_ltp.py:171: in observe_synapse
+    f"\u03b1={state.alpha:.2f} \u03b2={state.beta_count:.2f} "
+        ^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+________ TestBayesianLTPUpdaterIntegration.test_ucb_exploration_bonus _________
+tests\test_bayesian_ltp.py:451: in test_ucb_exploration_bonus
+    assert ucb_uncertain > ucb_certain
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: '>' not supported between instances of 'MagicMock' and 'MagicMock'
+_______ TestBayesianLTPUpdaterIntegration.test_node_retrieval_learning ________
+tests\test_bayesian_ltp.py:464: in test_node_retrieval_learning
+    updater.observe_node_retrieval(node, helpful=True, eig_signal=0.8)
+src\mnemocore\core\bayesian_ltp.py:219: in observe_node_retrieval
+    f"eig={eig_signal:.3f} \u2192 ltp={node.ltp_strength:.4f}"
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+____________ TestBayesianLTPPropertyBased.test_beta_mean_in_range _____________
+tests\test_bayesian_ltp.py:503: in test_beta_mean_in_range
+    st.floats(min_value=0.0, max_value=10.0))
+        ^^^^^^^
+tests\test_bayesian_ltp.py:506: in test_beta_mean_in_range
+    assume(alpha + beta > 0)
+    ^^^^^^
+E   NameError: name 'assume' is not defined
+E   Falsifying example: test_beta_mean_in_range(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52CE0050>,
+E       alpha=0.0,
+E       beta=0.0,
+E   )
+________ TestBayesianLTPPropertyBased.test_beta_variance_non_negative _________
+tests\test_bayesian_ltp.py:511: in test_beta_variance_non_negative
+    st.floats(min_value=0.0, max_value=10.0))
+        ^^^^^^^
+tests\test_bayesian_ltp.py:514: in test_beta_variance_non_negative
+    var = _beta_variance(alpha, beta)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\bayesian_ltp.py:60: in _beta_variance
+    return (alpha * beta) / (total * total * (total + 1.0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ZeroDivisionError: float division by zero
+E   Falsifying example: test_beta_variance_non_negative(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52CE0190>,
+E       alpha=0.0,
+E       beta=5e-324,
+E   )
+________ TestBayesianLTPPropertyBased.test_beta_upper_credible_bounds _________
+tests\test_bayesian_ltp.py:518: in test_beta_upper_credible_bounds
+    st.floats(min_value=0.0, max_value=10.0))
+        ^^^^^^^
+tests\test_bayesian_ltp.py:521: in test_beta_upper_credible_bounds
+    ucb = _beta_upper_credible(alpha, beta, z=1.65)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\bayesian_ltp.py:72: in _beta_upper_credible
+    return min(1.0, _beta_mean(alpha, beta) + z * _beta_std(alpha, beta))
+                                                  ^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\bayesian_ltp.py:64: in _beta_std
+    return math.sqrt(_beta_variance(alpha, beta))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\bayesian_ltp.py:60: in _beta_variance
+    return (alpha * beta) / (total * total * (total + 1.0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ZeroDivisionError: float division by zero
+E   Falsifying example: test_beta_upper_credible_bounds(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52C66190>,
+E       alpha=0.0,
+E       beta=1.5701915041940915e-230,
+E   )
+_____ TestBayesianLTPPropertyBased.test_bayesian_state_mean_after_observe _____
+tests\test_bayesian_ltp.py:525: in test_bayesian_state_mean_after_observe
+    st.floats(min_value=0.0, max_value=2.0))
+        ^^^^^^^
+tests\test_bayesian_ltp.py:528: in test_bayesian_state_mean_after_observe
+    assume(initial_alpha > 0 or initial_beta > 0)
+    ^^^^^^
+E   NameError: name 'assume' is not defined
+E   Falsifying example: test_bayesian_state_mean_after_observe(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52C66060>,
+E       initial_alpha=0.0,
+E       initial_beta=0.0,
+E   )
+________ TestBayesianLTPPropertyBased.test_synapse_learning_converges _________
+tests\test_bayesian_ltp.py:540: in test_synapse_learning_converges
+    def test_synapse_learning_converges(self, outcomes):
+               ^^^^^^^
+tests\test_bayesian_ltp.py:552: in test_synapse_learning_converges
+    updater.observe_synapse(synapse, success=outcome)
+src\mnemocore\core\bayesian_ltp.py:171: in observe_synapse
+    f"\u03b1={state.alpha:.2f} \u03b2={state.beta_count:.2f} "
+        ^^^^^^^^^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+E   Falsifying example: test_synapse_learning_converges(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52CC2E70>,
+E       outcomes=[False],
+E   )
+_____________________ TestTextEncoder.test_token_caching ______________________
+tests\test_binary_hdv.py:311: in test_token_caching
+    assert "hello" in enc._token_cache
+E   AssertionError: assert 'hello' in {}
+E    +  where {} = <mnemocore.core.binary_hdv.TextEncoder object at 0x000001CD58B50410>._token_cache
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 21:30:03.309 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+_____________________ TestMergeCluster.test_empty_cluster _____________________
+tests\test_consolidation_extended.py:154: in test_empty_cluster
+    result = consolidator.merge_cluster([])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\consolidation.py:169: in merge_cluster
+    return cluster[0], []
+           ^^^^^^^^^^
+E   IndexError: list index out of range
+____________________ test_eviction_reliability_on_failure _____________________
+tests\test_eviction_reliability.py:46: in test_eviction_reliability_on_failure
+    tm = TierManager(config=mock_config, qdrant_store=mock_qdrant)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\tier_manager.py:97: in __init__
+    self._eviction_manager = TierEvictionManager(self.config)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\tier_eviction.py:260: in __init__
+    ) if config.tiers_warm.eviction_policy in [
+         ^^^^^^^^^^^^^^^^^
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\unittest\mock.py:690: in __getattr__
+    raise AttributeError("Mock object has no attribute %r" % name)
+E   AttributeError: Mock object has no attribute 'tiers_warm'
+______________ test_demotion_reliability_with_concurrent_access _______________
+tests\test_eviction_reliability.py:77: in test_demotion_reliability_with_concurrent_access
+    tm = TierManager(config=mock_config, qdrant_store=mock_qdrant)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\tier_manager.py:97: in __init__
+    self._eviction_manager = TierEvictionManager(self.config)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\tier_eviction.py:260: in __init__
+    ) if config.tiers_warm.eviction_policy in [
+         ^^^^^^^^^^^^^^^^^
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\unittest\mock.py:690: in __getattr__
+    raise AttributeError("Mock object has no attribute %r" % name)
+E   AttributeError: Mock object has no attribute 'tiers_warm'
+___________________ TestBitEntropy.test_entropy_ones_vector ___________________
+tests\test_immunology.py:82: in test_entropy_ones_vector
+    hdv = BinaryHDV(1024)
+          ^^^^^^^^^^^^^^^
+E   TypeError: BinaryHDV.__init__() missing 1 required positional argument: 'dimension'
+____________________ TestBitEntropy.test_entropy_symmetric ____________________
+tests\test_immunology.py:100: in test_entropy_symmetric
+    hdv2 = BinaryHDV(1024)
+           ^^^^^^^^^^^^^^^
+E   TypeError: BinaryHDV.__init__() missing 1 required positional argument: 'dimension'
+___________ TestImmunologyLoopSweep.test_sweep_calls_cleanup_decay ____________
+tests\test_immunology.py:235: in test_sweep_calls_cleanup_decay
+    mock_engine.cleanup_decay.assert_called_once_with(threshold=0.05)
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\unittest\mock.py:990: in assert_called_once_with
+    raise AssertionError(msg)
+E   AssertionError: Expected 'cleanup_decay' to be called once. Called 0 times.
+______________ TestImmunologyLoopSweep.test_sweep_returns_stats _______________
+tests\test_immunology.py:260: in test_sweep_returns_stats
+    stats = await loop.sweep()
+            ^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\immunology.py:173: in sweep
+    action = await self._assess_node(node, i, nodes, vecs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\immunology.py:261: in _assess_node
+    vecs[idx] = new_hdv.data
+    ^^^^^^^^^
+E   ValueError: could not broadcast input array from shape (0,) into shape (128,)
+__________ TestImmunologyLoopBackground.test_loop_runs_periodically ___________
+tests\test_immunology.py:433: in test_loop_runs_periodically
+    assert loop.cumulative_stats["sweeps"] >= 2
+E   assert 0 >= 2
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 21:30:03.533 | INFO     | mnemocore.core.immunology:start:121 - ImmunologyLoop started ù sweep every 0.1s
+2026-02-24 21:30:03.897 | INFO     | mnemocore.core.immunology:stop:133 - ImmunologyLoop stopped.
+_________ TestImmunologyLoopStats.test_stats_includes_last_sweep_time _________
+tests\test_immunology.py:482: in test_stats_includes_last_sweep_time
+    assert stats["last_sweep"] is not None
+E   assert None is not None
+____________ TestImmunologyPropertyBased.test_entropy_always_valid ____________
+tests\test_immunology.py:510: in test_entropy_always_valid
+    def test_entropy_always_valid(self, dimension):
+               ^^^^^^^
+tests\test_immunology.py:512: in test_entropy_always_valid
+    hdv = BinaryHDV.random(dimension)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\binary_hdv.py:137: in random
+    assert dimension % 8 == 0, "Dimension must be multiple of 8"
+           ^^^^^^^^^^^^^^^^^^
+E   AssertionError: Dimension must be multiple of 8
+E   Falsifying example: test_entropy_always_valid(
+E       self=<tests.test_immunology.TestImmunologyPropertyBased object at 0x000001CD52D707D0>,
+E       dimension=513,
+E   )
+_____ TestImmunologyPropertyBased.test_sweep_handles_various_node_counts ______
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\tests\test_immunology.py", line 517, in test_sweep_handles_various_node_counts
+  |     @given(st.integers(min_value=0, max_value=100))
+  |                ^^^^^^^
+  |   File "C:\Users\Robin\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\hypothesis\core.py", line 2246, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Robin\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pytest_asyncio\plugin.py", line 721, in inner
+    |     runner.run(coro, context=context)
+    |     ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\asyncio\runners.py", line 118, in run
+    |     return self._loop.run_until_complete(task)
+    |            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+    |   File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    |     return future.result()
+    |            ~~~~~~~~~~~~~^^
+    |   File "C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\tests\test_immunology.py", line 538, in test_sweep_handles_various_node_counts
+    |     stats = await loop.sweep()
+    |             ^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\mnemocore\core\immunology.py", line 173, in sweep
+    |     action = await self._assess_node(node, i, nodes, vecs)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\src\mnemocore\core\immunology.py", line 261, in _assess_node
+    |     vecs[idx] = new_hdv.data
+    |     ~~~~^^^^^
+    | ValueError: could not broadcast input array from shape (0,) into shape (128,)
+    | Falsifying example: test_sweep_handles_various_node_counts(
+    |     self=<tests.test_immunology.TestImmunologyPropertyBased object at 0x000001CD52D70910>,
+    |     node_count=2,
+    | )
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Robin\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pytest_asyncio\plugin.py", line 721, in inner
+    |     runner.run(coro, context=context)
+    |     ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\asyncio\runners.py", line 118, in run
+    |     return self._loop.run_until_complete(task)
+    |            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+    |   File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    |     return future.result()
+    |            ~~~~~~~~~~~~~^^
+    |   File "C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory\tests\test_immunology.py", line 540, in test_sweep_handles_various_node_counts
+    |     assert stats["nodes_scanned"] == node_count
+    |            ~~~~~^^^^^^^^^^^^^^^^^
+    | KeyError: 'nodes_scanned'
+    | Falsifying example: test_sweep_handles_various_node_counts(
+    |     self=<tests.test_immunology.TestImmunologyPropertyBased object at 0x000001CD52D70910>,
+    |     node_count=0,
+    | )
+    +------------------------------------
+_________ TestTrackLatencyDecorator.test_track_latency_sync_function __________
+tests\test_metrics.py:250: in test_track_latency_sync_function
+    metric.observe.assert_called()
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\unittest\mock.py:948: in assert_called
+    raise AssertionError(msg)
+E   AssertionError: Expected 'observe' to have been called.
+___________ TestTrackAsyncLatencyDecorator.test_track_async_latency ___________
+tests\test_metrics.py:298: in test_track_async_latency
+    metric.observe.assert_called()
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\unittest\mock.py:948: in assert_called
+    raise AssertionError(msg)
+E   AssertionError: Expected 'observe' to have been called.
+________________ TestTimerDecorator.test_timer_records_errors _________________
+tests\test_metrics.py:360: in test_timer_records_errors
+    ERROR_TOTAL.labels.assert_called()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'function' object has no attribute 'assert_called'
+___________ test_tier_manager_search_applies_hot_time_range_filter ____________
+tests\test_phase43_regressions.py:215: in test_tier_manager_search_applies_hot_time_range_filter
+    tm.hot = {"old": old_node, "new": new_node}
+    ^^^^^^
+E   AttributeError: property 'hot' of 'TierManager' object has no setter
+---------------------------- Captured stderr setup ----------------------------
+2026-02-24 21:30:04.272 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=1024, M=16)
+2026-02-24 21:30:04.274 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+2026-02-24 21:30:04.283 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+__________ TestHeuristicDecomposeExtended.test_multiple_conjunctions __________
+tests\test_recursive_synthesizer_extended.py:92: in test_multiple_conjunctions
+    assert len(result) >= 2
+E   AssertionError: assert 1 >= 2
+E    +  where 1 = len(['a and b or c but also d'])
+_____________ TestSynthesizerWithSyncLLM.test_sync_llm_synthesis ______________
+tests\test_recursive_synthesizer_extended.py:383: in test_sync_llm_synthesis
+    assert synthesis == "LLM generated synthesis"
+E   AssertionError: assert 'No relevant memories found for this query.' == 'LLM generated synthesis'
+E     
+E     - LLM generated synthesis
+E     + No relevant memories found for this query.
+_____________ TestNativeCircuitBreaker.test_call_raises_when_open _____________
+tests\test_reliability.py:123: in test_call_raises_when_open
+    with pytest.raises(CircuitOpenError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'mnemocore.core.exceptions.CircuitOpenError'>
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 21:30:04.320 | WARNING  | mnemocore.core.reliability:_check_state:50 - Circuit Breaker Test moving to half-open
+2026-02-24 21:30:04.320 | INFO     | mnemocore.core.reliability:success:85 - Circuit Breaker Test back to CLOSED
+______________ TestRippleChunk.test_score_query_case_insensitive ______________
+tests\test_ripple_context.py:109: in test_score_query_case_insensitive
+    assert score1 == score2
+E   assert 2.3584905660377355 == 0.0
+___________ TestCognitiveRouterInitialization.test_custom_threshold ___________
+tests\test_router.py:33: in test_custom_threshold
+    router = CognitiveRouter(mock_engine, complexity_threshold=0.7)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+______________ TestSystem2Reasoning.test_reasoning_with_results _______________
+tests\test_router.py:247: in test_reasoning_with_results
+    response = await router._system_2_reasoning("complex question", None)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\router.py:131: in _system_2_reasoning
+    ctx_vec = await self.engine._current_context_vector(sample_n=50)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: object MagicMock can't be used in 'await' expression
+______________ TestSystem2Reasoning.test_reasoning_empty_results ______________
+tests\test_router.py:309: in test_reasoning_empty_results
+    response = await router._system_2_reasoning("question", None)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\router.py:131: in _system_2_reasoning
+    ctx_vec = await self.engine._current_context_vector(sample_n=50)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: object MagicMock can't be used in 'await' expression
+_____________________ TestRouting.test_route_to_system_1 ______________________
+tests\test_router.py:327: in test_route_to_system_1
+    router = CognitiveRouter(mock_engine, complexity_threshold=0.8)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+_____________________ TestRouting.test_route_to_system_2 ______________________
+tests\test_router.py:341: in test_route_to_system_2
+    router = CognitiveRouter(mock_engine, complexity_threshold=0.3)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+_____________________ TestRouting.test_route_with_context _____________________
+tests\test_router.py:380: in test_route_with_context
+    router = CognitiveRouter(mock_engine, complexity_threshold=0.0)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+__________________ TestRouterEdgeCases.test_very_long_query ___________________
+tests\test_router.py:411: in test_very_long_query
+    response, debug = await router.route(long_query)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\router.py:47: in route
+    response = await self._system_2_reasoning(impulse, context)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\router.py:131: in _system_2_reasoning
+    ctx_vec = await self.engine._current_context_vector(sample_n=50)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: object MagicMock can't be used in 'await' expression
+______________ TestRouterPropertyBased.test_route_never_crashes _______________
+tests\test_router.py:446: in test_route_never_crashes
+    @given(st.text(min_size=1, max_size=100))
+               ^^^^^^^
+..\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pytest_asyncio\plugin.py:721: in inner
+    runner.run(coro, context=context)
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\asyncio\base_events.py:725: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests\test_router.py:456: in test_route_never_crashes
+    response, debug = await router.route(query)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\router.py:47: in route
+    response = await self._system_2_reasoning(impulse, context)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\mnemocore\core\router.py:147: in _system_2_reasoning
+    eig_line = f"\nEpistemic Drive (EIG): {eig:.2f}" if eig is not None else ""
+                                          ^^^^^^^^^
+E   TypeError: unsupported format string passed to MagicMock.__format__
+E   Falsifying example: test_route_never_crashes(
+E       self=<tests.test_router.TestRouterPropertyBased object at 0x000001CD52E88550>,
+E       query='unknown',
+E   )
+________________ TestSynapseStrengthDecay.test_zero_half_life _________________
+tests\test_synapse.py:166: in test_zero_half_life
+    mock_cfg = MagicMock()
+               ^^^^^^^^^
+E   NameError: name 'MagicMock' is not defined
+__________ TestSynapsePropertyBased.test_activation_threshold_logic ___________
+tests\test_synapse.py:307: in test_activation_threshold_logic
+    st.floats(min_value=0.0, max_value=1.0))
+        ^^^^^^^
+tests\test_synapse.py:316: in test_activation_threshold_logic
+    assert result is True
+E   assert False is True
+E   Falsifying example: test_activation_threshold_logic(
+E       self=<tests.test_synapse.TestSynapsePropertyBased object at 0x000001CD52E42EA0>,
+E       strength=1.0,
+E       threshold=1.0,
+E   )
+___________________ test_get_memory_demotion_race_condition ___________________
+tests\test_tier_conflict.py:24: in test_get_memory_demotion_race_condition
+    original_save = tier_manager._save_to_warm
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 21:30:04.840 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=16384, M=16)
+____________________ TestTierManager.test_eviction_to_warm ____________________
+tests\test_tier_manager.py:135: in test_eviction_to_warm
+    victim = tier_manager._prepare_eviction_from_hot()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'TierManager' object has no attribute '_prepare_eviction_from_hot'
+---------------------------- Captured stderr setup ----------------------------
+2026-02-24 21:30:04.887 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=16384, M=16)
+______________ TestTierManager.test_retrieval_promotes_from_warm ______________
+tests\test_tier_manager.py:168: in test_retrieval_promotes_from_warm
+    await tier_manager._save_to_warm(n1)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+---------------------------- Captured stderr setup ----------------------------
+2026-02-24 21:30:04.941 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=16384, M=16)
+_________________ TestTierManager.test_consolidation_to_cold __________________
+tests\test_tier_manager.py:183: in test_consolidation_to_cold
+    await tier_manager._save_to_warm(n1)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+---------------------------- Captured stderr setup ----------------------------
+2026-02-24 21:30:04.991 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=16384, M=16)
+=========================== short test summary info ===========================
+FAILED tests/test_anticipatory.py::test_anticipatory_memory - AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+FAILED tests/test_attention_extended.py::TestXORAttentionPropertyBased::test_alpha_beta_valid_combinations - NameError: name 'assume' is not defined
+Falsifying example: test_alpha_beta_valid_combinations(
+    self=<tests.test_attention_extended.TestXORAttentionPropertyBased object at 0x000001CD52C2B250>,
+    alpha=0.0,
+    beta=0.0,
+)
+FAILED tests/test_attention_extended.py::TestXORAttentionPropertyBased::test_various_dimensions - AssertionError: Dimension must be multiple of 8
+Falsifying example: test_various_dimensions(
+    self=<tests.test_attention_extended.TestXORAttentionPropertyBased object at 0x000001CD52C64D60>,
+    dim=513,
+)
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_get_node_state_creates_new - NameError: name 'BinaryHDV' is not defined
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_get_node_state_no_attributes - NameError: name 'BinaryHDV' is not defined
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_retrieval_helpful - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_retrieval_not_helpful - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_with_eig_signal - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_node_ltp_ucb - TypeError: '>=' not supported between instances of 'MagicMock' and 'MagicMock'
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_synapse_to_dict - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_synapse_learning_sequence - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_uncertainty_decreases_with_evidence - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_ucb_exploration_bonus - TypeError: '>' not supported between instances of 'MagicMock' and 'MagicMock'
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_node_retrieval_learning - TypeError: unsupported format string passed to MagicMock.__format__
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_beta_mean_in_range - NameError: name 'assume' is not defined
+Falsifying example: test_beta_mean_in_range(
+    self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52CE0050>,
+    alpha=0.0,
+    beta=0.0,
+)
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_beta_variance_non_negative - ZeroDivisionError: float division by zero
+Falsifying example: test_beta_variance_non_negative(
+    self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52CE0190>,
+    alpha=0.0,
+    beta=5e-324,
+)
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_beta_upper_credible_bounds - ZeroDivisionError: float division by zero
+Falsifying example: test_beta_upper_credible_bounds(
+    self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52C66190>,
+    alpha=0.0,
+    beta=1.5701915041940915e-230,
+)
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_bayesian_state_mean_after_observe - NameError: name 'assume' is not defined
+Falsifying example: test_bayesian_state_mean_after_observe(
+    self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52C66060>,
+    initial_alpha=0.0,
+    initial_beta=0.0,
+)
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_synapse_learning_converges - TypeError: unsupported format string passed to MagicMock.__format__
+Falsifying example: test_synapse_learning_converges(
+    self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CD52CC2E70>,
+    outcomes=[False],
+)
+FAILED tests/test_binary_hdv.py::TestTextEncoder::test_token_caching - AssertionError: assert 'hello' in {}
+ +  where {} = <mnemocore.core.binary_hdv.TextEncoder object at 0x000001CD58B50410>._token_cache
+FAILED tests/test_consolidation_extended.py::TestMergeCluster::test_empty_cluster - IndexError: list index out of range
+FAILED tests/test_eviction_reliability.py::test_eviction_reliability_on_failure - AttributeError: Mock object has no attribute 'tiers_warm'
+FAILED tests/test_eviction_reliability.py::test_demotion_reliability_with_concurrent_access - AttributeError: Mock object has no attribute 'tiers_warm'
+FAILED tests/test_immunology.py::TestBitEntropy::test_entropy_ones_vector - TypeError: BinaryHDV.__init__() missing 1 required positional argument: 'dimension'
+FAILED tests/test_immunology.py::TestBitEntropy::test_entropy_symmetric - TypeError: BinaryHDV.__init__() missing 1 required positional argument: 'dimension'
+FAILED tests/test_immunology.py::TestImmunologyLoopSweep::test_sweep_calls_cleanup_decay - AssertionError: Expected 'cleanup_decay' to be called once. Called 0 times.
+FAILED tests/test_immunology.py::TestImmunologyLoopSweep::test_sweep_returns_stats - ValueError: could not broadcast input array from shape (0,) into shape (128,)
+FAILED tests/test_immunology.py::TestImmunologyLoopBackground::test_loop_runs_periodically - assert 0 >= 2
+FAILED tests/test_immunology.py::TestImmunologyLoopStats::test_stats_includes_last_sweep_time - assert None is not None
+FAILED tests/test_immunology.py::TestImmunologyPropertyBased::test_entropy_always_valid - AssertionError: Dimension must be multiple of 8
+Falsifying example: test_entropy_always_valid(
+    self=<tests.test_immunology.TestImmunologyPropertyBased object at 0x000001CD52D707D0>,
+    dimension=513,
+)
+FAILED tests/test_immunology.py::TestImmunologyPropertyBased::test_sweep_handles_various_node_counts - ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)
+FAILED tests/test_metrics.py::TestTrackLatencyDecorator::test_track_latency_sync_function - AssertionError: Expected 'observe' to have been called.
+FAILED tests/test_metrics.py::TestTrackAsyncLatencyDecorator::test_track_async_latency - AssertionError: Expected 'observe' to have been called.
+FAILED tests/test_metrics.py::TestTimerDecorator::test_timer_records_errors - AttributeError: 'function' object has no attribute 'assert_called'
+FAILED tests/test_phase43_regressions.py::test_tier_manager_search_applies_hot_time_range_filter - AttributeError: property 'hot' of 'TierManager' object has no setter
+FAILED tests/test_recursive_synthesizer_extended.py::TestHeuristicDecomposeExtended::test_multiple_conjunctions - AssertionError: assert 1 >= 2
+ +  where 1 = len(['a and b or c but also d'])
+FAILED tests/test_recursive_synthesizer_extended.py::TestSynthesizerWithSyncLLM::test_sync_llm_synthesis - AssertionError: assert 'No relevant memories found for this query.' == 'LLM generated synthesis'
+  
+  - LLM generated synthesis
+  + No relevant memories found for this query.
+FAILED tests/test_reliability.py::TestNativeCircuitBreaker::test_call_raises_when_open - Failed: DID NOT RAISE <class 'mnemocore.core.exceptions.CircuitOpenError'>
+FAILED tests/test_ripple_context.py::TestRippleChunk::test_score_query_case_insensitive - assert 2.3584905660377355 == 0.0
+FAILED tests/test_router.py::TestCognitiveRouterInitialization::test_custom_threshold - TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+FAILED tests/test_router.py::TestSystem2Reasoning::test_reasoning_with_results - TypeError: object MagicMock can't be used in 'await' expression
+FAILED tests/test_router.py::TestSystem2Reasoning::test_reasoning_empty_results - TypeError: object MagicMock can't be used in 'await' expression
+FAILED tests/test_router.py::TestRouting::test_route_to_system_1 - TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+FAILED tests/test_router.py::TestRouting::test_route_to_system_2 - TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+FAILED tests/test_router.py::TestRouting::test_route_with_context - TypeError: CognitiveRouter.__init__() got an unexpected keyword argument 'complexity_threshold'
+FAILED tests/test_router.py::TestRouterEdgeCases::test_very_long_query - TypeError: object MagicMock can't be used in 'await' expression
+FAILED tests/test_router.py::TestRouterPropertyBased::test_route_never_crashes - TypeError: unsupported format string passed to MagicMock.__format__
+Falsifying example: test_route_never_crashes(
+    self=<tests.test_router.TestRouterPropertyBased object at 0x000001CD52E88550>,
+    query='unknown',
+)
+FAILED tests/test_synapse.py::TestSynapseStrengthDecay::test_zero_half_life - NameError: name 'MagicMock' is not defined
+FAILED tests/test_synapse.py::TestSynapsePropertyBased::test_activation_threshold_logic - assert False is True
+Falsifying example: test_activation_threshold_logic(
+    self=<tests.test_synapse.TestSynapsePropertyBased object at 0x000001CD52E42EA0>,
+    strength=1.0,
+    threshold=1.0,
+)
+FAILED tests/test_tier_conflict.py::test_get_memory_demotion_race_condition - AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+FAILED tests/test_tier_manager.py::TestTierManager::test_eviction_to_warm - AttributeError: 'TierManager' object has no attribute '_prepare_eviction_from_hot'
+FAILED tests/test_tier_manager.py::TestTierManager::test_retrieval_promotes_from_warm - AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+FAILED tests/test_tier_manager.py::TestTierManager::test_consolidation_to_cold - AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+================ 53 failed, 1 passed, 356 deselected in 9.45s =================

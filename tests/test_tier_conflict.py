@@ -21,7 +21,7 @@ async def test_get_memory_demotion_race_condition():
     tier_manager.warm_path = MagicMock() # Mock path to avoid actual IO
     
     # Mock save_to_warm to be slow (simulating IO)
-    original_save = tier_manager._save_to_warm
+    original_save = tier_manager._warm_storage.save
     save_event = asyncio.Event()
     
     async def slow_save(node):
@@ -29,7 +29,7 @@ async def test_get_memory_demotion_race_condition():
         save_event.set()
         return True
         
-    tier_manager._save_to_warm = AsyncMock(side_effect=slow_save)
+    tier_manager._warm_storage.save = AsyncMock(side_effect=slow_save)
     tier_manager._remove_from_faiss = MagicMock()
     
     # Create a HOT node
@@ -77,7 +77,7 @@ async def test_get_memory_demotion_race_condition():
     # Wait for the background task/await to finish
     # In the current implementation, get_memory AWAITS the save, so it should be done.
     
-    assert tier_manager._save_to_warm.called, "Should have called save_to_warm"
+    assert tier_manager._warm_storage.save.called, "Should have called save_to_warm"
     
     # Check that it was removed from hot
     async with tier_manager.lock:

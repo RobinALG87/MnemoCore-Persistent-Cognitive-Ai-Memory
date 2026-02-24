@@ -1,0 +1,38 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-8.4.2, pluggy-1.6.0 -- C:\Users\Robin\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
+configfile: pytest.ini
+plugins: anyio-4.11.0, hypothesis-6.151.9, langsmith-0.4.32, locust-2.43.0, asyncio-1.2.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 47 items / 46 deselected / 1 selected
+run-last-failure: rerun previous 1 failure
+
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_synapse_learning_converges FAILED [100%]
+
+================================== FAILURES ===================================
+________ TestBayesianLTPPropertyBased.test_synapse_learning_converges _________
+tests\test_bayesian_ltp.py:568: in test_synapse_learning_converges
+    def test_synapse_learning_converges(self, outcomes):
+               ^^^^^^^
+tests\test_bayesian_ltp.py:587: in test_synapse_learning_converges
+    assert abs(synapse.strength - success_rate) <= 0.3
+E   AssertionError: assert 0.5 <= 0.3
+E    +  where 0.5 = abs((0.5 - 1.0))
+E    +    where 0.5 = <MagicMock id='1973487300832'>.strength
+E   Falsifying example: test_synapse_learning_converges(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CB78BB4170>,
+E       outcomes=[True],
+E   )
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:04:53.172 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1973487298144'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1973487299488'>) Bayesian update \u2014 success=True \u03b1=2.00 \u03b2=2.00 \u2192 p_mean=0.5000 \xb1 0.2236\n2026-02-24 22:04:53.185 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1973487302176'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1973487303520'>) Bayesian update \u2014 success=True \u03b1=2.00 \u03b2=2.00 \u2192 p_mean=0.5000 \xb1 0.2236
+=========================== short test summary info ===========================
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_synapse_learning_converges - AssertionError: assert 0.5 <= 0.3
+ +  where 0.5 = abs((0.5 - 1.0))
+ +    where 0.5 = <MagicMock id='1973487300832'>.strength
+Falsifying example: test_synapse_learning_converges(
+    self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x000001CB78BB4170>,
+    outcomes=[True],
+)
+====================== 1 failed, 46 deselected in 6.03s =======================

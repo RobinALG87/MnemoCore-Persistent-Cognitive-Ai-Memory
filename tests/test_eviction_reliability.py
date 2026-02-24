@@ -26,6 +26,8 @@ def mock_config():
     cfg.hysteresis = MagicMock()
     cfg.hysteresis.promote_delta = 0.1
     cfg.hysteresis.demote_delta = 0.1
+    cfg.tiers_warm = MagicMock()
+    cfg.tiers_warm.eviction_policy = "lru"
     cfg.paths = MagicMock()
     cfg.paths.data_dir = str(test_dir)
     cfg.paths.warm_mmap_dir = str(test_dir / "warm")
@@ -60,9 +62,9 @@ async def test_eviction_reliability_on_failure(mock_config):
     # Add third memory - should trigger eviction of node1 (lowest LTP default)
     node3 = MemoryNode(id="node3", hdv=BinaryHDV.random(16384), content="test3")
     
-    # Simulate total failure (Qdrant fails, and we force _save_to_warm to return False)
+    # Simulate total failure (Qdrant fails, and we force _warm_storage.save to return False)
     # This verifies the logic in add_memory that checks the return value.
-    with patch.object(TierManager, '_save_to_warm', return_value=False):
+    with patch.object(tm._warm_storage, 'save', return_value=False):
         await tm.add_memory(node3)
     
     # Verify node1 is still in HOT because save failed
@@ -97,7 +99,7 @@ async def test_demotion_reliability_with_concurrent_access(mock_config):
     demote_candidate.tier = "warm"
     
     # Logic from tier_manager.py:252+
-    await tm._save_to_warm(demote_candidate)
+    await tm._warm_storage.save(demote_candidate)
     
     async with tm.lock:
         if demote_candidate.id in tm.hot:

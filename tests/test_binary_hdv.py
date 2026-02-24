@@ -307,6 +307,7 @@ class TestTextEncoder:
 
     def test_token_caching(self):
         enc = TextEncoder(dimension=D)
+        enc.persistent_cache = None
         enc.encode("hello world")
         assert "hello" in enc._token_cache
         assert "world" in enc._token_cache

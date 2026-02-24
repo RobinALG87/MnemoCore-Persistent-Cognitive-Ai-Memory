@@ -447,7 +447,7 @@ class TestAsyncLockPatternIntegration:
             # Create test nodes
             nodes = []
             for i in range(10):
-                hdv = BinaryHDV.random(1024)
+                hdv = BinaryHDV.random(16384)
                 node = MemoryNode(
                     id=f"test_node_{i}",
                     hdv=hdv,

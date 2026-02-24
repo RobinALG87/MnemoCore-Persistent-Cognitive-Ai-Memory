@@ -70,7 +70,7 @@ class TestLTPCalculation:
         # Create a node
         node = MemoryNode(
             id="test1",
-            hdv=BinaryHDV.random(1024),
+            hdv=BinaryHDV.random(16384),
             content="test content"
         )
         
@@ -86,7 +86,7 @@ class TestLTPCalculation:
     def test_ltp_decay_with_time(self):
         node = MemoryNode(
             id="test2",
-            hdv=BinaryHDV.random(1024),
+            hdv=BinaryHDV.random(16384),
             content="test content",
             created_at=datetime.now(timezone.utc) - timedelta(days=10)
         )
@@ -97,7 +97,7 @@ class TestLTPCalculation:
         # Compare with fresh node (same access count)
         node_fresh = MemoryNode(
             id="test3",
-            hdv=BinaryHDV.random(1024),
+            hdv=BinaryHDV.random(16384),
             content="test content"
         )
         ltp_fresh = node_fresh.calculate_ltp()
@@ -108,7 +108,7 @@ class TestLTPCalculation:
 @pytest.mark.asyncio
 class TestTierManager:
     async def test_add_memory_goes_to_hot(self, tier_manager):
-        node = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
+        node = MemoryNode(id="n1", hdv=BinaryHDV.random(16384), content="c1")
         await tier_manager.add_memory(node)
         
         # Check safely using new snapshot method or internal access
@@ -121,10 +121,10 @@ class TestTierManager:
         # Let's mock the config or just test eviction directly.
 
         # Add two nodes
-        n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
+        n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(16384), content="c1")
         n1.ltp_strength = 0.1 # Low
 
-        n2 = MemoryNode(id="n2", hdv=BinaryHDV.random(1024), content="c2")
+        n2 = MemoryNode(id="n2", hdv=BinaryHDV.random(16384), content="c2")
         n2.ltp_strength = 0.9 # High
 
         await tier_manager.add_memory(n1)
@@ -132,9 +132,9 @@ class TestTierManager:
 
         # Force eviction of lowest LTP (n1) - use new two-phase method
         async with tier_manager.lock:
-            victim = tier_manager._prepare_eviction_from_hot()
+            victim = tier_manager._eviction_manager.select_hot_victim(list(tier_manager.hot.values()))
         if victim:
-            save_ok = await tier_manager._save_to_warm(victim)
+            save_ok = await tier_manager._warm_storage.save(victim)
             if save_ok:
                 async with tier_manager.lock:
                     if victim.id in tier_manager.hot:
@@ -159,13 +159,13 @@ class TestTierManager:
 
     async def test_retrieval_promotes_from_warm(self, tier_manager):
         # Setup: n1 in WARM with high LTP
-        n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
+        n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(16384), content="c1")
         n1.tier = "warm"
         n1.access_count = 10 # Ensure LTP calculation yields high value (> 0.85)
         n1.ltp_strength = 0.95 # Should trigger promotion (> 0.7 + 0.15 = 0.85)
         
         # Save to WARM manually
-        await tier_manager._save_to_warm(n1)
+        await tier_manager._warm_storage.save(n1)
         
         # Retrieve
         retrieved = await tier_manager.get_memory("n1")
@@ -178,9 +178,9 @@ class TestTierManager:
 
     async def test_consolidation_to_cold(self, tier_manager):
         # Setup: n1 in WARM with very low LTP
-        n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(1024), content="c1")
+        n1 = MemoryNode(id="n1", hdv=BinaryHDV.random(16384), content="c1")
         n1.ltp_strength = 0.05 # < 0.3 threshold
-        await tier_manager._save_to_warm(n1)
+        await tier_manager._warm_storage.save(n1)
         
         # Run consolidation
         await tier_manager.consolidate_warm_to_cold()

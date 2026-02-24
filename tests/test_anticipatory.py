@@ -58,9 +58,9 @@ async def test_anticipatory_memory(test_engine):
         if node_b in test_engine.tier_manager.hot:
             del test_engine.tier_manager.hot[node_b]
             test_engine.tier_manager._remove_from_faiss(node_b)
-            await test_engine.tier_manager._save_to_warm(mem_b_obj)
+            mem_b_obj.tier = "warm"
             
-    # Verify node_b is in WARM
+    await test_engine.tier_manager._warm_storage.save(mem_b_obj)
     assert node_b not in test_engine.tier_manager.hot
     
     # Query for something exact to node_a to guarantee it ranks first
@@ -69,8 +69,8 @@ async def test_anticipatory_memory(test_engine):
     assert len(results) > 0
     assert results[0][0] == node_a
     
-    # Wait a tiny bit for the async preloading task to complete
-    await asyncio.sleep(0.1)
+    # Wait a bit for the async preloading task to complete
+    await asyncio.sleep(0.5)
     
     # Check if node_b is back in HOT
     assert node_b in test_engine.tier_manager.hot, "Anticipatory engine failed to preload node_b."

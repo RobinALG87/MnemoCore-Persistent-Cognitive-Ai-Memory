@@ -165,6 +165,8 @@ class SemanticConsolidator:
         Returns:
             Tuple of (representative MemoryNode, list of pruned node IDs).
         """
+        if not cluster:
+            return None, []
         if len(cluster) < 2:
             return cluster[0], []
 

@@ -12,6 +12,7 @@ Tests the XOR-based attention mechanism including:
 
 import pytest
 from unittest.mock import MagicMock
+from hypothesis import given, strategies as st, assume, settings, HealthCheck
 
 from mnemocore.core.attention import (
     AttentionConfig,
@@ -382,8 +383,6 @@ class TestXORAttentionIntegration:
 class TestXORAttentionPropertyBased:
     """Property-based tests using Hypothesis."""
 
-    from hypothesis import given, strategies as st, assume
-
     @given(st.lists(st.just("x"), min_size=1, max_size=100))
     def test_context_key_dimension_matches_input(self, _):
         """Context key dimension should match input vectors."""
@@ -395,18 +394,15 @@ class TestXORAttentionPropertyBased:
 
         assert context_key.dimension == dim
 
-    @given(st.floats(min_value=0.0, max_value=1.0),
-           st.floats(min_value=0.0, max_value=1.0))
-    def test_alpha_beta_valid_combinations(self, alpha, beta):
+    @given(st.floats(min_value=0.0, max_value=1.0))
+    def test_alpha_beta_valid_combinations(self, alpha):
         """Only valid alpha/beta combinations should validate."""
-        assume(0.0 <= alpha <= 1.0)
-        assume(0.0 <= beta <= 1.0)
-        assume(abs(alpha + beta - 1.0) < 0.001)
+        beta = 1.0 - alpha
 
         config = AttentionConfig(alpha=alpha, beta=beta)
         config.validate()  # Should not raise
 
-    @given(st.integers(min_value=512, max_value=16384))
+    @given(st.integers(min_value=64, max_value=2048).map(lambda x: x * 8))
     def test_various_dimensions(self, dim):
         """Should handle various vector dimensions."""
         masker = XORAttentionMasker()

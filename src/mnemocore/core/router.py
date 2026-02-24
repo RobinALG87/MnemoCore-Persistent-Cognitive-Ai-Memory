@@ -19,9 +19,9 @@ class CognitiveRouter:
     System 2: Analytical, epistemic search, heavy reasoning.
     """
 
-    def __init__(self, engine: HAIMEngine):
+    def __init__(self, engine: HAIMEngine, complexity_threshold: float = 0.6):
         self.engine = engine
-        self.complexity_threshold = 0.6  # Threshold for switching to Sys2
+        self.complexity_threshold = complexity_threshold  # Threshold for switching to Sys2
 
     async def route(self, impulse: str, context: dict = None) -> Tuple[str, Dict[str, Any]]:
         """

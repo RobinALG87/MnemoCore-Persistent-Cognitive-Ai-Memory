@@ -117,6 +117,7 @@ class TestNativeCircuitBreaker:
         breaker = NativeCircuitBreaker(2, 60, "Test")
         breaker.state = "open"
         breaker.failures = 2
+        breaker.last_failure_time = time.time()  # Prevent early transition to half-open state
 
         async_func = AsyncMock(return_value="success")
 

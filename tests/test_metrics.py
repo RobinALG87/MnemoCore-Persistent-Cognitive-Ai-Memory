@@ -164,6 +164,7 @@ class TestOpenTelemetryInit:
             result = init_opentelemetry()
             assert result is None
 
+    @pytest.mark.skipif(not OTEL_AVAILABLE, reason="OTEL not installed")
     def test_init_with_console_exporter(self):
         """Should initialize with console exporter when available."""
         with patch('mnemocore.core.metrics.OTEL_AVAILABLE', True):
@@ -173,6 +174,7 @@ class TestOpenTelemetryInit:
             else:
                 assert result is None
 
+    @pytest.mark.skipif(not OTEL_AVAILABLE, reason="OTEL not installed")
     def test_init_with_otlp_exporter(self):
         """Should handle OTLP exporter."""
         with patch('mnemocore.core.metrics.OTEL_AVAILABLE', True):
@@ -182,6 +184,7 @@ class TestOpenTelemetryInit:
             else:
                 assert result is None
 
+    @pytest.mark.skipif(not OTEL_AVAILABLE, reason="OTEL not installed")
     def test_init_with_custom_service_name(self):
         """Should use custom service name."""
         with patch('mnemocore.core.metrics.OTEL_AVAILABLE', True):
@@ -247,7 +250,7 @@ class TestTrackLatencyDecorator:
         result = test_func()
 
         assert result == "result"
-        metric.observe.assert_called()
+        metric.labels.return_value.observe.assert_called()
 
     def test_track_latency_without_labels(self):
         """Should work without labels."""
@@ -295,7 +298,7 @@ class TestTrackAsyncLatencyDecorator:
         result = await test_func()
 
         assert result == "async_result"
-        metric.observe.assert_called()
+        metric.labels.return_value.observe.assert_called()
 
     @pytest.mark.asyncio
     async def test_track_async_latency_preserves_exception(self):
@@ -348,6 +351,7 @@ class TestTimerDecorator:
     async def test_timer_records_errors(self):
         """Should record errors."""
         metric = MagicMock()
+        initial = ERROR_TOTAL.labels(error_type="ValueError")._value.get()
 
         @timer(metric)
         async def test_func():
@@ -357,7 +361,7 @@ class TestTimerDecorator:
             await test_func()
 
         # Should have recorded error
-        ERROR_TOTAL.labels.assert_called()
+        assert ERROR_TOTAL.labels(error_type="ValueError")._value.get() > initial
 
     @pytest.mark.asyncio
     async def test_timer_with_trace_id(self):

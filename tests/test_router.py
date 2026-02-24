@@ -22,14 +22,14 @@ class TestCognitiveRouterInitialization:
 
     def test_initialization(self):
         """Router should initialize with engine."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         router = CognitiveRouter(mock_engine)
         assert router.engine == mock_engine
         assert router.complexity_threshold == 0.6
 
     def test_custom_threshold(self):
         """Should accept custom complexity threshold."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         router = CognitiveRouter(mock_engine, complexity_threshold=0.7)
         assert router.complexity_threshold == 0.7
 
@@ -40,7 +40,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_empty_query(self):
         """Empty query should have low complexity."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         router = CognitiveRouter(mock_engine)
         complexity = await router._assess_complexity("")
         assert 0.0 <= complexity <= 1.0
@@ -48,7 +48,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_short_query(self):
         """Short query should have low complexity."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         router = CognitiveRouter(mock_engine)
         complexity = await router._assess_complexity("test")
         assert complexity < 0.5  # Should be below threshold
@@ -56,7 +56,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_length_heuristic(self):
         """Long queries should get complexity boost."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -72,7 +72,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_complex_markers(self):
         """Queries with complex markers should get boost."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -88,7 +88,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_uncertainty_markers(self):
         """Uncertainty markers should increase complexity."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -102,7 +102,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_familiarity_reduction(self):
         """Familiar topics should have lower complexity."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         # High similarity result = familiar
         mock_engine.query = AsyncMock(return_value=[("node1", 0.9)])
         router = CognitiveRouter(mock_engine)
@@ -118,7 +118,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_novelty_boost(self):
         """Novel (no results) queries should get complexity boost."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -129,7 +129,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_complexity_clamped(self):
         """Complexity should always be in [0, 1]."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -142,7 +142,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_handles_mnemo_core_error(self):
         """Should handle domain errors gracefully."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(side_effect=MnemoCoreError("test error"))
         router = CognitiveRouter(mock_engine)
 
@@ -153,7 +153,7 @@ class TestComplexityAssessment:
     @pytest.mark.asyncio
     async def test_handles_generic_exception(self):
         """Should handle unexpected errors gracefully."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(side_effect=RuntimeError("unexpected"))
         router = CognitiveRouter(mock_engine)
 
@@ -168,7 +168,7 @@ class TestSystem1Reflex:
     @pytest.mark.asyncio
     async def test_reflex_with_results(self):
         """Reflex should return quick answer from memory."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_node = MagicMock()
         mock_node.content = "Remembered fact"
         mock_engine.query = AsyncMock(return_value=[("node1", 0.9)])
@@ -183,7 +183,7 @@ class TestSystem1Reflex:
     @pytest.mark.asyncio
     async def test_reflex_no_results(self):
         """Reflex should indicate no immediate match."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         mock_engine.get_memory = AsyncMock(return_value=None)
 
@@ -195,7 +195,7 @@ class TestSystem1Reflex:
     @pytest.mark.asyncio
     async def test_reflex_uses_top_result(self):
         """Reflex should use the top scoring result."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_node = MagicMock()
         mock_node.content = "Top result content"
         mock_engine.query = AsyncMock(return_value=[
@@ -213,7 +213,7 @@ class TestSystem1Reflex:
     @pytest.mark.asyncio
     async def test_reflex_handles_missing_node(self):
         """Reflex should handle when get_memory returns None."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[("node1", 0.9)])
         mock_engine.get_memory = AsyncMock(return_value=None)
 
@@ -230,7 +230,7 @@ class TestSystem2Reasoning:
     @pytest.mark.asyncio
     async def test_reasoning_with_results(self):
         """Reasoning should analyze multiple results."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
 
         nodes = []
         for i in range(3):
@@ -252,7 +252,7 @@ class TestSystem2Reasoning:
     @pytest.mark.asyncio
     async def test_reasoning_with_epistemic_drive(self):
         """Reasoning should include EIG when active."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.epistemic_drive_active = True
         mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
 
@@ -279,7 +279,7 @@ class TestSystem2Reasoning:
     @pytest.mark.asyncio
     async def test_reasoning_with_working_memory(self):
         """Reasoning should use working memory context if provided."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.epistemic_drive_active = True
         mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine.calculate_eig = MagicMock(return_value=0.5)
@@ -302,7 +302,7 @@ class TestSystem2Reasoning:
     @pytest.mark.asyncio
     async def test_reasoning_empty_results(self):
         """Reasoning should handle empty results."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
 
         router = CognitiveRouter(mock_engine)
@@ -318,7 +318,7 @@ class TestRouting:
     @pytest.mark.asyncio
     async def test_route_to_system_1(self):
         """Low complexity should route to System 1."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[("node1", 0.9)])
         mock_node = MagicMock()
         mock_node.content = "Simple answer"
@@ -333,7 +333,7 @@ class TestRouting:
     @pytest.mark.asyncio
     async def test_route_to_system_2(self):
         """High complexity should route to System 2."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine._current_context_vector = AsyncMock(return_value=BinaryHDV.random(1024))
@@ -347,7 +347,7 @@ class TestRouting:
     @pytest.mark.asyncio
     async def test_route_includes_timing(self):
         """Route should include duration in debug info."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -360,7 +360,7 @@ class TestRouting:
     @pytest.mark.asyncio
     async def test_route_includes_complexity(self):
         """Route should include complexity score in debug info."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -372,7 +372,7 @@ class TestRouting:
     @pytest.mark.asyncio
     async def test_route_with_context(self):
         """Route should pass context to System 2."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine._current_context_vector = AsyncMock(return_value=BinaryHDV.random(1024))
@@ -391,7 +391,7 @@ class TestRouterEdgeCases:
     @pytest.mark.asyncio
     async def test_unicode_query(self):
         """Should handle Unicode characters."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -403,7 +403,7 @@ class TestRouterEdgeCases:
     @pytest.mark.asyncio
     async def test_very_long_query(self):
         """Should handle very long queries."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -416,7 +416,7 @@ class TestRouterEdgeCases:
     @pytest.mark.asyncio
     async def test_special_characters(self):
         """Should handle special characters."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -435,7 +435,7 @@ class TestRouterPropertyBased:
     @given(st.text(min_size=1, max_size=200))
     async def test_complexity_always_valid(self, query):
         """Complexity should always be in valid range."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         router = CognitiveRouter(mock_engine)
 
@@ -446,7 +446,7 @@ class TestRouterPropertyBased:
     @given(st.text(min_size=1, max_size=100))
     async def test_route_never_crashes(self, query):
         """Route should never crash on any input."""
-        mock_engine = MagicMock()
+        mock_engine = MagicMock(epistemic_drive_active=False)
         mock_engine.query = AsyncMock(return_value=[])
         mock_engine.encode_content = MagicMock(return_value=BinaryHDV.random(1024))
         mock_engine._current_context_vector = AsyncMock(return_value=BinaryHDV.random(1024))

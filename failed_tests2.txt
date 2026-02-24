@@ -1,0 +1,105 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-8.4.2, pluggy-1.6.0 -- C:\Users\Robin\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\Robin\MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
+configfile: pytest.ini
+plugins: anyio-4.11.0, hypothesis-6.151.9, langsmith-0.4.32, locust-2.43.0, asyncio-1.2.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 119 items / 111 deselected / 8 selected
+run-last-failure: rerun previous 8 failures (skipped 64 files)
+
+tests/test_anticipatory.py::test_anticipatory_memory FAILED              [ 12%]
+tests/test_attention_extended.py::TestXORAttentionPropertyBased::test_alpha_beta_valid_combinations FAILED [ 25%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_with_eig_signal FAILED [ 37%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_synapse_learning_sequence FAILED [ 50%]
+tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_ucb_exploration_bonus FAILED [ 62%]
+tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_synapse_learning_converges FAILED [ 75%]
+tests/test_binary_hdv.py::TestTextEncoder::test_token_caching FAILED     [ 87%]
+tests/test_tier_conflict.py::test_get_memory_demotion_race_condition FAILED [100%]
+
+================================== FAILURES ===================================
+__________________________ test_anticipatory_memory ___________________________
+tests\test_anticipatory.py:58: in test_anticipatory_memory
+    if node_b.id in test_engine.tier_manager.hot:
+       ^^^^^^^^^
+E   AttributeError: 'str' object has no attribute 'id'
+---------------------------- Captured stderr setup ----------------------------
+2026-02-24 22:03:08.987 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=1024, M=16)
+2026-02-24 22:03:08.989 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+2026-02-24 22:03:08.999 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:03:09.997 | INFO     | mnemocore.core.synapse_index:load_from_file:335 - SynapseIndex loaded 417 edges from ./data/synapses.json\n2026-02-24 22:03:09.997 | INFO     | mnemocore.core.semantic_consolidation:start:157 - SemanticConsolidationWorker started \u2014 runs at 03:00 UTC\n2026-02-24 22:03:09.998 | INFO     | mnemocore.core.immunology:start:121 - ImmunologyLoop started \u2014 sweep every 300.0s\n2026-02-24 22:03:10.000 | INFO     | mnemocore.core.subconscious_ai:__init__:364 - SubconsciousAIWorker created (provider=ollama, model=phi3.5:latest, enabled=True)\n2026-02-24 22:03:10.001 | DEBUG    | mnemocore.utils.process:lower_process_priority:18 - Lowered Windows process priority to BELOW_NORMAL\n2026-02-24 22:03:10.001 | INFO     | mnemocore.core.subconscious_ai:start:423 - [Phase 4.4 BETA] SubconsciousAI started (interval=120s, dry_run=False)\n2026-02-24 22:03:10.001 | INFO     | mnemocore.core.engine_lifecycle:initialize:114 - Phase 4.4 SubconsciousAI worker started (BETA).\n2026-02-24 22:03:10.001 | INFO     | mnemocore.core.engine_lifecycle:initialize:118 - Phase 4.0 background workers started (consolidation + immunology).\n2026-02-24 22:03:10.002 | DEBUG    | mnemocore.core.semantic_consolidation:_schedule_loop:179 - Next semantic consolidation in 5.9h\n2026-02-24 22:03:10.105 | DEBUG    | mnemocore.core.subconscious_ai:_run_cycle:513 - [SubconsciousAI] Cycle 1 (dreaming) completed in 2ms\n2026-02-24 22:03:10.116 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.0000\n2026-02-24 22:03:10.116 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 1 co-retrieved memories\n2026-02-24 22:03:10.118 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.0000\n2026-02-24 22:03:10.119 | DEBUG    | mnemocore.core.engine_core:event_bus:197 - [EngineCore] EventBus initialized\n2026-02-24 22:03:10.119 | DEBUG    | mnemocore.core.engine_core:store:529 - Added memory 8489356c-9990-4b4c-872d-1c21e005a607 to association network\n2026-02-24 22:03:10.119 | INFO     | mnemocore.core.engine_core:store:536 - Stored memory 8489356c-9990-4b4c-872d-1c21e005a607 (EIG: 0.4805)\n2026-02-24 22:03:10.120 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 1 co-retrieved memories\n2026-02-24 22:03:10.125 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.2510\n2026-02-24 22:03:10.125 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 2 co-retrieved memories\n2026-02-24 22:03:10.126 | DEBUG    | mnemocore.core.attention:build_attention_mask:106 - Built XOR attention mask \u2014 query/context Hamming dist = 0.2510\n2026-02-24 22:03:10.127 | DEBUG    | mnemocore.core.synapse_index:add_or_fire:100 - Synapse created: 8489356c \u2194 944f072c\n2026-02-24 22:03:10.127 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (8489356c\u2194944f072c) Bayesian update \u2014 success=True \u03b1=2.00 \u03b2=2.00 \u2192 p_mean=0.5000 \xb1 0.2236\n2026-02-24 22:03:10.127 | DEBUG    | mnemocore.core.anticipatory:predict_and_preload:48 - Anticipatory engine pre-loading 1 predicted nodes.\n2026-02-24 22:03:10.127 | DEBUG    | mnemocore.core.engine_core:_strengthen_recall_associations:811 - Strengthened associations for 2 co-retrieved memories\n2026-02-24 22:03:10.131 | DEBUG    | mnemocore.core.engine_core:store:529 - Added memory 944f072c-46f4-45f4-9090-79e20e2b243c to association network\n2026-02-24 22:03:10.131 | INFO     | mnemocore.core.engine_core:store:536 - Stored memory 944f072c-46f4-45f4-9090-79e20e2b243c (EIG: 0.5039)\n2026-02-24 22:03:10.131 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (8489356c\u2194944f072c) Bayesian update \u2014 success=True \u03b1=3.00 \u03b2=2.00 \u2192 p_mean=0.6000 \xb1 0.2000
+______ TestXORAttentionPropertyBased.test_alpha_beta_valid_combinations _______
+tests\test_attention_extended.py:398: in test_alpha_beta_valid_combinations
+    st.floats(min_value=0.0, max_value=1.0))
+        ^^^^^^^
+E   hypothesis.errors.FailedHealthCheck: Input generation is slow: Hypothesis only generated 0 valid inputs after 1.21 seconds (6 invalid inputs).
+E   
+E             count | fraction |    slowest draws (seconds)
+E     beta  |    6  |    100%  |      --      --      --      --   1.208
+E     alpha |    6  |      0%  |      --      --      --      --      -- 
+E   
+E   This could be for a few reasons:
+E   1. This strategy could be generating too much data per input. Try decreasing the amount of data generated, for example by decreasing the minimum size of collection strategies like st.lists().
+E   2. Some other expensive computation could be running during input generation. For example, if @st.composite or st.data() is interspersed with an expensive computation, HealthCheck.too_slow is likely to trigger. If this computation is unrelated to input generation, move it elsewhere. Otherwise, try making it more efficient, or disable this health check if that is not possible.
+E   
+E   If you expect input generation to take this long, you can disable this health check with @settings(suppress_health_check=[HealthCheck.too_slow]). See https://hypothesis.readthedocs.io/en/latest/reference/api.html#hypothesis.HealthCheck for details.
+--------------------------------- Hypothesis ----------------------------------
+You can add @seed(2073935347167544028061144880153093601) to this test or run pytest with --hypothesis-seed=2073935347167544028061144880153093601 to reproduce this failure.
+__________ TestBayesianLTPUpdater.test_observe_node_with_eig_signal ___________
+tests\test_bayesian_ltp.py:355: in test_observe_node_with_eig_signal
+    assert high_eig_strength > low_eig_strength
+E   assert 0.6153846153846154 > 0.625
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:03:11.596 | DEBUG    | mnemocore.core.bayesian_ltp:observe_node_retrieval:220 - Node test_id Bayesian retrieval update \u2014 helpful=True eig=0.900 \u2192 ltp=0.6154\n2026-02-24 22:03:11.597 | DEBUG    | mnemocore.core.bayesian_ltp:observe_node_retrieval:220 - Node test_id Bayesian retrieval update \u2014 helpful=True eig=0.100 \u2192 ltp=0.6250
+______ TestBayesianLTPUpdaterIntegration.test_synapse_learning_sequence _______
+tests\test_bayesian_ltp.py:429: in test_synapse_learning_sequence
+    assert 0.6 < synapse.strength < 0.8
+E   AssertionError: assert 0.6 < 0.6
+E    +  where 0.6 = <MagicMock id='1525635464704'>.strength
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:03:11.616 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=True \u03b1=2.00 \u03b2=2.00 \u2192 p_mean=0.5000 \xb1 0.2236\n2026-02-24 22:03:11.616 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=True \u03b1=3.00 \u03b2=2.00 \u2192 p_mean=0.6000 \xb1 0.2000\n2026-02-24 22:03:11.617 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=True \u03b1=4.00 \u03b2=2.00 \u2192 p_mean=0.6667 \xb1 0.1782\n2026-02-24 22:03:11.617 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=False \u03b1=4.00 \u03b2=3.00 \u2192 p_mean=0.5714 \xb1 0.1750\n2026-02-24 22:03:11.617 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=True \u03b1=5.00 \u03b2=3.00 \u2192 p_mean=0.6250 \xb1 0.1614\n2026-02-24 22:03:11.617 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=True \u03b1=6.00 \u03b2=3.00 \u2192 p_mean=0.6667 \xb1 0.1491\n2026-02-24 22:03:11.617 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525635463696'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653003568'>) Bayesian update \u2014 success=False \u03b1=6.00 \u03b2=4.00 \u2192 p_mean=0.6000 \xb1 0.1477
+________ TestBayesianLTPUpdaterIntegration.test_ucb_exploration_bonus _________
+tests\test_bayesian_ltp.py:478: in test_ucb_exploration_bonus
+    assert ucb_uncertain > ucb_certain
+E   assert 1.0 > 1.0
+________ TestBayesianLTPPropertyBased.test_synapse_learning_converges _________
+tests\test_bayesian_ltp.py:569: in test_synapse_learning_converges
+    def test_synapse_learning_converges(self, outcomes):
+               ^^^^^^^
+tests\test_bayesian_ltp.py:588: in test_synapse_learning_converges
+    assert abs(synapse.strength - success_rate) < 0.2
+E   AssertionError: assert 0.25 < 0.2
+E    +  where 0.25 = abs((0.25 - 0.0))
+E    +    where 0.25 = <MagicMock id='1525653011632'>.strength
+E   Falsifying example: test_synapse_learning_converges(
+E       self=<tests.test_bayesian_ltp.TestBayesianLTPPropertyBased object at 0x00000163322C30B0>,
+E       outcomes=[False],
+E   )
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:03:11.653 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525653008944'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525653010288'>) Bayesian update \u2014 success=False \u03b1=1.00 \u03b2=3.00 \u2192 p_mean=0.2500 \xb1 0.1936\n2026-02-24 22:03:11.666 | DEBUG    | mnemocore.core.bayesian_ltp:observe_synapse:171 - Synapse (<MagicMock name='mock.neuron_a_id.__getitem__()' id='1525657338272'>\u2194<MagicMock name='mock.neuron_b_id.__getitem__()' id='1525657339616'>) Bayesian update \u2014 success=False \u03b1=1.00 \u03b2=3.00 \u2192 p_mean=0.2500 \xb1 0.1936
+_____________________ TestTextEncoder.test_token_caching ______________________
+tests\test_binary_hdv.py:311: in test_token_caching
+    assert "hello" in enc._token_cache
+E   AssertionError: assert 'hello' in {}
+E    +  where {} = <mnemocore.core.binary_hdv.TextEncoder object at 0x0000016338074190>._token_cache
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:03:11.706 | INFO     | mnemocore.core.binary_hdv:__init__:541 - Persistent vector cache enabled at ./data/vector_cache.sqlite
+___________________ test_get_memory_demotion_race_condition ___________________
+tests\test_tier_conflict.py:24: in test_get_memory_demotion_race_condition
+    original_save = tier_manager._save_to_warm
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'TierManager' object has no attribute '_save_to_warm'
+---------------------------- Captured stderr call -----------------------------
+2026-02-24 22:03:11.738 | INFO     | mnemocore.core.tier_manager:_init_hnsw_index:135 - HNSWIndexManager initialized for HOT tier (dim=16384, M=16)
+=========================== short test summary info ===========================
+FAILED tests/test_anticipatory.py::test_anticipatory_memory - AttributeError:...
+FAILED tests/test_attention_extended.py::TestXORAttentionPropertyBased::test_alpha_beta_valid_combinations
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdater::test_observe_node_with_eig_signal
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_synapse_learning_sequence
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPUpdaterIntegration::test_ucb_exploration_bonus
+FAILED tests/test_bayesian_ltp.py::TestBayesianLTPPropertyBased::test_synapse_learning_converges
+FAILED tests/test_binary_hdv.py::TestTextEncoder::test_token_caching - Assert...
+FAILED tests/test_tier_conflict.py::test_get_memory_demotion_race_condition
+====================== 8 failed, 111 deselected in 9.88s ======================

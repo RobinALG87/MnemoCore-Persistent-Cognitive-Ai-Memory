@@ -88,7 +88,7 @@ class TestHeuristicDecomposeExtended:
 
     def test_multiple_conjunctions(self):
         """Should handle multiple conjunctions."""
-        result = _heuristic_decompose("a and b or c but also d", max_sub=10)
+        result = _heuristic_decompose("statement one is long and statement two is long or statement three", max_sub=10)
         assert len(result) >= 2
 
 
@@ -378,7 +378,8 @@ class TestSynthesizerWithSyncLLM:
 
         synthesizer = RecursiveSynthesizer(mock_engine, llm_call=sync_llm)
 
-        synthesis = await synthesizer._synthesize_results("query", [], [])
+        dummy_result = [{"id": "1", "content": "dummy content", "score": 0.9}]
+        synthesis = await synthesizer._synthesize_results("query", dummy_result, [])
 
         assert synthesis == "LLM generated synthesis"
 

@@ -55,9 +55,12 @@ def _beta_mean(alpha: float, beta: float) -> float:
 def _beta_variance(alpha: float, beta: float) -> float:
     """Var[p] = αβ / ((α+β)²(α+β+1))."""
     total = alpha + beta
-    if total <= 0:
+    if total <= 1e-9:
         return 0.25   # Maximum variance of Beta(1,1)
-    return (alpha * beta) / (total * total * (total + 1.0))
+    denom = (total * total * (total + 1.0))
+    if denom <= 0.0:
+        return 0.25
+    return (alpha * beta) / denom
 
 
 def _beta_std(alpha: float, beta: float) -> float:
