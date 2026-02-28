@@ -363,6 +363,81 @@ class PulseConfig:
     max_episodes_per_tick: int = 200
 
 
+@dataclass(frozen=True)
+class StrategyBankConfig:
+    """
+    Configuration for Closed-Loop Strategy Memory.
+
+    Implements ReasoningBank (arXiv 2502.12110) + A-MEM cycle:
+    Retrieve → Execute → Judge → Distill → Store.
+    """
+    enabled: bool = True
+    max_strategies: int = 10000
+    balance_ratio: float = 0.6                # Positive/negative exemplar ratio
+    prune_threshold: float = 0.05             # Min confidence to keep strategy
+    decay_rate: float = 0.005                 # Per-tick confidence decay
+    judge_relevance_weight: float = 0.4
+    judge_completeness_weight: float = 0.25
+    judge_freshness_weight: float = 0.15
+    judge_actionability_weight: float = 0.2
+    persistence_path: Optional[str] = None
+    auto_persist: bool = True
+
+
+@dataclass(frozen=True)
+class KnowledgeGraphConfig:
+    """
+    Configuration for Bidirectional Knowledge Graph.
+
+    Implements Mnemosyne (Georgia Tech 2025) / Zettelkasten-style
+    self-organizing knowledge graph with dynamic edge weights.
+    """
+    enabled: bool = True
+    max_nodes: int = 100000
+    max_edges: int = 500000
+    reciprocal_factor: float = 0.7            # B→A weight = A→B × this
+    edge_decay_half_life_days: float = 30.0
+    activation_decay_rate: float = 0.05
+    redundancy_threshold: float = 0.92        # Jaccard threshold for merging
+    min_edge_weight: float = 0.01             # Prune edges below this
+    persistence_path: Optional[str] = None
+    auto_persist: bool = True
+
+
+@dataclass(frozen=True)
+class MemorySchedulerConfig:
+    """
+    Configuration for MemoryOS-style scheduler (EMNLP 2025).
+
+    Priority-based job scheduling with interrupts, load shedding,
+    and Neuroca health scoring (recency + frequency + stability).
+    """
+    enabled: bool = True
+    max_queue_size: int = 1000
+    load_shedding_threshold: int = 500
+    health_recency_weight: float = 0.35
+    health_frequency_weight: float = 0.35
+    health_stability_weight: float = 0.30
+    recency_half_life_hours: float = 48.0
+    max_retries: int = 3
+
+
+@dataclass(frozen=True)
+class MemoryExchangeConfig:
+    """
+    Configuration for Multi-Agent Memory Exchange (SAMEP, arXiv 2507).
+
+    Fine-grained access control, semantic discovery across agents,
+    and cryptographic provenance for shared memories.
+    """
+    enabled: bool = False                     # Opt-in: multi-agent is optional
+    max_shared_memories: int = 50000
+    max_annotations_per_memory: int = 50
+    default_access_level: int = 1             # 0=NONE, 1=READ, 2=ANNOTATE, 3=FORK, 4=FULL
+    persistence_path: Optional[str] = None
+    auto_persist: bool = True
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # §7  Extensions (Embedding Registry, Dreaming, Backup, Vectors, EFT,
 #     Webhooks, Events)
@@ -622,6 +697,11 @@ class HAIMConfig:
     procedural: ProceduralConfig = field(default_factory=ProceduralConfig)
     meta_memory: MetaMemoryConfig = field(default_factory=MetaMemoryConfig)
     self_improvement: SelfImprovementConfig = field(default_factory=SelfImprovementConfig)
+    # Phase 6+ Research Services
+    strategy_bank: StrategyBankConfig = field(default_factory=StrategyBankConfig)
+    knowledge_graph: KnowledgeGraphConfig = field(default_factory=KnowledgeGraphConfig)
+    memory_scheduler: MemorySchedulerConfig = field(default_factory=MemorySchedulerConfig)
+    memory_exchange: MemoryExchangeConfig = field(default_factory=MemoryExchangeConfig)
 
 
 def _env_override(key: str, default):
@@ -1130,6 +1210,61 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         allow_llm_rewrite=_env_override("SELF_IMPROVEMENT_LLM_REWRITE", si_raw.get("allow_llm_rewrite", False)),
     )
 
+    # Build strategy bank config (Closed-Loop Strategy Memory)
+    sb_raw = raw.get("strategy_bank") or {}
+    strategy_bank_cfg = StrategyBankConfig(
+        enabled=_env_override("STRATEGY_BANK_ENABLED", sb_raw.get("enabled", True)),
+        max_strategies=sb_raw.get("max_strategies", 10000),
+        balance_ratio=sb_raw.get("balance_ratio", 0.6),
+        prune_threshold=sb_raw.get("prune_threshold", 0.05),
+        decay_rate=sb_raw.get("decay_rate", 0.005),
+        judge_relevance_weight=sb_raw.get("judge_relevance_weight", 0.4),
+        judge_completeness_weight=sb_raw.get("judge_completeness_weight", 0.25),
+        judge_freshness_weight=sb_raw.get("judge_freshness_weight", 0.15),
+        judge_actionability_weight=sb_raw.get("judge_actionability_weight", 0.2),
+        persistence_path=sb_raw.get("persistence_path"),
+        auto_persist=sb_raw.get("auto_persist", True),
+    )
+
+    # Build knowledge graph config (Bidirectional Knowledge Graph)
+    kg_raw = raw.get("knowledge_graph") or {}
+    knowledge_graph_cfg = KnowledgeGraphConfig(
+        enabled=_env_override("KNOWLEDGE_GRAPH_ENABLED", kg_raw.get("enabled", True)),
+        max_nodes=kg_raw.get("max_nodes", 100000),
+        max_edges=kg_raw.get("max_edges", 500000),
+        reciprocal_factor=kg_raw.get("reciprocal_factor", 0.7),
+        edge_decay_half_life_days=kg_raw.get("edge_decay_half_life_days", 30.0),
+        activation_decay_rate=kg_raw.get("activation_decay_rate", 0.05),
+        redundancy_threshold=kg_raw.get("redundancy_threshold", 0.92),
+        min_edge_weight=kg_raw.get("min_edge_weight", 0.01),
+        persistence_path=kg_raw.get("persistence_path"),
+        auto_persist=kg_raw.get("auto_persist", True),
+    )
+
+    # Build memory scheduler config (MemoryOS Scheduler)
+    ms_raw = raw.get("memory_scheduler") or {}
+    memory_scheduler_cfg = MemorySchedulerConfig(
+        enabled=_env_override("MEMORY_SCHEDULER_ENABLED", ms_raw.get("enabled", True)),
+        max_queue_size=ms_raw.get("max_queue_size", 1000),
+        load_shedding_threshold=ms_raw.get("load_shedding_threshold", 500),
+        health_recency_weight=ms_raw.get("health_recency_weight", 0.35),
+        health_frequency_weight=ms_raw.get("health_frequency_weight", 0.35),
+        health_stability_weight=ms_raw.get("health_stability_weight", 0.30),
+        recency_half_life_hours=ms_raw.get("recency_half_life_hours", 48.0),
+        max_retries=ms_raw.get("max_retries", 3),
+    )
+
+    # Build memory exchange config (SAMEP multi-agent protocol)
+    me_raw = raw.get("memory_exchange") or {}
+    memory_exchange_cfg = MemoryExchangeConfig(
+        enabled=_env_override("MEMORY_EXCHANGE_ENABLED", me_raw.get("enabled", False)),
+        max_shared_memories=me_raw.get("max_shared_memories", 50000),
+        max_annotations_per_memory=me_raw.get("max_annotations_per_memory", 50),
+        default_access_level=me_raw.get("default_access_level", 1),
+        persistence_path=me_raw.get("persistence_path"),
+        auto_persist=me_raw.get("auto_persist", True),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
@@ -1168,6 +1303,10 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         procedural=procedural_cfg,
         meta_memory=meta_memory_cfg,
         self_improvement=self_improvement_cfg,
+        strategy_bank=strategy_bank_cfg,
+        knowledge_graph=knowledge_graph_cfg,
+        memory_scheduler=memory_scheduler_cfg,
+        memory_exchange=memory_exchange_cfg,
     )
 
 

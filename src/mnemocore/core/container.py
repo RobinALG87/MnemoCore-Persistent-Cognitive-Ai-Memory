@@ -20,6 +20,12 @@ from .procedural_store import ProceduralStoreService
 from .meta_memory import MetaMemoryService
 from .agent_profile import AgentProfileService
 
+# Phase 6+ Research Services
+from .strategy_bank import StrategyBankService
+from .knowledge_graph import KnowledgeGraphService
+from .memory_scheduler import MemoryScheduler
+from .memory_exchange import MemoryExchangeProtocol
+
 
 @dataclass
 class Container:
@@ -37,6 +43,12 @@ class Container:
     procedural_store: Optional[ProceduralStoreService] = None
     meta_memory: Optional[MetaMemoryService] = None
     agent_profiles: Optional[AgentProfileService] = None
+
+    # Phase 6+ Research Services
+    strategy_bank: Optional[StrategyBankService] = None
+    knowledge_graph: Optional[KnowledgeGraphService] = None
+    memory_scheduler: Optional[MemoryScheduler] = None
+    memory_exchange: Optional[MemoryExchangeProtocol] = None
 
 
 def build_container(config: HAIMConfig) -> Container:
@@ -83,6 +95,13 @@ def build_container(config: HAIMConfig) -> Container:
     container.procedural_store = ProceduralStoreService(config=config.procedural)
     container.meta_memory = MetaMemoryService(config=config.meta_memory)
     container.agent_profiles = AgentProfileService()
+
+    # Initialize Phase 6+ Research Services
+    container.strategy_bank = StrategyBankService(config=config.strategy_bank)
+    container.knowledge_graph = KnowledgeGraphService(config=config.knowledge_graph)
+    container.memory_scheduler = MemoryScheduler(config=config.memory_scheduler)
+    if getattr(config.memory_exchange, "enabled", False):
+        container.memory_exchange = MemoryExchangeProtocol(config=config.memory_exchange)
 
     return container
 

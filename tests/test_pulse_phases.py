@@ -81,13 +81,15 @@ def _make_pulse(container=None, config=None, **container_kw):
 
 class TestPulseTickEnum:
     def test_all_seven_phases(self):
-        assert len(PulseTick) == 7
+        assert len(PulseTick) == 11
 
     def test_phase_values(self):
         expected = {
             "wm_maintenance", "episodic_chaining", "semantic_refresh",
             "gap_detection", "insight_generation", "procedure_refinement",
             "meta_self_reflection",
+            "strategy_refinement", "graph_maintenance",
+            "scheduler_tick", "exchange_discovery",
         }
         assert {t.value for t in PulseTick} == expected
 

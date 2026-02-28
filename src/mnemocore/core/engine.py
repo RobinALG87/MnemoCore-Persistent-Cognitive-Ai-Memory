@@ -44,6 +44,12 @@ from .semantic_store import SemanticStoreService
 from .procedural_store import ProceduralStoreService
 from .meta_memory import MetaMemoryService
 
+# Phase 6+ Research Services
+from .strategy_bank import StrategyBankService
+from .knowledge_graph import KnowledgeGraphService
+from .memory_scheduler import MemoryScheduler
+from .memory_exchange import MemoryExchangeProtocol
+
 # Phase 4.0 workers
 from .semantic_consolidation import SemanticConsolidationWorker
 from .immunology import ImmunologyLoop
@@ -75,6 +81,10 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         semantic_store: Optional[SemanticStoreService] = None,
         procedural_store: Optional[ProceduralStoreService] = None,
         meta_memory: Optional[MetaMemoryService] = None,
+        strategy_bank: Optional[StrategyBankService] = None,
+        knowledge_graph: Optional[KnowledgeGraphService] = None,
+        memory_scheduler: Optional[MemoryScheduler] = None,
+        memory_exchange: Optional[MemoryExchangeProtocol] = None,
     ):
         """
         Initialize HAIMEngine with optional dependency injection.
@@ -89,6 +99,10 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
             semantic_store: Optional Phase 5 Semantic service.
             procedural_store: Optional Phase 5 Procedural service.
             meta_memory: Optional Phase 5 Meta-Memory service.
+            strategy_bank: Optional closed-loop strategy memory.
+            knowledge_graph: Optional bidirectional knowledge graph.
+            memory_scheduler: Optional MemoryOS scheduler.
+            memory_exchange: Optional SAMEP multi-agent protocol.
         """
         base_config = config or get_config()
         if dimension is not None and dimension != base_config.dimensionality:
@@ -111,6 +125,12 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         self.semantic_store = semantic_store
         self.procedural_store = procedural_store
         self.meta_memory = meta_memory
+
+        # Phase 6+ Research Components
+        self.strategy_bank = strategy_bank
+        self.knowledge_graph = knowledge_graph
+        self.memory_scheduler = memory_scheduler
+        self.memory_exchange = memory_exchange
 
         # Initialize core state via EngineCoreOperations
         self._initialize_core_state(

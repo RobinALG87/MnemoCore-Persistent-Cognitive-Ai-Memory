@@ -38,6 +38,11 @@ class PulseTick(Enum):
     INSIGHT_GENERATION = "insight_generation"
     PROCEDURE_REFINEMENT = "procedure_refinement"
     META_SELF_REFLECTION = "meta_self_reflection"
+    # Phase 6+ Research Phases
+    STRATEGY_REFINEMENT = "strategy_refinement"
+    GRAPH_MAINTENANCE = "graph_maintenance"
+    SCHEDULER_TICK = "scheduler_tick"
+    EXCHANGE_DISCOVERY = "exchange_discovery"
 
 
 class PulseLoop:
@@ -106,6 +111,11 @@ class PulseLoop:
         await self._run_phase("insight_generation", self._insight_generation)
         await self._run_phase("procedure_refinement", self._procedure_refinement)
         await self._run_phase("meta_self_reflection", self._meta_self_reflection)
+        # Phase 6+ Research Phases
+        await self._run_phase("strategy_refinement", self._strategy_refinement)
+        await self._run_phase("graph_maintenance", self._graph_maintenance)
+        await self._run_phase("scheduler_tick", self._scheduler_tick)
+        await self._run_phase("exchange_discovery", self._exchange_discovery)
 
     async def _run_phase(self, name: str, coro_fn) -> None:
         """Run a single tick phase with timing and error handling."""
@@ -492,4 +502,140 @@ class PulseLoop:
             "phase_errors": dict(self._phase_errors),
             "interval_seconds": getattr(self.config, "interval_seconds", 30),
         }
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Phase 8: Strategy Refinement (Closed-Loop Strategy Memory)
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def _strategy_refinement(self) -> None:
+        """
+        Decay low-confidence strategies and prune dead weight.
+
+        Part of the Retrieve → Execute → Judge → Distill → Store cycle
+        (ReasoningBank + A-MEM). Decay runs every tick; pruning every 10th.
+        """
+        strategy_bank = getattr(self.container, "strategy_bank", None)
+        if not strategy_bank:
+            return
+
+        try:
+            decay_rate = 0.005
+            cfg = getattr(self.container.config, "strategy_bank", None)
+            if cfg:
+                decay_rate = getattr(cfg, "decay_rate", 0.005)
+
+            strategy_bank.decay_confidence(decay_rate)
+
+            if self._tick_count % 10 == 0:
+                pruned = strategy_bank.prune_low_confidence()
+                if pruned:
+                    logger.info(
+                        f"Pulse: [{PulseTick.STRATEGY_REFINEMENT.value}] "
+                        f"Pruned {pruned} low-confidence strategies."
+                    )
+
+            logger.debug(f"Pulse: [{PulseTick.STRATEGY_REFINEMENT.value}] Decay complete.")
+        except Exception as e:
+            logger.debug(f"Pulse: strategy_refinement skipped: {e}")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Phase 9: Graph Maintenance (Bidirectional Knowledge Graph)
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def _graph_maintenance(self) -> None:
+        """
+        Decay edge weights, activation levels, and prune weak/redundant nodes.
+
+        Runs full maintenance every 5th tick to conserve resources.
+        Implements Mnemosyne-style self-organizing graph dynamics.
+        """
+        if self._tick_count % 5 != 0:
+            return
+
+        kg = getattr(self.container, "knowledge_graph", None)
+        if not kg:
+            return
+
+        try:
+            kg.decay_all_edges()
+            kg.decay_all_activations()
+
+            if self._tick_count % 20 == 0:
+                pruned_edges = kg.prune_weak_edges()
+                pruned_nodes = kg.prune_redundant_nodes()
+                if pruned_edges or pruned_nodes:
+                    logger.info(
+                        f"Pulse: [{PulseTick.GRAPH_MAINTENANCE.value}] "
+                        f"Pruned {pruned_edges} edges, {pruned_nodes} redundant nodes."
+                    )
+
+            logger.debug(f"Pulse: [{PulseTick.GRAPH_MAINTENANCE.value}] Maintenance complete.")
+        except Exception as e:
+            logger.debug(f"Pulse: graph_maintenance skipped: {e}")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Phase 10: Scheduler Tick (MemoryOS Priority Queue)
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def _scheduler_tick(self) -> None:
+        """
+        Process pending memory jobs from the MemoryOS scheduler.
+
+        Handles consolidation, pruning, linking, decay, and health check
+        jobs submitted by other cognitive subsystems.
+        """
+        scheduler = getattr(self.container, "memory_scheduler", None)
+        if not scheduler:
+            return
+
+        try:
+            processed = scheduler.process_tick()
+            if processed:
+                logger.debug(
+                    f"Pulse: [{PulseTick.SCHEDULER_TICK.value}] "
+                    f"Processed {processed} memory jobs."
+                )
+        except Exception as e:
+            logger.debug(f"Pulse: scheduler_tick skipped: {e}")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Phase 11: Exchange Discovery (SAMEP Multi-Agent Sync)
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def _exchange_discovery(self) -> None:
+        """
+        Periodic cross-agent memory discovery via SAMEP protocol.
+
+        Only runs every 10th tick and only if exchange is enabled.
+        Logs exchange statistics for meta-memory monitoring.
+        """
+        if self._tick_count % 10 != 0:
+            return
+
+        exchange = getattr(self.container, "memory_exchange", None)
+        if not exchange:
+            return
+
+        try:
+            stats = exchange.get_stats()
+            meta = getattr(self.container, "meta_memory", None)
+            if meta:
+                meta.record_metric(
+                    "exchange_active_shared",
+                    float(stats.get("active_shared", 0)),
+                    "snapshot",
+                )
+                meta.record_metric(
+                    "exchange_total_discoveries",
+                    float(stats.get("total_discoveries", 0)),
+                    "cumulative",
+                )
+
+            logger.debug(
+                f"Pulse: [{PulseTick.EXCHANGE_DISCOVERY.value}] "
+                f"Exchange stats: {stats['active_shared']} active, "
+                f"{stats['participating_agents']} agents."
+            )
+        except Exception as e:
+            logger.debug(f"Pulse: exchange_discovery skipped: {e}")
 
