@@ -30,3 +30,9 @@ plotly>=5.0.0
 pandas>=2.0.0
 pytest-asyncio>=0.21.0
 pybreaker>=1.0.0
+
+# Subconscious AI Worker (Phase 4.4+)
+# Required for all model providers (Ollama, LM Studio, OpenAI, Anthropic)
+aiohttp>=3.9.0
+# Required for CPU-usage monitoring in ResourceGuard
+psutil>=5.9.0

@@ -27,6 +27,17 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - HOST=0.0.0.0
       - PORT=8100
+      # ── Subconscious AI ────────────────────────────────────────────────────
+      # Uncomment and set values to override what is in config.yaml.
+      # When Ollama runs on the HOST machine (not in Docker), use
+      # host.docker.internal instead of localhost so the container can reach it.
+      # - SUBCONSCIOUS_AI_ENABLED=${SUBCONSCIOUS_AI_ENABLED:-false}
+      # - SUBCONSCIOUS_AI_MODEL_PROVIDER=${SUBCONSCIOUS_AI_MODEL_PROVIDER:-ollama}
+      # - SUBCONSCIOUS_AI_MODEL_NAME=${SUBCONSCIOUS_AI_MODEL_NAME:-phi3.5:latest}
+      # - SUBCONSCIOUS_AI_MODEL_URL=${SUBCONSCIOUS_AI_MODEL_URL:-http://host.docker.internal:11434}
+      # - SUBCONSCIOUS_AI_API_KEY=${SUBCONSCIOUS_AI_API_KEY:-}
+      # - SUBCONSCIOUS_AI_PULSE_INTERVAL_SECONDS=${SUBCONSCIOUS_AI_PULSE_INTERVAL_SECONDS:-120}
+      # - SUBCONSCIOUS_AI_MAX_CPU_PERCENT=${SUBCONSCIOUS_AI_MAX_CPU_PERCENT:-30.0}
     env_file:
       - .env
     healthcheck:

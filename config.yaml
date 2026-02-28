@@ -143,34 +143,108 @@ haim:
   # Must be explicitly enabled by setting 'enabled: true'.
   # All safety defaults are conservative - review before enabling in production.
   # =========================================================================
+  # =========================================================================
+  # Subconscious AI — Phase 4.4+ (Autonomous Background Intelligence)
+  # =========================================================================
+  #
+  # A small language model that runs continuously in the background,
+  # performing three cognitive operations in rotation:
+  #
+  #   1. MEMORY SORTING    — categorizes and tags unclassified memories
+  #   2. ENHANCED DREAMING — synthesizes insights by connecting related memories
+  #   3. MICRO SELF-IMPROVEMENT — detects patterns and proposes structural changes
+  #
+  # The worker respects CPU thresholds and rate limits so it never competes
+  # with foreground workloads. All decisions are written to an audit trail.
+  #
+  # SUPPORTED PROVIDERS
+  # -------------------
+  #   ollama        — Local models via Ollama (recommended for home use)
+  #   lm_studio     — Local models via LM Studio (OpenAI-compatible endpoint)
+  #   openai_api    — OpenAI GPT-4o, GPT-4o-mini, etc.
+  #   anthropic_api — Anthropic Claude 3 Haiku, Sonnet, Opus
+  #
+  # QUICK START (Ollama on the same machine)
+  # ----------------------------------------
+  #   1. Install Ollama:  https://ollama.ai
+  #   2. Pull a model:    ollama pull phi3.5
+  #   3. Set enabled: true below
+  #   4. Restart MnemoCore
+  #
+  # See docs/SUBCONSCIOUS_AI.md for full setup guide and model recommendations.
+  # =========================================================================
   subconscious_ai:
-    # BETA FEATURE - Must be explicitly enabled
-    enabled: true
-    beta_mode: true
 
-    # Model configuration
-    model_provider: "ollama"  # ollama | lm_studio | openai_api | anthropic_api
-    model_name: "phi3.5:latest"
+    # ── Master switch ──────────────────────────────────────────────────────
+    enabled: true          # Set to false to completely disable
+    beta_mode: true        # Extra safety logging (recommended to keep on)
+
+    # ── Model provider ────────────────────────────────────────────────────
+    # Choose ONE provider block. Comment out the others.
+    #
+    # ┌──────────────────────────────────────────────────────────────────┐
+    # │ OPTION A — Ollama (local, recommended for home/dev)             │
+    # │   ollama pull phi3.5          ~2.5 GB VRAM, fast on CPU         │
+    # │   ollama pull llama3.2:3b     ~2 GB, excellent quality          │
+    # │   ollama pull mistral:7b      ~4 GB, best reasoning             │
+    # │   ollama pull gemma3:4b       ~3 GB, strong coding              │
+    # │   ollama pull qwen2.5:3b      ~2 GB, great multilingual         │
+    # └──────────────────────────────────────────────────────────────────┘
+    model_provider: "ollama"
+    model_name: "phi3.5:latest"       # Change to any model you have pulled
     model_url: "http://localhost:11434"
-    # api_key: null  # For API providers
-    # api_base_url: null
+    #
+    # NOTE for Docker users: MnemoCore can't reach "localhost" on the host.
+    # Use host.docker.internal instead, or set the env var:
+    #   SUBCONSCIOUS_AI_MODEL_URL=http://host.docker.internal:11434
+    #
+    # ┌──────────────────────────────────────────────────────────────────┐
+    # │ OPTION B — LM Studio (local, OpenAI-compatible server)          │
+    # │   Open LM Studio → Local Server tab → Start Server              │
+    # └──────────────────────────────────────────────────────────────────┘
+    # model_provider: "lm_studio"
+    # model_name: "phi-3.5-mini-instruct"  # Must match what is loaded
+    # model_url: "http://localhost:1234"   # LM Studio default port
+    #
+    # ┌──────────────────────────────────────────────────────────────────┐
+    # │ OPTION C — OpenAI API                                           │
+    # │   Set env var: SUBCONSCIOUS_AI_API_KEY=sk-...                   │
+    # └──────────────────────────────────────────────────────────────────┘
+    # model_provider: "openai_api"
+    # model_name: "gpt-4o-mini"            # Cost-effective, fast
+    # model_url: "https://api.openai.com"
+    # api_key: null                        # Use SUBCONSCIOUS_AI_API_KEY env var
+    #
+    # ┌──────────────────────────────────────────────────────────────────┐
+    # │ OPTION D — Anthropic Claude                                     │
+    # │   Set env var: SUBCONSCIOUS_AI_API_KEY=sk-ant-...               │
+    # └──────────────────────────────────────────────────────────────────┘
+    # model_provider: "anthropic_api"
+    # model_name: "claude-3-haiku-20240307"
+    # model_url: "https://api.anthropic.com"
+    # api_key: null                        # Use SUBCONSCIOUS_AI_API_KEY env var
 
-    # Pulse configuration
-    pulse_interval_seconds: 120
-    pulse_backoff_enabled: true
-    pulse_backoff_max_seconds: 600
+    # ── Pulse timing ──────────────────────────────────────────────────
+    pulse_interval_seconds: 120       # Seconds between pulses (2 min default)
+    pulse_backoff_enabled: true       # Increase interval on repeated LLM errors
+    pulse_backoff_max_seconds: 600    # Maximum backoff cap: 10 minutes
 
-    # Resource management
-    max_cpu_percent: 30.0
-    cycle_timeout_seconds: 120
-    rate_limit_per_hour: 50
+    # ── Resource protection ───────────────────────────────────────────
+    # Pulse is skipped entirely if the machine is under load.
+    # Requires psutil (included in requirements.txt).
+    max_cpu_percent: 30.0             # Skip if CPU > this percentage
+    cycle_timeout_seconds: 120        # Max seconds to wait for a model response
+    rate_limit_per_hour: 50           # Max total LLM calls per hour
 
-    # Operations
-    memory_sorting_enabled: true
-    enhanced_dreaming_enabled: true
-    micro_self_improvement_enabled: true  # Initially disabled
+    # ── Operations ────────────────────────────────────────────────────
+    memory_sorting_enabled: true      # Categorize and tag unclassified memories
+    enhanced_dreaming_enabled: true   # Generate insights from memory clusters
+    micro_self_improvement_enabled: false  # Pattern analysis (Phase 0, dry-run)
 
-    # Safety
+    # ── Safety ────────────────────────────────────────────────────────
+    # dry_run: true  → generates suggestions but never writes to memory.
+    # dry_run: false → suggestions ARE applied (tags written, synths stored).
+    # Start with dry_run: true to observe proposals before committing.
     dry_run: false
     log_all_decisions: true
     audit_trail_path: "./data/subconscious_audit.jsonl"
