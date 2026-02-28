@@ -310,6 +310,32 @@ class EngineLifecycleManager:
             except Exception as e:
                 health["qdrant"] = {"error": str(e)}
 
+        # Phase 5.1: Cognitive services health
+        cognitive = {}
+        if hasattr(self, 'working_memory') and self.working_memory:
+            cognitive["working_memory"] = {"status": "active"}
+        if hasattr(self, 'episodic_store') and self.episodic_store:
+            try:
+                cognitive["episodic_store"] = self.episodic_store.get_stats()
+                cognitive["episodic_store"]["status"] = "active"
+            except Exception:
+                cognitive["episodic_store"] = {"status": "active"}
+        if hasattr(self, 'semantic_store') and self.semantic_store:
+            try:
+                cognitive["semantic_store"] = self.semantic_store.get_stats()
+                cognitive["semantic_store"]["status"] = "active"
+            except Exception:
+                cognitive["semantic_store"] = {"status": "active"}
+        if hasattr(self, 'procedural_store') and self.procedural_store:
+            try:
+                cognitive["procedural_store"] = self.procedural_store.get_stats()
+                cognitive["procedural_store"]["status"] = "active"
+            except Exception:
+                cognitive["procedural_store"] = {"status": "active"}
+        if hasattr(self, 'meta_memory') and self.meta_memory:
+            cognitive["meta_memory"] = {"status": "active"}
+        health["cognitive_services"] = cognitive
+
         # Overall status
         health["status"] = "healthy" if all(
             w.get("running", True) for w in workers.values()

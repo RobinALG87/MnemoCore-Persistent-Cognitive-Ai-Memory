@@ -73,12 +73,15 @@ def build_container(config: HAIMConfig) -> Container:
         hnsw_ef_construct=config.qdrant.hnsw_ef_construct,
     )
 
-    # Initialize Phase 5 AGI Services
+    # Initialize Phase 5 AGI Services (with config)
     container.working_memory = WorkingMemoryService()
-    container.episodic_store = EpisodicStoreService()
-    container.semantic_store = SemanticStoreService(qdrant_store=container.qdrant_store)
-    container.procedural_store = ProceduralStoreService()
-    container.meta_memory = MetaMemoryService()
+    container.episodic_store = EpisodicStoreService(config=config.episodic)
+    container.semantic_store = SemanticStoreService(
+        qdrant_store=container.qdrant_store,
+        config=config.semantic,
+    )
+    container.procedural_store = ProceduralStoreService(config=config.procedural)
+    container.meta_memory = MetaMemoryService(config=config.meta_memory)
     container.agent_profiles = AgentProfileService()
 
     return container

@@ -345,6 +345,11 @@ class TestIsStorageAvailable:
 class TestCircuitBreakerDecorators:
     """Test circuit breaker decorators."""
 
+    def setup_method(self):
+        """Reset circuit breaker state before each test to avoid state leakage."""
+        redis_breaker.state = "closed"
+        redis_breaker.failures = 0
+
     @pytest.mark.asyncio
     async def test_async_decorator_success(self):
         """Async decorator should allow successful calls."""

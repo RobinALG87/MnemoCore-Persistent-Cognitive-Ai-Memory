@@ -247,6 +247,75 @@ class PerformanceConfig:
 
 
 @dataclass(frozen=True)
+class WorkingMemoryConfig:
+    """Configuration for Phase 5: Working Memory Service."""
+    max_items_per_agent: int = 20
+    default_ttl_seconds: int = 3600
+    importance_boost_on_access: float = 0.1
+    ttl_refresh_on_promote: int = 1800
+    prune_interval_seconds: int = 60
+
+
+@dataclass(frozen=True)
+class EpisodicConfig:
+    """Configuration for Phase 5: Episodic Store Service."""
+    max_active_episodes_per_agent: int = 5
+    max_history_per_agent: int = 500
+    auto_chain_episodes: bool = True
+    enable_hdv_embedding: bool = True
+    tier_persistence_enabled: bool = True
+
+
+@dataclass(frozen=True)
+class SemanticConfig:
+    """Configuration for Phase 5: Semantic Store Service."""
+    min_similarity_threshold: float = 0.5
+    max_local_cache_size: int = 10000
+    enable_qdrant_persistence: bool = True
+    auto_consolidate_from_episodes: bool = True
+    concept_reliability_decay: float = 0.01
+    consolidation_min_support: int = 3
+
+
+@dataclass(frozen=True)
+class ProceduralConfig:
+    """Configuration for Phase 5: Procedural Store Service."""
+    max_procedures: int = 5000
+    reliability_boost_on_success: float = 0.05
+    reliability_penalty_on_failure: float = 0.10
+    min_reliability_threshold: float = 0.1
+    enable_semantic_matching: bool = True
+    persistence_path: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class MetaMemoryConfig:
+    """Configuration for Phase 5: Meta Memory Service."""
+    max_metrics_history: int = 10000
+    anomaly_failure_rate_threshold: float = 0.10
+    anomaly_hit_rate_threshold: float = 0.50
+    anomaly_latency_threshold_ms: float = 1000.0
+    reflection_interval_ticks: int = 10
+    enable_llm_proposals: bool = True
+
+
+@dataclass(frozen=True)
+class SelfImprovementConfig:
+    """Configuration for Phase 5.4: Self-Improvement Worker (per SELF_IMPROVEMENT_DEEP_DIVE.md)."""
+    enabled: bool = False
+    dry_run: bool = True
+    safety_mode: str = "strict"  # strict | balanced
+    interval_seconds: int = 300
+    batch_size: int = 8
+    max_cycle_seconds: int = 20
+    max_candidates_per_topic: int = 2
+    cooldown_minutes: int = 120
+    min_improvement_score: float = 0.15
+    min_semantic_similarity: float = 0.82
+    allow_llm_rewrite: bool = False
+
+
+@dataclass(frozen=True)
 class PulseConfig:
     """Configuration for Phase 5 AGI Pulse Loop orchestrator."""
     enabled: bool = True
@@ -498,6 +567,13 @@ class HAIMConfig:
     eft: EFTConfig = field(default_factory=EFTConfig)
     webhook: WebhookConfig = field(default_factory=WebhookConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
+    # Phase 5 Cognitive Services
+    working_memory: WorkingMemoryConfig = field(default_factory=WorkingMemoryConfig)
+    episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
+    semantic: SemanticConfig = field(default_factory=SemanticConfig)
+    procedural: ProceduralConfig = field(default_factory=ProceduralConfig)
+    meta_memory: MetaMemoryConfig = field(default_factory=MetaMemoryConfig)
+    self_improvement: SelfImprovementConfig = field(default_factory=SelfImprovementConfig)
 
 
 def _env_override(key: str, default):
@@ -937,6 +1013,70 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         persist_scenarios=_env_override("EFT_PERSIST", eft_raw.get("persist_scenarios", True)),
     )
 
+    # Build Phase 5 cognitive service configs
+    wm_raw = raw.get("working_memory") or {}
+    working_memory_cfg = WorkingMemoryConfig(
+        max_items_per_agent=_env_override("WM_MAX_ITEMS", wm_raw.get("max_items_per_agent", 20)),
+        default_ttl_seconds=_env_override("WM_DEFAULT_TTL", wm_raw.get("default_ttl_seconds", 3600)),
+        importance_boost_on_access=wm_raw.get("importance_boost_on_access", 0.1),
+        ttl_refresh_on_promote=wm_raw.get("ttl_refresh_on_promote", 1800),
+        prune_interval_seconds=wm_raw.get("prune_interval_seconds", 60),
+    )
+
+    ep_raw = raw.get("episodic") or {}
+    episodic_cfg = EpisodicConfig(
+        max_active_episodes_per_agent=ep_raw.get("max_active_episodes_per_agent", 5),
+        max_history_per_agent=ep_raw.get("max_history_per_agent", 500),
+        auto_chain_episodes=ep_raw.get("auto_chain_episodes", True),
+        enable_hdv_embedding=ep_raw.get("enable_hdv_embedding", True),
+        tier_persistence_enabled=_env_override("EPISODIC_TIER_PERSISTENCE", ep_raw.get("tier_persistence_enabled", True)),
+    )
+
+    sem_raw = raw.get("semantic") or {}
+    semantic_cfg = SemanticConfig(
+        min_similarity_threshold=sem_raw.get("min_similarity_threshold", 0.5),
+        max_local_cache_size=sem_raw.get("max_local_cache_size", 10000),
+        enable_qdrant_persistence=_env_override("SEMANTIC_QDRANT_ENABLED", sem_raw.get("enable_qdrant_persistence", True)),
+        auto_consolidate_from_episodes=sem_raw.get("auto_consolidate_from_episodes", True),
+        concept_reliability_decay=sem_raw.get("concept_reliability_decay", 0.01),
+        consolidation_min_support=sem_raw.get("consolidation_min_support", 3),
+    )
+
+    proc_raw = raw.get("procedural") or {}
+    procedural_cfg = ProceduralConfig(
+        max_procedures=proc_raw.get("max_procedures", 5000),
+        reliability_boost_on_success=proc_raw.get("reliability_boost_on_success", 0.05),
+        reliability_penalty_on_failure=proc_raw.get("reliability_penalty_on_failure", 0.10),
+        min_reliability_threshold=proc_raw.get("min_reliability_threshold", 0.1),
+        enable_semantic_matching=proc_raw.get("enable_semantic_matching", True),
+        persistence_path=proc_raw.get("persistence_path"),
+    )
+
+    mm_raw = raw.get("meta_memory") or {}
+    meta_memory_cfg = MetaMemoryConfig(
+        max_metrics_history=mm_raw.get("max_metrics_history", 10000),
+        anomaly_failure_rate_threshold=mm_raw.get("anomaly_failure_rate_threshold", 0.10),
+        anomaly_hit_rate_threshold=mm_raw.get("anomaly_hit_rate_threshold", 0.50),
+        anomaly_latency_threshold_ms=mm_raw.get("anomaly_latency_threshold_ms", 1000.0),
+        reflection_interval_ticks=mm_raw.get("reflection_interval_ticks", 10),
+        enable_llm_proposals=_env_override("META_MEMORY_LLM_PROPOSALS", mm_raw.get("enable_llm_proposals", True)),
+    )
+
+    si_raw = raw.get("self_improvement") or {}
+    self_improvement_cfg = SelfImprovementConfig(
+        enabled=_env_override("SELF_IMPROVEMENT_ENABLED", si_raw.get("enabled", False)),
+        dry_run=_env_override("SELF_IMPROVEMENT_DRY_RUN", si_raw.get("dry_run", True)),
+        safety_mode=si_raw.get("safety_mode", "strict"),
+        interval_seconds=si_raw.get("interval_seconds", 300),
+        batch_size=si_raw.get("batch_size", 8),
+        max_cycle_seconds=si_raw.get("max_cycle_seconds", 20),
+        max_candidates_per_topic=si_raw.get("max_candidates_per_topic", 2),
+        cooldown_minutes=si_raw.get("cooldown_minutes", 120),
+        min_improvement_score=si_raw.get("min_improvement_score", 0.15),
+        min_semantic_similarity=si_raw.get("min_semantic_similarity", 0.82),
+        allow_llm_rewrite=_env_override("SELF_IMPROVEMENT_LLM_REWRITE", si_raw.get("allow_llm_rewrite", False)),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
@@ -969,6 +1109,12 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         vector_compression=vector_compression,
         backup=backup,
         eft=eft,
+        working_memory=working_memory_cfg,
+        episodic=episodic_cfg,
+        semantic=semantic_cfg,
+        procedural=procedural_cfg,
+        meta_memory=meta_memory_cfg,
+        self_improvement=self_improvement_cfg,
     )
 
 

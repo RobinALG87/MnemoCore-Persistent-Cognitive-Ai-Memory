@@ -63,7 +63,9 @@ async def test_get_memory_demotion_race_condition():
     new_config = dataclasses.replace(real_config, tiers_hot=new_hot_config, hysteresis=new_hysteresis)
     
     tier_manager.config = new_config
-    
+    # Propagate new config to sub-managers that drive demotion decisions
+    tier_manager._eviction_manager.config = new_config
+
     # EXECUTE
     # This call should trigger demotion logic
     returned_node = await tier_manager.get_memory("test-node-1")

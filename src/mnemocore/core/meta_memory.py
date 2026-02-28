@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 class MetaMemoryService:
-    def __init__(self):
+    def __init__(self, config=None):
+        self._config = config
         self._metrics: List[SelfMetric] = []
         self._proposals: Dict[str, SelfImprovementProposal] = {}
         self._lock = threading.RLock()

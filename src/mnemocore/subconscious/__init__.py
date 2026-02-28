@@ -6,6 +6,8 @@ __all__ = [
     "DreamSession",
     "DreamPipeline",
     "IdleDetector",
+    "SelfImprovementWorker",
+    "create_self_improvement_worker",
 ]
 
 from .daemon import SubconsciousDaemon
@@ -20,4 +22,8 @@ from .dream_scheduler import (
 from .dream_pipeline import (
     DreamPipeline,
     DreamPipelineConfig,
+)
+from .self_improvement_worker import (
+    SelfImprovementWorker,
+    create_self_improvement_worker,
 )

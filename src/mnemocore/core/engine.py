@@ -41,6 +41,8 @@ from .synapse_index import SynapseIndex
 from .working_memory import WorkingMemoryService
 from .episodic_store import EpisodicStoreService
 from .semantic_store import SemanticStoreService
+from .procedural_store import ProceduralStoreService
+from .meta_memory import MetaMemoryService
 
 # Phase 4.0 workers
 from .semantic_consolidation import SemanticConsolidationWorker
@@ -71,6 +73,8 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         working_memory: Optional[WorkingMemoryService] = None,
         episodic_store: Optional[EpisodicStoreService] = None,
         semantic_store: Optional[SemanticStoreService] = None,
+        procedural_store: Optional[ProceduralStoreService] = None,
+        meta_memory: Optional[MetaMemoryService] = None,
     ):
         """
         Initialize HAIMEngine with optional dependency injection.
@@ -83,6 +87,8 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
             working_memory: Optional Phase 5 WM service.
             episodic_store: Optional Phase 5 EM service.
             semantic_store: Optional Phase 5 Semantic service.
+            procedural_store: Optional Phase 5 Procedural service.
+            meta_memory: Optional Phase 5 Meta-Memory service.
         """
         base_config = config or get_config()
         if dimension is not None and dimension != base_config.dimensionality:
@@ -103,6 +109,8 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         self.working_memory = working_memory
         self.episodic_store = episodic_store
         self.semantic_store = semantic_store
+        self.procedural_store = procedural_store
+        self.meta_memory = meta_memory
 
         # Initialize core state via EngineCoreOperations
         self._initialize_core_state(
@@ -310,6 +318,49 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         )
 
         logger.info("Phase 6.0 Reconstructive Memory enabled.")
+
+    # ==========================================================================
+    # Phase 5.1: Cognitive Module Access (lazy-loaded)
+    # ==========================================================================
+
+    def get_context_prioritizer(self):
+        """
+        Get or create the ContextWindowPrioritizer for LLM context optimization.
+
+        Returns a prioritizer that can rank and filter memories to fit within
+        a model's context window, preserving the most relevant information.
+        """
+        if not hasattr(self, '_context_prioritizer'):
+            from ..cognitive.context_optimizer import create_prioritizer
+            self._context_prioritizer = create_prioritizer()
+        return self._context_prioritizer
+
+    def get_future_simulator(self):
+        """
+        Get or create the EpisodeFutureSimulator for scenario generation.
+
+        Uses episodic memories to simulate plausible future scenarios,
+        supporting anticipatory reasoning and planning.
+        """
+        if not hasattr(self, '_future_simulator'):
+            from ..cognitive.future_thinking import create_future_thinking_pipeline
+            self._future_simulator = create_future_thinking_pipeline(
+                config=self.config.eft,
+                tier_manager=self.tier_manager,
+                synapse_index=self._synapse_index,
+                attention_masker=self.attention_masker,
+            )
+        return self._future_simulator
+
+    def get_forgetting_analytics(self):
+        """
+        Get or create the ForgettingAnalytics module for SM-2 spaced
+        repetition analytics and memory health dashboards.
+        """
+        if not hasattr(self, '_forgetting_analytics'):
+            from ..cognitive.forgetting_analytics import create_forgetting_analytics
+            self._forgetting_analytics = create_forgetting_analytics()
+        return self._forgetting_analytics
 
 
 # All public methods are inherited from the mixin classes:

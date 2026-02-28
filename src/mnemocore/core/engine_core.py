@@ -49,6 +49,8 @@ if TYPE_CHECKING:
     from .working_memory import WorkingMemoryService
     from .episodic_store import EpisodicStoreService
     from .semantic_store import SemanticStoreService
+    from .procedural_store import ProceduralStoreService
+    from .meta_memory import MetaMemoryService
     from .topic_tracker import TopicTracker
     from .preference_store import PreferenceStore
     from .anticipatory import AnticipatoryEngine
@@ -530,6 +532,32 @@ class EngineCoreOperations:
             except Exception as e:
                 logger.debug(f"Failed to add to association network: {e}")
 
+        # Phase 5.1: Auto-consolidate into semantic store
+        if hasattr(self, 'semantic_store') and self.semantic_store and content:
+            try:
+                episode_ids = []
+                episode_id = updated_metadata.get("episode_id")
+                if episode_id:
+                    episode_ids.append(episode_id)
+                self.semantic_store.consolidate_from_content(
+                    content=content,
+                    hdv=encoded_vec,
+                    episode_ids=episode_ids,
+                    tags=updated_metadata.get("tags", []),
+                    agent_id=updated_metadata.get("agent_id"),
+                )
+            except Exception as e:
+                logger.debug(f"Semantic consolidation on store skipped: {e}")
+
+        # Phase 5.1: Record store metric for meta-memory
+        if hasattr(self, 'meta_memory') and self.meta_memory:
+            try:
+                self.meta_memory.record_metric(
+                    "store_count", 1.0, "per_call"
+                )
+            except Exception:
+                pass
+
         # 5. Update queue length metric
         update_queue_length(len(self.subconscious_queue))
 
@@ -771,6 +799,17 @@ class EngineCoreOperations:
             asyncio.ensure_future(
                 self._strengthen_recall_associations(retrieved_ids, query_text)
             )
+
+        # Phase 5.1: Record query metrics for meta-memory
+        if hasattr(self, 'meta_memory') and self.meta_memory:
+            try:
+                hit_rate = 1.0 if top_results else 0.0
+                best_score = top_results[0][1] if top_results else 0.0
+                self.meta_memory.record_metric("query_hit_rate", hit_rate, "per_call")
+                self.meta_memory.record_metric("query_best_score", best_score, "per_call")
+                self.meta_memory.record_metric("query_result_count", float(len(top_results)), "per_call")
+            except Exception:
+                pass
 
         return top_results
 
