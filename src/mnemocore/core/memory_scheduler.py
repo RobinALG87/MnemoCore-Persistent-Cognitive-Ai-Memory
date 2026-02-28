@@ -61,7 +61,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
 
 
@@ -440,7 +440,8 @@ class MemoryScheduler:
             processed += 1
 
         # Periodic health check
-        self._ticks_since_health += 1
+        with self._lock:
+            self._ticks_since_health += 1
 
         return {
             "processed": processed,
@@ -537,10 +538,12 @@ class MemoryScheduler:
             logger.debug(f"No handler for job type '{job.job_type}', skipping.")
             return
 
-        self._active_job = job
+        with self._lock:
+            self._active_job = job
         try:
             handler(job)
-            self._completed_count += 1
+            with self._lock:
+                self._completed_count += 1
             logger.debug(
                 f"Completed job {job.id[:8]} (type={job.job_type}, "
                 f"priority={job.priority})"
@@ -560,13 +563,16 @@ class MemoryScheduler:
                     f"{job.max_attempts} attempts: {e}"
                 )
         finally:
-            self._active_job = None
+            with self._lock:
+                self._active_job = None
 
     def _interrupt_active(self, reason: str) -> None:
         """Interrupt the currently active job (must hold lock)."""
         if not self._active_job:
             return
         self._interrupted_jobs.append(self._active_job)
+        if len(self._interrupted_jobs) > 100:
+            self._interrupted_jobs = self._interrupted_jobs[-50:]
         self._interrupted_count += 1
         logger.info(
             f"INTERRUPT: job {self._active_job.id[:8]} preempted. "

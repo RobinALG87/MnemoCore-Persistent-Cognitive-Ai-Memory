@@ -1,9 +1,7 @@
-# MnemoCore Roadmap
+# MnemoCore Roadmap — Detailed Design Explorations
 
-## Scope and Intent
-
-This roadmap describes current known gaps and likely direction.
-It is not a promise, delivery guarantee, or commitment to specific timelines.
+> **Note:** The canonical roadmap lives at [ROADMAP.md](../ROADMAP.md) in the project root.
+> This document preserves detailed design explorations for future phases.
 
 ---
 
@@ -16,13 +14,13 @@ It is not a promise, delivery guarantee, or commitment to specific timelines.
 | 4.1 | Observability | ✅ Complete | Prometheus metrics, distributed tracing, project isolation |
 | 4.2 | Stability | ✅ Complete | Async lock fixes, test suite hardening |
 | 4.3 | Temporal Recall | ✅ Complete | Episodic chaining, chrono-weighting, sequential context |
-| **5.x** | **The Perfect Brain** | 🔮 Planned | Multi-Modal, Emotional, Working Memory |
+| 4.5 | Subconscious | ✅ Complete | Dream daemon, DI container, HNSW, batch ops, meta-cognition |
+| 5.0–5.4 | Cognitive Architecture | ✅ Complete | WM, Episodic, Semantic, Procedural, Meta, SelfImprovement, Pulse |
+| 6.0 | Research Services | ✅ Complete | StrategyBank, KnowledgeGraph, MemoryScheduler, SAMEP |
 
 ---
 
-## Phase 5.x: The Perfect Brain
-
-**Vision:** Transform MnemoCore from a sophisticated memory storage system into a truly cognitive architecture that functions as an artificial brain - but better.
+## Design Explorations for Future Phases
 
 ### 5.0 Multi-Modal Memory
 
@@ -289,32 +287,11 @@ context = wm.context_summary()
 
 ---
 
-## Known Gaps (Current Beta)
+## Status Note
 
-- Query path is still primarily HOT-tier-centric in current engine behavior.
-- Some consolidation pathways are partial or under active refinement.
-- Certain integrations (LLM/Nightlab) are intentionally marked as TODO.
-- Distributed-scale behavior from long-form blueprints is not fully productized.
+The design explorations above for Multi-Modal Memory (5.0), Emotional Layer (5.1), Working Memory (5.2), Multi-Agent Memory (5.3), and Continual Learning (5.4) informed the Phase 5 and Phase 6 implementations. Many concepts were realized differently than originally envisioned here — see `IMPLEMENTATION_PROGRESS.md` for what was actually built.
 
 ---
 
-## Near-Term Priorities (Pre-5.0)
-
-1. Improve cross-tier retrieval consistency.
-2. Harden consolidation and archival flow.
-3. Improve deletion semantics and API consistency.
-4. Expand tests around degraded dependency modes (Redis/Qdrant outages).
-5. Stabilize API contracts and publish versioned compatibility notes.
-6. MCP server integration for agent tool access.
-
----
-
-## Not a Commitment
-
-Items above are directional only.
-Order, scope, and implementation details can change during development.
-
----
-
-*Last Updated: 2025-02-18*
-*Current Version: 4.3.0*
+*Last Updated: 2026-03-01*
+*Current Version: 5.0.0*

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.hypothesis/
 .Python
 build/
 develop-eggs/
@@ -38,7 +39,6 @@ ENV/
 htmlcov/
 .tox/
 .nox/
-.hypothesis/
 
 # Data (runtime generated)
 data/memory.jsonl
@@ -49,11 +49,9 @@ data/warm_tier/*.mmap
 data/warm_tier/*.json
 data/warm_tier/*.npy
 data/cold_archive/*.gz
+data/vector_cache.sqlite
+data/test_eviction/
 vector_core/corpus_ready.json
-data/*.sqlite
-data/*.faiss
-data/*_idmap.json
-data/*_vectors.npy
 
 # Logs
 *.log
@@ -84,3 +82,19 @@ AGENT_MASTER_PLAN.md
 
 # Runtime artifacts
 error_log.txt
+
+# Test output dumps (debug sessions)
+failed_*.txt
+test_failures.txt
+test_out.txt
+coverage.json
+
+# Leaked test temp directories
+.tmp_phase*/
+.tmp_pytest/
+pytest_base_temp/
+MagicMock/
+test_data_perf/
+
+# Phase planning scratchpads
+phase*.md.md

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnemocore"
-version = "4.5.1"
+version = "5.0.0"
 description = "MnemoCore – Infrastructure for Persistent Cognitive Memory. A hierarchical AI memory engine with hot/warm/cold tiers, vector search, and subconscious consolidation."
 readme = "README.md"
 license = { file = "LICENSE" }

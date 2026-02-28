@@ -51,15 +51,14 @@ Integration points:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import threading
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Literal
+from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from .bayesian_ltp import BayesianState
@@ -643,16 +642,6 @@ class StrategyBankService:
         is_success = outcome in ("success", "partial")
         is_neg = not is_success
 
-        # ── 60/40 Balance check (ReasoningBank) ──────────────────────
-        if not is_neg:
-            neg_ratio = self._current_negative_ratio()
-            if neg_ratio < self._target_negative_ratio * 0.5:
-                # We have too few negative exemplars — flag this for attention
-                logger.info(
-                    f"Strategy bank negative ratio ({neg_ratio:.1%}) below target "
-                    f"({self._target_negative_ratio:.0%}). Consider adding failure cases."
-                )
-
         initial_outcome = StrategyOutcome(
             success=is_success,
             quality_score=quality_score,
@@ -677,6 +666,15 @@ class StrategyBankService:
         strategy.bayesian_state.observe(success=is_success, strength=quality_score)
 
         with self._lock:
+            # ── 60/40 Balance check (ReasoningBank) ──────────────────
+            if not is_neg:
+                neg_ratio = self._current_negative_ratio()
+                if neg_ratio < self._target_negative_ratio * 0.5:
+                    logger.info(
+                        f"Strategy bank negative ratio ({neg_ratio:.1%}) below target "
+                        f"({self._target_negative_ratio:.0%}). Consider adding failure cases."
+                    )
+
             self._strategies[strategy.id] = strategy
             self._index_strategy(strategy)
             self._total_distillations += 1

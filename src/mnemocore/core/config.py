@@ -373,8 +373,9 @@ class StrategyBankConfig:
     """
     enabled: bool = True
     max_strategies: int = 10000
-    balance_ratio: float = 0.6                # Positive/negative exemplar ratio
-    prune_threshold: float = 0.05             # Min confidence to keep strategy
+    max_outcomes_per_strategy: int = 100       # Max outcomes tracked per strategy
+    target_negative_ratio: float = 0.4        # Target negative exemplar ratio
+    min_confidence_threshold: float = 0.3     # Min confidence to keep strategy
     decay_rate: float = 0.005                 # Per-tick confidence decay
     judge_relevance_weight: float = 0.4
     judge_completeness_weight: float = 0.25
@@ -393,13 +394,13 @@ class KnowledgeGraphConfig:
     self-organizing knowledge graph with dynamic edge weights.
     """
     enabled: bool = True
-    max_nodes: int = 100000
-    max_edges: int = 500000
-    reciprocal_factor: float = 0.7            # B→A weight = A→B × this
+    max_nodes: int = 50000
+    max_edges_per_node: int = 100              # Max outgoing edges per node
+    reciprocal_weight_factor: float = 0.7     # B→A weight = A→B × this
     edge_decay_half_life_days: float = 30.0
-    activation_decay_rate: float = 0.05
+    activation_decay: float = 0.5             # Activation spreading decay factor
     redundancy_threshold: float = 0.92        # Jaccard threshold for merging
-    min_edge_weight: float = 0.01             # Prune edges below this
+    min_edge_weight: float = 0.05             # Prune edges below this
     persistence_path: Optional[str] = None
     auto_persist: bool = True
 
@@ -413,12 +414,12 @@ class MemorySchedulerConfig:
     and Neuroca health scoring (recency + frequency + stability).
     """
     enabled: bool = True
-    max_queue_size: int = 1000
+    max_queue_size: int = 10000
+    max_batch_per_tick: int = 50               # Jobs processed per tick
     load_shedding_threshold: int = 500
-    health_recency_weight: float = 0.35
-    health_frequency_weight: float = 0.35
-    health_stability_weight: float = 0.30
-    recency_half_life_hours: float = 48.0
+    interrupt_threshold: float = 0.9           # Importance ≥ this triggers interrupt
+    enable_interrupts: bool = True
+    health_check_interval_ticks: int = 5
     max_retries: int = 3
 
 
@@ -1215,8 +1216,9 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     strategy_bank_cfg = StrategyBankConfig(
         enabled=_env_override("STRATEGY_BANK_ENABLED", sb_raw.get("enabled", True)),
         max_strategies=sb_raw.get("max_strategies", 10000),
-        balance_ratio=sb_raw.get("balance_ratio", 0.6),
-        prune_threshold=sb_raw.get("prune_threshold", 0.05),
+        max_outcomes_per_strategy=sb_raw.get("max_outcomes_per_strategy", 100),
+        target_negative_ratio=sb_raw.get("target_negative_ratio", 0.4),
+        min_confidence_threshold=sb_raw.get("min_confidence_threshold", 0.3),
         decay_rate=sb_raw.get("decay_rate", 0.005),
         judge_relevance_weight=sb_raw.get("judge_relevance_weight", 0.4),
         judge_completeness_weight=sb_raw.get("judge_completeness_weight", 0.25),
@@ -1230,13 +1232,13 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     kg_raw = raw.get("knowledge_graph") or {}
     knowledge_graph_cfg = KnowledgeGraphConfig(
         enabled=_env_override("KNOWLEDGE_GRAPH_ENABLED", kg_raw.get("enabled", True)),
-        max_nodes=kg_raw.get("max_nodes", 100000),
-        max_edges=kg_raw.get("max_edges", 500000),
-        reciprocal_factor=kg_raw.get("reciprocal_factor", 0.7),
+        max_nodes=kg_raw.get("max_nodes", 50000),
+        max_edges_per_node=kg_raw.get("max_edges_per_node", 100),
+        reciprocal_weight_factor=kg_raw.get("reciprocal_weight_factor", 0.7),
         edge_decay_half_life_days=kg_raw.get("edge_decay_half_life_days", 30.0),
-        activation_decay_rate=kg_raw.get("activation_decay_rate", 0.05),
+        activation_decay=kg_raw.get("activation_decay", 0.5),
         redundancy_threshold=kg_raw.get("redundancy_threshold", 0.92),
-        min_edge_weight=kg_raw.get("min_edge_weight", 0.01),
+        min_edge_weight=kg_raw.get("min_edge_weight", 0.05),
         persistence_path=kg_raw.get("persistence_path"),
         auto_persist=kg_raw.get("auto_persist", True),
     )
@@ -1245,12 +1247,12 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     ms_raw = raw.get("memory_scheduler") or {}
     memory_scheduler_cfg = MemorySchedulerConfig(
         enabled=_env_override("MEMORY_SCHEDULER_ENABLED", ms_raw.get("enabled", True)),
-        max_queue_size=ms_raw.get("max_queue_size", 1000),
+        max_queue_size=ms_raw.get("max_queue_size", 10000),
+        max_batch_per_tick=ms_raw.get("max_batch_per_tick", 50),
         load_shedding_threshold=ms_raw.get("load_shedding_threshold", 500),
-        health_recency_weight=ms_raw.get("health_recency_weight", 0.35),
-        health_frequency_weight=ms_raw.get("health_frequency_weight", 0.35),
-        health_stability_weight=ms_raw.get("health_stability_weight", 0.30),
-        recency_half_life_hours=ms_raw.get("recency_half_life_hours", 48.0),
+        interrupt_threshold=ms_raw.get("interrupt_threshold", 0.9),
+        enable_interrupts=ms_raw.get("enable_interrupts", True),
+        health_check_interval_ticks=ms_raw.get("health_check_interval_ticks", 5),
         max_retries=ms_raw.get("max_retries", 3),
     )
 

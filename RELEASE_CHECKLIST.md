@@ -1,4 +1,4 @@
-# MnemoCore Public Beta Release Checklist
+# MnemoCore Release Checklist — v5.0.0
 
 ## Status: 🟢 GREEN
 
@@ -7,12 +7,17 @@
 ## ✅ Completed
 
 - [x] LICENSE file (MIT)
-- [x] .gitignore created
+- [x] .gitignore hardened (temp files, debug artifacts, build outputs)
 - [x] data/memory.jsonl removed (no stored memories)
 - [x] No leaked API keys or credentials
-- [x] 377 unit tests passing (Coverage increased from 82)
-- [x] Test suite import paths fixed (`src.` -> `mnemocore.`)
+- [x] **1291+ unit tests passing** (Phase 5: 200+ tests, Phase 6: 85 tests)
+- [x] Test suite import paths fixed (`src.` → `mnemocore.`)
 - [x] Critical TODOs addressed or verified as safe
+- [x] Config-service field alignment verified (no silent fallback-to-default bugs)
+- [x] Thread safety audit completed (all mutations under locks)
+- [x] Unused imports cleaned across all service files
+- [x] Obsolete files and temp directories removed
+- [x] Documentation updated (CHANGELOG, ARCHITECTURE, ROADMAP, README)
 
 ---
 

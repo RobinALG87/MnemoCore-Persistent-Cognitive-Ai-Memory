@@ -24,7 +24,7 @@ tags:
 > *"Memory is not a container. It is a living process — a holographic continuum where every fragment contains the whole."*
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Beta%204.5.0-orange?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Release%205.0.0-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/FastAPI-Async%20Ready-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" />
@@ -81,6 +81,10 @@ At its core lives the **Holographic Active Inference Memory (HAIM) Engine** — 
 - **Scales** from a single process to distributed nodes targeting 1B+ memories
 
 Phase 4.x introduces cognitive enhancements including contextual masking, reliability feedback loops, semantic consolidation, gap detection/filling, temporal recall (episodic chaining + chrono-weighted query), a Subconscious Daemon with LLM-powered dream synthesis, and a full dependency-injection container pattern for clean modularity.
+
+Phase 5 transforms MnemoCore into a true cognitive architecture with Working Memory, Episodic/Semantic/Procedural stores, Meta Memory, and a Self-Improvement Worker — all orchestrated by an 11-phase Pulse loop.
+
+Phase 6 adds four research-backed services: **StrategyBank** (reasoning bank with Bayesian confidence), **KnowledgeGraph** (spreading activation + community detection), **MemoryScheduler** (OS-level priority queue with interrupts), and **SAMEP** (multi-agent memory exchange with HMAC integrity).
 
 ---
 
@@ -907,7 +911,7 @@ All configuration lives in `config.yaml`. Sensitive values can be overridden wit
 
 ```yaml
 haim:
-  version: "4.5"
+  version: "5.0"
   dimensionality: 16384        # Binary vector dimensions (must be multiple of 64)
 
   encoding:
@@ -1108,7 +1112,7 @@ pytest tests/test_e2e_flow.py -v
 
 ## Roadmap
 
-### Current Release (v4.5.0)
+### Current Release (v5.0.0)
 
 - [x] Binary HDV core (XOR bind / bundle / permute / Hamming)
 - [x] Three-tier HOT/WARM/COLD memory lifecycle
@@ -1116,21 +1120,24 @@ pytest tests/test_e2e_flow.py -v
 - [x] XOR attention masking + Bayesian reliability updates
 - [x] Semantic consolidation, immunology cleanup, and gap detection/filling
 - [x] Temporal recall: episodic chaining + chrono-weighted query
-- [x] Regression guardrails for Phase 4.3 critical paths
 - [x] Phase 4.4 — Subconscious AI Worker (LLM-powered dream synthesis)
 - [x] Phase 4.5 — Subconscious Daemon, persistence hardening, tier-manager demotion race fix
 - [x] Dependency-injection Container pattern (replaces singleton)
 - [x] HNSW in-process index for hot-tier ANN search
 - [x] Batch operations for bulk ingestion
 - [x] Meta-cognition layer: GoalTree + LearningJournal
+- [x] Phase 5 — Cognitive Architecture: Working Memory, Episodic/Semantic/Procedural stores, Meta Memory, Self-Improvement Worker, 7-phase Pulse loop
+- [x] Phase 5 Hardening — 136 additional tests, config organization
+- [x] Phase 6 — Research Services: StrategyBank, KnowledgeGraph, MemoryScheduler, SAMEP, 4 new Pulse phases
+- [x] 1291+ tests passing
 
 ### Next Steps
 
-- [ ] Hardening pass for distributed/clustered HOT-tier behavior
-- [ ] Extended observability standardization (`mnemocore_*` metric prefix across all components)
-- [ ] Self-improvement loop (design documented in `docs/SELF_IMPROVEMENT_DEEP_DIVE.md`, staged rollout pending)
-- [ ] CUDA kernels for batch HDV operations at scale
-- [ ] Helm chart production hardening (resource autoscaling, PodDisruptionBudget)
+- [ ] Production hardening: distributed HOT-tier, CUDA kernels, chaos engineering
+- [ ] Self-improvement Phase 1: enable writes with human-in-the-loop approval
+- [ ] Multi-modal memory: image/audio embedding via CLIP/Whisper
+- [ ] Ecosystem: LangChain, LlamaIndex, CrewAI adapters
+- [ ] Extended observability standardization (`mnemocore_*` metric prefix)
 
 ---
 

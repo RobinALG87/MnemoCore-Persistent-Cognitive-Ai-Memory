@@ -60,7 +60,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 
@@ -525,9 +525,10 @@ class MemoryExchangeProtocol:
         scored.sort(key=lambda x: x[0], reverse=True)
         results = [sm for _, sm in scored[:top_k]]
 
-        # Record access
-        for sm in results:
-            sm.access_count += 1
+        # Record access (under lock for thread safety)
+        with self._lock:
+            for sm in results:
+                sm.access_count += 1
 
         return results
 

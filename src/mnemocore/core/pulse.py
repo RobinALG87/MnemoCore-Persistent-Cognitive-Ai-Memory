@@ -24,7 +24,6 @@ from enum import Enum
 import threading
 import asyncio
 import logging
-import traceback
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -589,11 +588,12 @@ class PulseLoop:
             return
 
         try:
-            processed = scheduler.process_tick()
-            if processed:
+            result = scheduler.process_tick()
+            count = result.get("processed", 0) if isinstance(result, dict) else 0
+            if count:
                 logger.debug(
                     f"Pulse: [{PulseTick.SCHEDULER_TICK.value}] "
-                    f"Processed {processed} memory jobs."
+                    f"Processed {count} memory jobs."
                 )
         except Exception as e:
             logger.debug(f"Pulse: scheduler_tick skipped: {e}")

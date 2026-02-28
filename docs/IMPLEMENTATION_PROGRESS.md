@@ -261,6 +261,107 @@ Implementing the Phase 5.0–5.4 cognitive memory architecture for MnemoCore, tr
 
 ---
 
+## Phase 6: Research-Backed Cognitive Services
+
+**Date:** 2026-02-28  
+**Commit:** `0674686`  
+**Source:** Academic papers: ReasoningBank (2025), MemoryOS (EMNLP 2025), SAMEP (Memory Exchange)
+
+### Step 20: StrategyBank Service
+**Status:** ✅ Complete  
+**File:** `src/mnemocore/core/strategy_bank.py` (~960 lines)  
+**What:** 5-phase closed-loop strategy distillation system inspired by ReasoningBank:
+- **Evaluate** — score strategies via Bayesian confidence
+- **Select** — pick top-k for a trigger pattern
+- **Apply** — record outcomes (success/failure/partial)
+- **Distill** — create strategies from episodic experiences
+- **Store** — persist with category/tag indexing and capacity enforcement
+- 60/40 positive/negative exemplar balance (ReasoningBank)
+- JSON disk persistence with load/save
+- Thread-safe with RLock
+
+### Step 21: KnowledgeGraph Service
+**Status:** ✅ Complete  
+**File:** `src/mnemocore/core/knowledge_graph.py` (~1100 lines)  
+**What:** Bidirectional semantic graph with spreading activation:
+- Add/remove nodes with metadata and activation levels
+- Directed edges with weights, reciprocal linking
+- Spreading activation (BFS with configurable depth/decay)
+- Community detection via label propagation
+- Edge weight decay, activation decay
+- Subgraph extraction and activation snapshots
+- JSON disk persistence
+- Max 50k nodes, configurable edges per node
+
+### Step 22: MemoryScheduler Service
+**Status:** ✅ Complete  
+**File:** `src/mnemocore/core/memory_scheduler.py` (~593 lines)  
+**What:** OS-level priority queue scheduler for memory operations (MemoryOS):
+- Priority: CRITICAL > HIGH > NORMAL > LOW > DEFERRED
+- Memory interrupts — critical info preempts ongoing consolidation
+- System load awareness with automatic load shedding
+- Stale job expiry (deadline-based)
+- Health-based lifecycle scoring: STM→MTM→LTM (Neuroca model)
+- Pluggable job handlers per operation type
+
+### Step 23: SAMEP (Memory Exchange) Service
+**Status:** ✅ Complete  
+**File:** `src/mnemocore/core/memory_exchange.py` (~773 lines)  
+**What:** Multi-agent shared memory exchange protocol:
+- Share/discover/request/revoke operations
+- HMAC-SHA256 integrity verification
+- Access control: NONE/READ/WRITE/ADMIN per agent per tier
+- Tier-based visibility (public/team/restricted/private)
+- Semantic search via word overlap scoring
+- Access auditing and statistics
+
+### Step 24: Phase 6 Integration
+**Status:** ✅ Complete  
+**Files:** `config.py`, `container.py`, `engine.py`, `pulse.py`  
+**What:**
+- 4 new config dataclasses: `StrategyBankConfig`, `KnowledgeGraphConfig`, `MemorySchedulerConfig`, `MemoryExchangeConfig`
+- YAML parsing blocks in `load_config()` for all 4
+- Container wiring in `build_container()`
+- Engine constructor accepts 4 new DI params
+- Pulse loop: 4 new phases (8–11): strategy refinement, graph maintenance, scheduler tick, exchange sync
+
+### Step 25: Phase 6 Tests
+**Status:** ✅ Complete  
+**Files:** `tests/test_phase6_strategy_bank.py`, `test_phase6_knowledge_graph.py`, `test_phase6_memory_scheduler.py`, `test_phase6_memory_exchange.py`, `test_phase6_integration.py`  
+**Results:** 85/85 PASSED  
+**Coverage:**
+- StrategyBank: 20 tests (lifecycle, 5-phase loop, balance, persistence, capacity)
+- KnowledgeGraph: 20 tests (nodes, edges, activation, communities, decay, persistence)
+- MemoryScheduler: 18 tests (queue, priority, interrupts, load shedding, health scores, expiry)
+- MemoryExchange: 15 tests (share, discover, request, access control, HMAC, tiers)
+- Integration: 12 tests (config loading, container wiring, engine, pulse phases)
+
+---
+
+## Phase 6 Hardening (Release Preparation)
+
+### Step 26: Config-Service Alignment Audit
+**Status:** ✅ Complete  
+**File:** `src/mnemocore/core/config.py`  
+**What:** Fixed 5 critical field-name mismatches where config dataclass field names didn't match service `getattr()` reads:
+- `StrategyBankConfig`: `balance_ratio` → `target_negative_ratio`, `prune_threshold` → `min_confidence_threshold`, added `max_outcomes_per_strategy`
+- `KnowledgeGraphConfig`: `max_edges` → `max_edges_per_node`, `reciprocal_factor` → `reciprocal_weight_factor`, `activation_decay_rate` → `activation_decay`
+- `MemorySchedulerConfig`: removed unused health weight fields, added `max_batch_per_tick`, `interrupt_threshold`, `enable_interrupts`, `health_check_interval_ticks`
+
+### Step 27: Code Quality Sweep
+**Status:** ✅ Complete  
+**Files:** All 4 Phase 6 service files + `pulse.py`  
+**What:**
+- Removed unused imports across 5 files (hashlib, asdict, Literal, Callable, Iterable, Set, Tuple, traceback)
+- Fixed pulse.py `_scheduler_tick()` bug: `process_tick()` returns dict, not int
+- Thread safety: `_execute_job()` wraps `_active_job`/`_completed_count` in lock
+- Thread safety: `discover()` wraps `access_count` mutation in lock
+- Thread safety: `distill_from_episode()` moves ratio check inside lock
+- Capped `_interrupted_jobs` list at 100 to prevent unbounded growth
+- Protected `_ticks_since_health` increment with lock
+
+---
+
 ## Files Modified/Created
 
 | File | Action | Description |

@@ -2,7 +2,7 @@
 # All hardcoded constants are centralized here.
 
 haim:
-  version: "4.5"
+  version: "5.0"
   dimensionality: 16384  # 2^14, must be multiple of 64
 
   # Vector encoding
