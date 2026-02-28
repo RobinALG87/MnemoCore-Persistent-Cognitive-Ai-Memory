@@ -2,6 +2,21 @@
 HAIM Configuration System
 ========================
 Centralized, validated configuration with environment variable overrides.
+
+Organization:
+  §1 — Infrastructure  (TierConfig, LTPConfig, HysteresisConfig, RedisConfig,
+                         QdrantConfig, GPUConfig, PathsConfig)
+  §2 — API & Security  (SecurityConfig, ObservabilityConfig, MCPConfig, SearchConfig)
+  §3 — Encoding & Core (EncodingConfig, AttentionMaskingConfig, ConsolidationConfig,
+                         SynapseConfig, ContextConfig, PreferenceConfig, AnticipatoryConfig)
+  §4 — Subconscious    (DreamLoopConfig, SubconsciousAIConfig, DreamingConfig)
+  §5 — Performance     (PerformanceConfig, VectorCompressionConfig, BackupConfig)
+  §6 — Cognitive (Ph5) (WorkingMemoryConfig, EpisodicConfig, SemanticConfig,
+                         ProceduralConfig, MetaMemoryConfig, SelfImprovementConfig,
+                         PulseConfig)
+  §7 — Extensions      (EmbeddingRegistryConfig, EFTConfig, WebhookConfig, EventsConfig)
+  §8 — Root            (HAIMConfig — composes all sections)
+  §9 — Loader          (load_config, get_config, reset_config)
 """
 
 import os
@@ -13,6 +28,10 @@ import yaml
 
 from mnemocore.core.exceptions import ConfigurationError
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# §1  Infrastructure
+# ═══════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
 class TierConfig:
@@ -80,6 +99,10 @@ class SearchConfig:
     min_sparse_score: float = 0.0
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# §2  API & Security
+# ═══════════════════════════════════════════════════════════════════════
+
 @dataclass(frozen=True)
 class SecurityConfig:
     api_key: Optional[str] = None
@@ -127,6 +150,10 @@ class PathsConfig:
     warm_mmap_dir: str = "./data/warm_tier"
     cold_archive_dir: str = "./data/cold_archive"
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# §3  Encoding & Core
+# ═══════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
 class AttentionMaskingConfig:
@@ -181,6 +208,10 @@ class AnticipatoryConfig:
     enabled: bool = True
     predictive_depth: int = 1
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# §4  Subconscious
+# ═══════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
 class DreamLoopConfig:
@@ -237,6 +268,10 @@ class SubconsciousAIConfig:
     max_memories_per_cycle: int = 10  # Process at most N memories per pulse
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# §5  Performance
+# ═══════════════════════════════════════════════════════════════════════
+
 @dataclass(frozen=True)
 class PerformanceConfig:
     """Configuration for CPU/resource optimization."""
@@ -245,6 +280,10 @@ class PerformanceConfig:
     vector_cache_enabled: bool = True
     vector_cache_path: Optional[str] = "./data/vector_cache.sqlite"
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# §6  Cognitive (WM, Episodic, Semantic, Procedural, Meta, SI, Pulse)
+# ═══════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
 class WorkingMemoryConfig:
@@ -323,6 +362,11 @@ class PulseConfig:
     max_agents_per_tick: int = 50
     max_episodes_per_tick: int = 200
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# §7  Extensions (Embedding Registry, Dreaming, Backup, Vectors, EFT,
+#     Webhooks, Events)
+# ═══════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
 class EmbeddingRegistryConfig:
@@ -515,6 +559,10 @@ class EventsConfig:
     disabled_events: list = field(default_factory=list)
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# §8  Root Composite
+# ═══════════════════════════════════════════════════════════════════════
+
 @dataclass(frozen=True)
 class HAIMConfig:
     """Root configuration for the HAIM system."""
@@ -614,6 +662,11 @@ def _parse_optional_positive_int(value: Optional[object]) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# §9  Loader (YAML + env-override)
+# ═══════════════════════════════════════════════════════════════════════
 
 
 def load_config(path: Optional[Path] = None) -> HAIMConfig:

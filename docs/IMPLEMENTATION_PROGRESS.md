@@ -18,7 +18,7 @@ Implementing the Phase 5.0–5.4 cognitive memory architecture for MnemoCore, tr
 - **Schema-consistent rapid consolidation**
 - **Catastrophic forgetting prevention** (EWC, DualNet patterns)
 
-**FINAL STATUS: ✅ ALL 14 STEPS COMPLETE — 65/65 TESTS PASSING**
+**FINAL STATUS: ✅ ALL 14 STEPS COMPLETE + HARDENING PHASE — 1200+ TESTS PASSING**
 
 ---
 
@@ -148,6 +148,62 @@ Implementing the Phase 5.0–5.4 cognitive memory architecture for MnemoCore, tr
 
 ---
 
+## Hardening Phase (Post-Implementation)
+
+### Step 15: Dedicated SelfImprovementWorker Tests
+**Status:** ✅ Complete  
+**File:** `tests/test_self_improvement_worker.py` (~420 lines, 60+ tests)  
+**What:** Comprehensive isolated tests for the self-improvement subsystem:
+- `TestCandidateSelection` — 11 tests: short content, missing metadata, duplicates, batch limit, cooldown, empty nodes, tier_manager errors
+- `TestProposalGeneration` — 5 tests: normalize, metadata_repair, deduplicate, type mapping, empty proposals
+- `TestValidationGatesEdgeCases` — 10 tests: empty strings, boundary conditions, multiple gate failures, resource budget
+- `TestDecisionLogging` — 5 tests: entry fields, rejection logging, audit trail capping
+- `TestBackpressure` — 6 tests: boundary at 50/51, broken queue, skip behavior
+- `TestRunOnce` — 8 tests: mixed candidates, metrics increment, meta_memory error resilience, resource gate budget exhaustion
+- `TestLifecycle` — 5 tests: start/stop/disabled/double-stop
+- `TestMetricsSnapshot` — 3 tests: counter tracking
+- `TestGetStats` / `TestFactory` — 6 tests
+
+### Step 16: Pulse Phase Edge-Case Tests
+**Status:** ✅ Complete  
+**File:** `tests/test_pulse_phases.py` (~430 lines, 50+ tests)  
+**What:** Exhaustive per-phase tests with error isolation:
+- `TestPulseTickEnum` / `TestPulseInit` — lifecycle + defaults
+- `TestWMMaintenance` — 3 tests: TTL enforcement, empty WM, error resilience
+- `TestEpisodicChaining` — 5 tests: healthy/broken chains, max_agents limit, error handling
+- `TestSemanticRefresh` — 7 tests: missing stores, empty events, short content, encoder failure, decay always called
+- `TestGapDetection` — 4 tests: metrics recording, empty gaps, error resilience
+- `TestInsightGeneration` — 4 tests: tick skip logic, 5th tick fires, fallback to `_edges`
+- `TestProcedureRefinement` — 6 tests: tick skip, success/failure boosts, active episodes, no procedure_id, decay
+- `TestMetaSelfReflection` — 5 tests: tick skip, fires on 10th, phase metrics, error metrics, error caught
+- `TestFullTick` — 3 tests: counter, durations, error isolation
+- `TestPhaseSkipLogic` — 2 integration tests: 10-tick insight + 9-tick procedure verification
+
+### Step 17: Store Integration Tests
+**Status:** ✅ Complete  
+**File:** `tests/test_store_integration.py` (~410 lines, 25+ tests)  
+**What:** Cross-store integration verifying episodic↔semantic↔procedural data flow:
+- `TestEpisodicToSemanticConsolidation` — 4 tests: concept creation, reinforcement, failed episodes, LTP strength
+- `TestEpisodicToProcedural` — 3 tests: success boosts, failure penalizes, mixed outcomes
+- `TestFullPipeline` — 2 tests: episode→concept→procedure, nearby search
+- `TestMultiAgentConsistency` — 3 tests: agent isolation, chaining
+- `TestStoreStatsCoherence` — 3 tests: correct keys, stat counts
+- `TestDecayCoherence` — 3 tests: semantic decay, procedural decay, symmetric decay
+- `TestChainIntegrityAcrossStores` — 2 tests: temporal ordering, chain events
+
+### Step 18: Config.py Maintainability Review
+**Status:** ✅ Complete  
+**File:** `src/mnemocore/core/config.py`  
+**What:** Added §1-§9 section organization guide in module docstring + inline section markers between dataclass groups. 37 frozen dataclasses organized into: §1 Infrastructure, §2 API & Security, §3 Encoding & Core, §4 Subconscious, §5 Performance, §6 Cognitive, §7 Extensions, §8 Root Composite, §9 Loader.  
+**Decision:** Keep single-file layout — splitting would break 100+ import sites. Documentation-based navigation instead.
+
+### Step 19: Subconscious Exports Verification
+**Status:** ✅ Complete (no changes needed)  
+**File:** `src/mnemocore/subconscious/__init__.py`  
+**What:** Verified `SelfImprovementWorker` and `create_self_improvement_worker` are properly exported in `__all__`.
+
+---
+
 ## Files Modified / Created
 
 ### Modified Files
@@ -170,6 +226,9 @@ Implementing the Phase 5.0–5.4 cognitive memory architecture for MnemoCore, tr
 |------|---------|
 | `src/mnemocore/subconscious/self_improvement_worker.py` | Phase 0 dry-run self-improvement worker |
 | `tests/test_cognitive_services.py` | 65 comprehensive tests |
+| `tests/test_self_improvement_worker.py` | 60+ dedicated SelfImprovementWorker tests |
+| `tests/test_pulse_phases.py` | 50+ pulse phase edge-case tests |
+| `tests/test_store_integration.py` | 25+ cross-store integration tests |
 | `docs/IMPLEMENTATION_PROGRESS.md` | This progress log |
 
 ---
