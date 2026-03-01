@@ -1,7 +1,7 @@
 param(
     [switch]$DoPush,
     [string]$RemoteName = "v2-private",
-    [string]$ExpectedRepoUrl = "https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git",
+    [string]$ExpectedRepoUrl = "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory.git",
     [string]$ExpectedVersion = "2.0.0",
     [string]$TagName = "",
     [switch]$AllowDirty,
