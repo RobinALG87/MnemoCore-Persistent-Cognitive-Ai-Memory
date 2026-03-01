@@ -58,9 +58,54 @@ def build_server(config: HAIMConfig | None = None):
         try:
             return _result_ok(call())
         except MnemoCoreAPIError as exc:
-            return _result_error(str(exc))
+            # SECURITY: Sanitize error messages to avoid leaking internal paths, SQL queries, etc.
+            return _result_error(_sanitize_error(str(exc)))
         except Exception as exc:
-            return _result_error(f"Unexpected error: {exc}")
+            # SECURITY: Sanitize error messages to avoid leaking internal paths, SQL queries, etc.
+            logger.exception(exc)  # Log full exception internally for debugging
+            return _result_error(_sanitize_error(f"Unexpected error: {exc}", is_debug=False))
+
+    def _sanitize_error(error_msg: str, is_debug: bool = False) -> str:
+        """
+        Sanitize error messages to prevent information leakage.
+
+        In production mode, returns generic error messages to avoid exposing:
+        - Internal file paths
+        - SQL queries
+        - Stack traces
+        - Configuration values
+
+        In debug mode, returns full error details.
+        """
+        import os
+
+        # Check if we're in debug mode
+        debug_mode = os.environ.get("HAIM_DEBUG", "0").lower() in ("true", "1", "yes")
+
+        if debug_mode:
+            return error_msg
+
+        # Production mode: sanitize the error
+        # Remove common patterns that might leak information
+        sanitized = error_msg
+
+        # Remove file paths (Unix and Windows style)
+        import re
+        sanitized = re.sub(r'/[\w/.-]+\.(py|yaml|yml|json|txt|log|db|sqlite)', '[FILE]', sanitized)
+        sanitized = re.sub(r'[A-Za-z]:\\[\w\\.-]+\.(py|yaml|yml|json|txt|log|db|sqlite)', '[FILE]', sanitized)
+
+        # Remove SQL-like patterns
+        sanitized = re.sub(r'\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b.*?(FROM|INTO|SET|WHERE|TABLE)', '[QUERY]', sanitized, flags=re.IGNORECASE)
+
+        # Remove stack trace patterns
+        sanitized = re.sub(r'File ".*", line \d+', '[STACK]', sanitized)
+        sanitized = re.sub(r'Traceback \(most recent call last\):', '[STACK]', sanitized)
+
+        # Truncate very long errors
+        if len(sanitized) > 200:
+            sanitized = sanitized[:200] + "..."
+
+        return sanitized
 
     def register_memory_store() -> None:
         @server.tool()

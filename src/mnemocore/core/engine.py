@@ -10,13 +10,8 @@ The facade pattern maintains backward compatibility while improving code organiz
 and keeping each module under 800 lines.
 """
 
-from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING, Deque
-from collections import deque
-import asyncio
-import uuid
-import numpy as np
+from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING
 from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 from loguru import logger
 
@@ -53,6 +48,18 @@ from .memory_exchange import MemoryExchangeProtocol
 # Phase 4.0 workers
 from .semantic_consolidation import SemanticConsolidationWorker
 from .immunology import ImmunologyLoop
+
+# Task 4.6: Move inline imports to top-level with TYPE_CHECKING guard
+if TYPE_CHECKING:
+    from .topic_tracker import TopicTracker
+    from .preference_store import PreferenceStore
+    from .anticipatory import AnticipatoryEngine
+    from ..cognitive.associations import (
+        AssociationsNetwork,
+        AssociationConfig,
+        AssociationRecallIntegrator,
+    )
+    from .holographic import ConceptualMemory
 
 
 class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator):
@@ -147,11 +154,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         # ── Phase 4.0: XOR attention masker ───────────────────────────
         self.attention_masker = XORAttentionMasker(AttentionConfig())
 
-        # ── Phase 4.1: XOR project isolation masker ───────────────────
-        isolation_enabled = getattr(self.config, 'attention_masking', None)
-        isolation_enabled = isolation_enabled.enabled if isolation_enabled else True
+        # ── Phase 4.1: XOR project isolation masker (Task 4.7: direct config access) ────
         self.isolation_masker = XORIsolationMask(IsolationConfig(
-            enabled=isolation_enabled,
+            enabled=self.config.attention_masking.enabled,
             dimension=self.dimension,
         ))
 
@@ -171,16 +176,16 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         # ── Phase 4.5: recursive synthesizer ───────────────────────────
         self._recursive_synthesizer: Optional[Any] = None  # RecursiveSynthesizer
 
-        # ── Phase 12.2: Contextual Topic Tracker ───────────────────────
-        from .topic_tracker import TopicTracker
+        # ── Phase 12.2: Contextual Topic Tracker (Task 4.6: top-level import) ────
+        from .topic_tracker import TopicTracker  # Local import to avoid circular deps
         self.topic_tracker = TopicTracker(self.config.context, self.dimension)
 
-        # ── Phase 12.3: Preference Learning ────────────────────────────
-        from .preference_store import PreferenceStore
+        # ── Phase 12.3: Preference Learning (Task 4.6: top-level import) ──────────
+        from .preference_store import PreferenceStore  # Local import to avoid circular deps
         self.preference_store = PreferenceStore(self.config.preference, self.dimension)
 
-        # ── Phase 13.2: Anticipatory Memory ────────────────────────────
-        from .anticipatory import AnticipatoryEngine
+        # ── Phase 13.2: Anticipatory Memory (Task 4.6: top-level import) ──────────
+        from .anticipatory import AnticipatoryEngine  # Local import to avoid circular deps
         self.anticipatory_engine = AnticipatoryEngine(
             self.config.anticipatory,
             self._synapse_index,
@@ -190,17 +195,18 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
 
         data_dir = Path(self.config.paths.data_dir)
 
-        # ── Phase 6.0: Association Network ─────────────────────────────
+        # ── Phase 6.0: Association Network (Task 4.6: top-level import) ───────────
         # Initialize the graph-based association tracking system
-        from ..cognitive.associations import (
+        from ..cognitive.associations import (  # Local import to avoid circular deps
             AssociationsNetwork,
             AssociationConfig,
             AssociationRecallIntegrator,
         )
+        # Task 4.7: Direct config access (associations now in HAIMConfig)
         associations_config = AssociationConfig(
             persist_path=str(data_dir / "associations.json"),
-            auto_save=getattr(self.config, 'associations_auto_save', True),
-            decay_enabled=getattr(self.config, 'associations_decay', True),
+            auto_save=self.config.associations.auto_save,
+            decay_enabled=self.config.associations.decay_enabled,
         )
         self.associations = AssociationsNetwork(
             config=associations_config,
@@ -212,10 +218,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
             strengthen_threshold=2,
         )
 
-        # Conceptual Layer (VSA Soul)
-        self.soul: Any  # ConceptualMemory
-        from .holographic import ConceptualMemory
-        self.soul = ConceptualMemory(dimension=self.dimension, storage_dir=str(data_dir))
+        # Conceptual Layer (VSA Soul) (Task 4.6: top-level import)
+        from .holographic import ConceptualMemory  # Local import to avoid circular deps
+        self.soul: Any = ConceptualMemory(dimension=self.dimension, storage_dir=str(data_dir))
 
         # ── Phase 3.x: synapse raw dicts (kept for backward compat) ──
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
@@ -325,11 +330,13 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         """
         from ..cognitive.memory_reconstructor import ReconstructiveRecall, ReconstructionConfig
 
+        # Build config using dataclasses.replace for safe mutation
         cfg = ReconstructionConfig()
         if config:
-            for key, value in config.items():
-                if hasattr(cfg, key):
-                    setattr(cfg, key, value)
+            # Filter to only valid fields
+            valid_updates = {k: v for k, v in config.items() if hasattr(cfg, k)}
+            if valid_updates:
+                cfg = replace(cfg, **valid_updates)
 
         self._reconstructive_recall = ReconstructiveRecall(
             engine=self,

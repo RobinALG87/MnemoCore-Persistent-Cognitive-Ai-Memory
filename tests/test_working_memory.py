@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 from mnemocore.core.working_memory import WorkingMemoryService
 from mnemocore.core.memory_model import WorkingMemoryItem
 
-def test_working_memory_push_and_get():
+@pytest.mark.asyncio
+async def test_working_memory_push_and_get():
     wm = WorkingMemoryService(max_items_per_agent=5)
     
     item = WorkingMemoryItem(
@@ -17,14 +18,15 @@ def test_working_memory_push_and_get():
         kind="thought"
     )
     
-    wm.push_item("agent1", item)
-    state = wm.get_state("agent1")
+    await wm.push_item("agent1", item)
+    state = await wm.get_state("agent1")
     
     assert state is not None
     assert len(state.items) == 1
     assert state.items[0].id == "wm_123"
 
-def test_working_memory_eviction():
+@pytest.mark.asyncio
+async def test_working_memory_eviction():
     wm = WorkingMemoryService(max_items_per_agent=2)
     
     for i in range(3):
@@ -38,16 +40,17 @@ def test_working_memory_eviction():
             kind="thought",
             tags=[]
         )
-        wm.push_item("agent1", item)
+        await wm.push_item("agent1", item)
         
-    state = wm.get_state("agent1")
+    state = await wm.get_state("agent1")
     assert state is not None
     assert len(state.items) == 2
     # The oldest one (wm_0) should be evicted.
     assert state.items[0].id == "wm_1"
     assert state.items[1].id == "wm_2"
 
-def test_working_memory_clear():
+@pytest.mark.asyncio
+async def test_working_memory_clear():
     wm = WorkingMemoryService()
     
     item = WorkingMemoryItem(
@@ -61,13 +64,14 @@ def test_working_memory_clear():
         tags=[]
     )
     
-    wm.push_item("agent1", item)
-    wm.clear("agent1")
+    await wm.push_item("agent1", item)
+    await wm.clear("agent1")
     
-    state = wm.get_state("agent1")
+    state = await wm.get_state("agent1")
     assert state is None or len(state.items) == 0
 
-def test_working_memory_prune():
+@pytest.mark.asyncio
+async def test_working_memory_prune():
     wm = WorkingMemoryService()
     
     # Push an item that is immediately expired
@@ -81,8 +85,8 @@ def test_working_memory_prune():
         kind="thought",
         tags=[]
     )
-    wm.push_item("agent1", item)
+    await wm.push_item("agent1", item)
     
-    wm.prune_all()
-    state = wm.get_state("agent1")
+    await wm.prune_all()
+    state = await wm.get_state("agent1")
     assert state is None or len(state.items) == 0

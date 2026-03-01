@@ -31,14 +31,16 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import sqlite3
+import os
+import aiosqlite
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
+import ijson
 import numpy as np
 from loguru import logger
 
@@ -164,56 +166,68 @@ class ImportLog:
 
     Maintains a record of all imported memory IDs across imports
     to enable duplicate detection and import resume capability.
+
+    Uses aiosqlite for non-blocking async database operations.
     """
 
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+        self._conn: Optional[aiosqlite.Connection] = None
+        self._initialized = False
+        self._lock = asyncio.Lock()
 
-    def _init_db(self):
-        """Initialize import log database."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS imported_ids (
-                    id TEXT PRIMARY KEY,
-                    collection_name TEXT NOT NULL,
-                    import_timestamp TEXT NOT NULL,
-                    import_source TEXT,
-                    checksum TEXT,
-                    metadata TEXT
-                )
-            """)
+    async def _init_db(self):
+        """Initialize import log database asynchronously."""
+        if self._initialized:
+            return
 
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_collection
-                ON imported_ids(collection_name, import_timestamp)
-            """)
+        self._conn = await aiosqlite.connect(self.db_path)
+        await self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS imported_ids (
+                id TEXT PRIMARY KEY,
+                collection_name TEXT NOT NULL,
+                import_timestamp TEXT NOT NULL,
+                import_source TEXT,
+                checksum TEXT,
+                metadata TEXT
+            )
+        """)
 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS import_history (
-                    import_id TEXT PRIMARY KEY,
-                    collection_name TEXT NOT NULL,
-                    started_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    source_file TEXT,
-                    records_processed INTEGER,
-                    records_imported INTEGER,
-                    records_skipped INTEGER,
-                    records_failed INTEGER,
-                    status TEXT NOT NULL,
-                    error_message TEXT
-                )
-            """)
+        await self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_collection
+            ON imported_ids(collection_name, import_timestamp)
+        """)
 
-    def is_imported(
+        await self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS import_history (
+                import_id TEXT PRIMARY KEY,
+                collection_name TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                source_file TEXT,
+                records_processed INTEGER,
+                records_imported INTEGER,
+                records_skipped INTEGER,
+                records_failed INTEGER,
+                status TEXT NOT NULL,
+                error_message TEXT
+            )
+        """)
+        await self._conn.commit()
+        self._initialized = True
+
+    async def is_imported(
         self,
         memory_id: str,
         collection_name: str,
     ) -> bool:
         """Check if a memory ID was previously imported."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
+        async with self._lock:
+            if not self._initialized:
+                await self._init_db()
+
+            cursor = await self._conn.execute(
                 """
                 SELECT 1 FROM imported_ids
                 WHERE id = ? AND collection_name = ?
@@ -221,9 +235,10 @@ class ImportLog:
                 """,
                 (memory_id, collection_name),
             )
-            return cursor.fetchone() is not None
+            row = await cursor.fetchone()
+            return row is not None
 
-    def record_import(
+    async def record_import(
         self,
         memory_id: str,
         collection_name: str,
@@ -232,8 +247,11 @@ class ImportLog:
         metadata: Optional[Dict[str, Any]] = None,
     ):
         """Record a successful import."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
+        async with self._lock:
+            if not self._initialized:
+                await self._init_db()
+
+            await self._conn.execute(
                 """
                 INSERT OR REPLACE INTO imported_ids
                 (id, collection_name, import_timestamp, import_source, checksum, metadata)
@@ -242,23 +260,27 @@ class ImportLog:
                 (
                     memory_id,
                     collection_name,
-                    datetime.now().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     source,
                     checksum,
                     dumps(metadata or {}),
                 ),
             )
+            await self._conn.commit()
 
-    def start_import(
+    async def start_import(
         self,
         import_id: str,
         collection_name: str,
         source_file: Optional[str] = None,
     ) -> bool:
         """Start tracking a new import operation."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
+        async with self._lock:
+            if not self._initialized:
+                await self._init_db()
+
+            try:
+                await self._conn.execute(
                     """
                     INSERT INTO import_history
                     (import_id, collection_name, started_at, source_file,
@@ -266,14 +288,15 @@ class ImportLog:
                      records_failed, status)
                     VALUES (?, ?, ?, ?, 0, 0, 0, 0, 'in_progress')
                     """,
-                    (import_id, collection_name, datetime.now().isoformat(), source_file),
+                    (import_id, collection_name, datetime.now(timezone.utc).isoformat(), source_file),
                 )
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to start import log: {e}")
-            return False
+                await self._conn.commit()
+                return True
+            except Exception as e:
+                logger.warning(f"Failed to start import log: {e}")
+                return False
 
-    def complete_import(
+    async def complete_import(
         self,
         import_id: str,
         processed: int,
@@ -283,9 +306,12 @@ class ImportLog:
         error_message: Optional[str] = None,
     ):
         """Mark an import as complete."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
+        async with self._lock:
+            if not self._initialized:
+                await self._init_db()
+
+            try:
+                await self._conn.execute(
                     """
                     UPDATE import_history
                     SET completed_at = ?,
@@ -298,7 +324,7 @@ class ImportLog:
                     WHERE import_id = ?
                     """,
                     (
-                        datetime.now().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                         processed,
                         imported,
                         skipped,
@@ -308,17 +334,21 @@ class ImportLog:
                         import_id,
                     ),
                 )
-        except Exception as e:
-            logger.warning(f"Failed to complete import log: {e}")
+                await self._conn.commit()
+            except Exception as e:
+                logger.warning(f"Failed to complete import log: {e}")
 
-    def get_import_history(
+    async def get_import_history(
         self,
         collection_name: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """Get import history."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        async with self._lock:
+            if not self._initialized:
+                await self._init_db()
+
+            self._conn.row_factory = aiosqlite.Row
 
             query = "SELECT * FROM import_history WHERE 1=1"
             params = []
@@ -330,8 +360,16 @@ class ImportLog:
             query += " ORDER BY started_at DESC LIMIT ?"
             params.append(limit)
 
-            cursor = conn.execute(query, params)
-            return [dict(row) for row in cursor.fetchall()]
+            cursor = await self._conn.execute(query, params)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def close(self):
+        """Close the database connection."""
+        if self._conn:
+            await self._conn.close()
+            self._conn = None
+            self._initialized = False
 
 
 # =============================================================================
@@ -418,7 +456,7 @@ class MemoryImporter:
         # Start import log
         if opts.track_imports:
             log = self.get_import_log(opts)
-            log.start_import(import_id, collection_name, str(input_file))
+            await log.start_import(import_id, collection_name, str(input_file))
 
         try:
             # Ensure collection exists
@@ -470,7 +508,7 @@ class MemoryImporter:
 
             # Complete import log
             if opts.track_imports:
-                log.complete_import(
+                await log.complete_import(
                     import_id,
                     result.records_processed,
                     result.records_imported,
@@ -492,7 +530,7 @@ class MemoryImporter:
             # Complete import log with error
             if opts.track_imports:
                 log = self.get_import_log(opts)
-                log.complete_import(
+                await log.complete_import(
                     import_id,
                     result.records_processed,
                     result.records_imported,
@@ -556,7 +594,7 @@ class MemoryImporter:
 
             if record_id in imported_ids:
                 is_duplicate = True
-            elif import_log and import_log.is_imported(record_id, collection_name):
+            elif import_log and await import_log.is_imported(record_id, collection_name):
                 is_duplicate = True
 
             if is_duplicate:
@@ -618,7 +656,7 @@ class MemoryImporter:
         # Record imported IDs
         if import_log:
             for record_id in imported_ids:
-                import_log.record_import(
+                await import_log.record_import(
                     record_id,
                     collection_name,
                     source=options.import_log_path,
@@ -656,19 +694,56 @@ class MemoryImporter:
         input_path: Path,
         options: ImportOptions,
     ) -> List[Dict[str, Any]]:
-        """Read records from JSON file."""
-        with open(input_path, 'r', encoding='utf-8') as f:
-            data = loads(f.read())
+        """
+        Read records from JSON file using streaming.
 
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict) and "records" in data:
-            return data["records"]
-        else:
-            raise ValidationError(
-                "file_format",
-                "JSON file must contain an array of records",
-            )
+        Uses ijson to stream large JSON files without loading them entirely
+        into memory. This prevents memory issues with large export files.
+
+        Supports both:
+        - JSON array format: [{"id": ...}, {"id": ...}]
+        - Object with records key: {"records": [{"id": ...}, ...]}
+        """
+        records = []
+
+        try:
+            with open(input_path, 'rb') as f:
+                # First, try to detect if it's an object with a "records" key
+                parser = ijson.parse(f)
+
+                # Peek at the first few events to determine structure
+                f.seek(0)
+                first_events = []
+                for prefix, event, value in parser:
+                    first_events.append((prefix, event, value))
+                    if len(first_events) > 5:
+                        break
+
+                # Check if it's a dict with "records" key
+                is_records_format = any(
+                    e[0] == ('records', 'item', 'start_map')
+                    or (e[1] == 'map_key' and e[2] == 'records')
+                    for e in first_events
+                )
+
+                f.seek(0)
+
+                if is_records_format:
+                    # Stream from {"records": [...]}
+                    for record in ijson.items(f, 'records.item'):
+                        records.append(record)
+                else:
+                    # Stream from top-level array [...]
+                    for record in ijson.items(f, 'item'):
+                        records.append(record)
+
+            return records
+
+        except Exception as e:
+                raise ValidationError(
+                    "file_format",
+                    f"Failed to parse JSON file: {e}",
+                )
 
     async def _read_jsonl(
         self,
@@ -839,8 +914,8 @@ class MemoryImporter:
 
     def _generate_import_id(self, collection_name: str) -> str:
         """Generate a unique import ID."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        rand = os.urandom(4).hex() if 'os' in globals() else str(hash(timestamp))
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        rand = os.urandom(4).hex()
         return f"{collection_name}_{timestamp}_{rand}"
 
     async def _ensure_collection(
@@ -904,6 +979,3 @@ async def import_memories(
     options = ImportOptions(deduplication=deduplication, **options_kwargs)
     importer = MemoryImporter(qdrant_store, options)
     return await importer.import_file(collection_name, input_path, options)
-
-
-import os

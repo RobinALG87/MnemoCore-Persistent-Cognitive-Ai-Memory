@@ -1,6 +1,8 @@
-# MnemoCore Release Checklist — v5.0.0
+# MnemoCore Release Checklist — v2.0.0
 
-## Status: 🟢 GREEN
+## Status: � IN PROGRESS
+
+> See [PRODUCTION_REMEDIATION_PROGRESS.md](PRODUCTION_REMEDIATION_PROGRESS.md) for detailed remediation status.
 
 ---
 
@@ -10,7 +12,7 @@
 - [x] .gitignore hardened (temp files, debug artifacts, build outputs)
 - [x] data/memory.jsonl removed (no stored memories)
 - [x] No leaked API keys or credentials
-- [x] **1291+ unit tests passing** (Phase 5: 200+ tests, Phase 6: 85 tests)
+- [ ] **2,200+ unit tests defined** — 133 failures remain (see [PRODUCTION_REMEDIATION_PROGRESS.md](PRODUCTION_REMEDIATION_PROGRESS.md))
 - [x] Test suite import paths fixed (`src.` → `mnemocore.`)
 - [x] Critical TODOs addressed or verified as safe
 - [x] Config-service field alignment verified (no silent fallback-to-default bugs)
@@ -84,7 +86,7 @@ touch data/memory.jsonl data/codebook.json data/concepts.json data/synapses.json
 git status
 
 # Stage public files
-git add LICENSE .gitignore RELEASE_CHECKLIST.md REFACTORING_TODO.md
+git add LICENSE .gitignore RELEASE_CHECKLIST.md
 git add src/ tests/ config.yaml requirements.txt pytest.ini pyproject.toml
 git add README.md docker-compose.yml
 git add data/.gitkeep  # If exists
@@ -97,10 +99,12 @@ git commit -m "Release Candidate: All tests passing, critical TODOs resolved.
 - Confirmed LLM integration fallbacks"
 
 # Tag
-git tag -a v0.5.0-beta -m "Public Beta Release"
+git tag -a v2.0.0 -m "Release v2.0.0"
 
-# Push
-git push origin main --tags
+# Push (safe, validates remote/version before push)
+./scripts/ops/push_v2_safe.ps1
+./scripts/ops/push_v2_safe.ps1 -DoPush
+./scripts/ops/push_v2_safe.ps1 -DoPush -TagName v2.0.0
 ```
 
 ---

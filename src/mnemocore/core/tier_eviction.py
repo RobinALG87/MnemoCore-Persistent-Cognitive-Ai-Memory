@@ -273,7 +273,7 @@ class TierEvictionManager:
 
     def get_warm_strategy(self) -> EvictionStrategy:
         """Get the eviction strategy for WARM tier."""
-        return self._strategies.get(self.warm_strategy, self._strategies[EvictionPolicy.LTP_LOWEST])
+        return self._strategies.get(self.warm_policy, self._strategies[EvictionPolicy.LTP_LOWEST])
 
     def select_hot_victim(
         self,

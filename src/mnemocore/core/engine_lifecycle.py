@@ -15,6 +15,13 @@ import hashlib
 from datetime import datetime, timezone
 from loguru import logger
 
+# Version management - use importlib.metadata as single source of truth
+try:
+    from importlib.metadata import version as get_version
+    _ENGINE_VERSION = get_version("mnemocore")
+except Exception:
+    _ENGINE_VERSION = "2.0.0"  # Fallback for development environments
+
 import numpy as np
 import asyncio
 
@@ -69,15 +76,19 @@ class EngineLifecycleManager:
     """
 
     # ==========================================================================
-    # Initialization
+    # Initialization (Task 4.4: use shared utils)
     # ==========================================================================
 
-    @staticmethod
-    def _get_token_vector(token: str, dimension: int) -> np.ndarray:
+    # Token vector cache for instance-level caching
+    _token_vector_cache: Dict[str, np.ndarray] = {}
+
+    def _get_token_vector(self, token: str, dimension: int) -> np.ndarray:
         """Cached generation of deterministic token vectors (legacy compatibility)."""
-        seed_bytes = hashlib.shake_256(token.encode()).digest(4)
-        seed = int.from_bytes(seed_bytes, 'little')
-        return np.random.RandomState(seed).choice([-1, 1], size=dimension)
+        from ._utils import get_token_vector
+        cache_key = (token, dimension)
+        if cache_key not in self._token_vector_cache:
+            self._token_vector_cache[cache_key] = get_token_vector(token, dimension)
+        return self._token_vector_cache[cache_key]
 
     async def initialize(self):
         """
@@ -93,29 +104,56 @@ class EngineLifecycleManager:
         if self._initialized:
             return
 
-        await self.tier_manager.initialize()
-        await self._load_legacy_if_needed()
-        await self._load_synapses()
-        self._initialized = True
+        try:
+            await self.tier_manager.initialize()
+            await self._load_legacy_if_needed()
+            await self._load_synapses()
+            self._initialized = True
 
-        # Phase 4.0: start background workers
-        self._semantic_worker = SemanticConsolidationWorker(self)
-        await self._semantic_worker.start()
+            # Phase 4.0: start background workers
+            self._semantic_worker = SemanticConsolidationWorker(self)
+            await self._semantic_worker.start()
 
-        self._immunology = ImmunologyLoop(self)
-        await self._immunology.start()
+            self._immunology = ImmunologyLoop(self)
+            await self._immunology.start()
 
-        # Phase 4.4: start subconscious AI worker (Phase 5.4: lazy loaded to save RAM)
-        if self.config.subconscious_ai.enabled:
-            # Lazy load heavy SubconsciousAI modules only when enabled
-            from .subconscious_ai import SubconsciousAIWorker
-            self.subconscious = SubconsciousAIWorker(self, self.config.subconscious_ai)
-            await self.subconscious.start()
-            logger.info("Phase 4.4 SubconsciousAI worker started (BETA).")
-        else:
-            self.subconscious = None
+            # Phase 4.4: start subconscious AI worker (Phase 5.4: lazy loaded to save RAM)
+            if self.config.subconscious_ai.enabled:
+                # Lazy load heavy SubconsciousAI modules only when enabled
+                from .subconscious_ai import SubconsciousAIWorker
+                self.subconscious = SubconsciousAIWorker(self, self.config.subconscious_ai)
+                await self.subconscious.start()
+                logger.info("Phase 4.4 SubconsciousAI worker started (BETA).")
+            else:
+                self.subconscious = None
 
-        logger.info("Phase 4.0 background workers started (consolidation + immunology).")
+            logger.info("Phase 4.0 background workers started (consolidation + immunology).")
+        except Exception as e:
+            logger.error(f"Initialization failed: {e}")
+            self._initialized = False
+            # Attempt to stop any workers that may have started
+            await self._cleanup_on_init_failure()
+            raise
+
+    async def _cleanup_on_init_failure(self):
+        """Stop any workers that started before initialization failed."""
+        if hasattr(self, '_semantic_worker') and self._semantic_worker:
+            try:
+                await self._semantic_worker.stop()
+            except Exception as stop_err:
+                logger.warning(f"Failed to stop semantic_worker during cleanup: {stop_err}")
+
+        if hasattr(self, '_immunology') and self._immunology:
+            try:
+                await self._immunology.stop()
+            except Exception as stop_err:
+                logger.warning(f"Failed to stop immunology during cleanup: {stop_err}")
+
+        if hasattr(self, 'subconscious') and self.subconscious:
+            try:
+                await self.subconscious.stop()
+            except Exception as stop_err:
+                logger.warning(f"Failed to stop subconscious during cleanup: {stop_err}")
 
     async def _load_legacy_if_needed(self):
         """
@@ -124,7 +162,7 @@ class EngineLifecycleManager:
         Handles migration from legacy memory format to the new tiered storage.
         """
         from mnemocore.utils import json_compat as json
-        import functools
+        from ._utils import run_in_thread  # Task 4.4: use shared utility
 
         if not os.path.exists(self.persist_path):
             return
@@ -135,14 +173,14 @@ class EngineLifecycleManager:
             try:
                 with open(self.persist_path, 'r', encoding='utf-8') as f:
                     return f.readlines()
-            except Exception:
+            except (IOError, OSError) as e:
+                logger.warning(f"Failed to read legacy memory file {self.persist_path}: {e}")
+                return []
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON in legacy memory file {self.persist_path}: {e}")
                 return []
 
-        async def _run_in_thread(func, *args, **kwargs):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
-
-        lines = await _run_in_thread(_load)
+        lines = await run_in_thread(_load)
 
         for line in lines:
             line = line.strip()
@@ -185,21 +223,14 @@ class EngineLifecycleManager:
         Load synapses from disk.
 
         Phase 4.0: uses SynapseIndex.load_from_file() which restores Bayesian state.
+        Task 4.4: use shared run_in_thread utility.
         """
-        import functools
+        from ._utils import run_in_thread
 
         if not os.path.exists(self.synapse_path):
             return
 
-        def _load():
-            self._synapse_index.load_from_file(self.synapse_path)
-
-        async def _run_in_thread(func, *args, **kwargs):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
-
-        # _synapse_index is authoritative — legacy dicts no longer rebuilt.
-        await _run_in_thread(_load)
+        await self._synapse_index.load_from_file(self.synapse_path)
 
     # ==========================================================================
     # Shutdown
@@ -210,22 +241,46 @@ class EngineLifecycleManager:
         Perform graceful shutdown of engine components.
 
         Stops all background workers, saves state, and closes connections.
+        Each worker is stopped in its own try/except to ensure all workers
+        are attempted to stop even if one fails.
         """
         logger.info("Shutting down HAIMEngine...")
 
-        # Phase 4.0: stop background workers
+        # Phase 4.0: stop background workers (each wrapped to ensure all are attempted)
         if self._semantic_worker:
-            await self._semantic_worker.stop()
-        if self._immunology:
-            await self._immunology.stop()
-        if self._gap_filler:
-            await self._gap_filler.stop()
-        if self._subconscious_ai:
-            await self._subconscious_ai.stop()
+            try:
+                await self._semantic_worker.stop()
+            except Exception as e:
+                logger.warning(f"Failed to stop semantic_worker: {e}")
 
-        await self._save_synapses()
+        if self._immunology:
+            try:
+                await self._immunology.stop()
+            except Exception as e:
+                logger.warning(f"Failed to stop immunology: {e}")
+
+        if self._gap_filler:
+            try:
+                await self._gap_filler.stop()
+            except Exception as e:
+                logger.warning(f"Failed to stop gap_filler: {e}")
+
+        if self._subconscious_ai:
+            try:
+                await self._subconscious_ai.stop()
+            except Exception as e:
+                logger.warning(f"Failed to stop subconscious_ai: {e}")
+
+        try:
+            await self._save_synapses()
+        except Exception as e:
+            logger.warning(f"Failed to save synapses during shutdown: {e}")
+
         if self.tier_manager.use_qdrant and self.tier_manager.qdrant:
-            await self.tier_manager.qdrant.close()
+            try:
+                await self.tier_manager.qdrant.close()
+            except Exception as e:
+                logger.warning(f"Failed to close qdrant connection: {e}")
 
     async def _save_synapses(self):
         """
@@ -234,20 +289,15 @@ class EngineLifecycleManager:
         Phase 4.0: uses SynapseIndex.save_to_file() which includes Bayesian state.
         A dedicated _write_lock serialises concurrent callers so the file is never
         written by two coroutines at the same time. Does NOT acquire synapse_lock.
+
+        Task 4.4: use shared run_in_thread utility.
         """
-        import functools
+        from ._utils import run_in_thread
 
         path_snapshot = self.synapse_path
 
-        def _save():
-            self._synapse_index.save_to_file(path_snapshot)
-
-        async def _run_in_thread(func, *args, **kwargs):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
-
         async with self._write_lock:
-            await _run_in_thread(_save)
+            await self._synapse_index.save_to_file(path_snapshot)
 
     # ==========================================================================
     # Health Checks
@@ -312,34 +362,51 @@ class EngineLifecycleManager:
 
         # Phase 5.1: Cognitive services health
         cognitive = {}
+        has_degraded = False
+
         if hasattr(self, 'working_memory') and self.working_memory:
             cognitive["working_memory"] = {"status": "active"}
         if hasattr(self, 'episodic_store') and self.episodic_store:
             try:
                 cognitive["episodic_store"] = self.episodic_store.get_stats()
                 cognitive["episodic_store"]["status"] = "active"
-            except Exception:
-                cognitive["episodic_store"] = {"status": "active"}
+            except Exception as e:
+                cognitive["episodic_store"] = {"status": "degraded", "error": str(e)}
+                has_degraded = True
         if hasattr(self, 'semantic_store') and self.semantic_store:
             try:
                 cognitive["semantic_store"] = self.semantic_store.get_stats()
                 cognitive["semantic_store"]["status"] = "active"
-            except Exception:
-                cognitive["semantic_store"] = {"status": "active"}
+            except Exception as e:
+                cognitive["semantic_store"] = {"status": "degraded", "error": str(e)}
+                has_degraded = True
         if hasattr(self, 'procedural_store') and self.procedural_store:
             try:
                 cognitive["procedural_store"] = self.procedural_store.get_stats()
                 cognitive["procedural_store"]["status"] = "active"
-            except Exception:
-                cognitive["procedural_store"] = {"status": "active"}
+            except Exception as e:
+                cognitive["procedural_store"] = {"status": "degraded", "error": str(e)}
+                has_degraded = True
         if hasattr(self, 'meta_memory') and self.meta_memory:
             cognitive["meta_memory"] = {"status": "active"}
         health["cognitive_services"] = cognitive
 
-        # Overall status
-        health["status"] = "healthy" if all(
-            w.get("running", True) for w in workers.values()
-        ) else "degraded"
+        # Check for tier errors
+        if "error" in health.get("tiers", {}):
+            has_degraded = True
+
+        # Check for qdrant errors
+        if "error" in health.get("qdrant", {}):
+            has_degraded = True
+
+        # Overall status - degraded if any component fails or workers not running
+        workers_healthy = all(w.get("running", True) for w in workers.values())
+        if not workers_healthy:
+            health["status"] = "degraded"
+        elif has_degraded:
+            health["status"] = "degraded"
+        else:
+            health["status"] = "healthy"
 
         return health
 
@@ -370,10 +437,10 @@ class EngineLifecycleManager:
             # Retain legacy->index sync so tests that write to self.synapses directly
             # still get their entries registered.
             for syn in list(self.synapses.values()):
-                if self._synapse_index.get(syn.neuron_a_id, syn.neuron_b_id) is None:
-                    self._synapse_index.register(syn)
+                if await self._synapse_index.get(syn.neuron_a_id, syn.neuron_b_id) is None:
+                    await self._synapse_index.register(syn)
 
-            removed = self._synapse_index.compact(threshold)
+            removed = await self._synapse_index.compact(threshold)
 
         if removed:
             logger.info(f"cleanup_decay: pruned {removed} synapses below {threshold}")
@@ -434,17 +501,17 @@ class EngineLifecycleManager:
         tier_stats = await self.tier_manager.get_stats()
 
         async with self.synapse_lock:
-            syn_count = len(self._synapse_index)
+            syn_count = await self._synapse_index.__len__()
 
         stats = {
-            "engine_version": "4.5.0",
+            "engine_version": _ENGINE_VERSION,
             "dimension": self.dimension,
             "encoding": "binary_hdv",
             "tiers": tier_stats,
             "concepts_count": len(self.soul.concepts),
             "symbols_count": len(self.soul.symbols),
             "synapses_count": syn_count,
-            "synapse_index": self._synapse_index.stats,
+            "synapse_index": await self._synapse_index.stats,
             "subconscious_backlog": len(self.subconscious_queue),
             # Phase 4.0
             "gap_detector": self.gap_detector.stats,

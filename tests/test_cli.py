@@ -25,9 +25,9 @@ def mock_engine():
     engine = MagicMock()
     engine.initialize = AsyncMock()
     engine.close = AsyncMock()
-    engine.store = MagicMock(return_value="mem_test123")
-    engine.query = MagicMock(return_value=[("mem_test123", 0.85)])
-    engine.delete_memory = MagicMock(return_value=True)
+    engine.store = AsyncMock(return_value="mem_test123")
+    engine.query = AsyncMock(return_value=[("mem_test123", 0.85)])
+    engine.delete_memory = AsyncMock(return_value=True)
     return engine
 
 

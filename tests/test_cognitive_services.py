@@ -316,9 +316,10 @@ class TestProceduralStoreService:
         )
         return ProceduralStoreService(config=cfg)
 
-    def test_create_procedure_from_episode(self):
+    @pytest.mark.asyncio
+    async def test_create_procedure_from_episode(self):
         store = self._make_store()
-        proc = store.create_procedure_from_episode(
+        proc = await store.create_procedure_from_episode(
             name="greet_user",
             description="Greet the user with hello",
             steps=[
@@ -332,34 +333,37 @@ class TestProceduralStoreService:
         assert proc.name == "greet_user"
         assert len(proc.steps) == 2
 
-    def test_find_applicable_procedures(self):
+    @pytest.mark.asyncio
+    async def test_find_applicable_procedures(self):
         store = self._make_store()
-        store.create_procedure_from_episode(
+        await store.create_procedure_from_episode(
             name="greet_user",
             description="Greet",
             steps=[{"instruction": "greet"}],
             trigger_pattern="hello",
             tags=["greeting", "hello"],
         )
-        found = store.find_applicable_procedures("hello world")
+        found = await store.find_applicable_procedures("hello world")
         assert len(found) >= 1
         assert found[0].name == "greet_user"
 
-    def test_find_returns_empty_for_no_match(self):
+    @pytest.mark.asyncio
+    async def test_find_returns_empty_for_no_match(self):
         store = self._make_store()
-        store.create_procedure_from_episode(
+        await store.create_procedure_from_episode(
             name="cook_pasta",
             description="Cook",
             steps=[{"instruction": "boil"}],
             trigger_pattern="pasta cook",
             tags=["cooking"],
         )
-        found = store.find_applicable_procedures("quantum physics")
+        found = await store.find_applicable_procedures("quantum physics")
         assert len(found) == 0
 
-    def test_record_procedure_outcome_success(self):
+    @pytest.mark.asyncio
+    async def test_record_procedure_outcome_success(self):
         store = self._make_store()
-        proc = store.create_procedure_from_episode(
+        proc = await store.create_procedure_from_episode(
             name="test_proc",
             description="Test",
             steps=[{"instruction": "step1"}],
@@ -367,14 +371,15 @@ class TestProceduralStoreService:
             tags=["test"],
         )
         initial_rel = proc.reliability
-        store.record_procedure_outcome(proc.id, success=True)
-        updated = store.get_procedure(proc.id)
+        await store.record_procedure_outcome(proc.id, success=True)
+        updated = await store.get_procedure(proc.id)
         assert updated.reliability > initial_rel
         assert updated.success_count == 1
 
-    def test_record_procedure_outcome_failure(self):
+    @pytest.mark.asyncio
+    async def test_record_procedure_outcome_failure(self):
         store = self._make_store()
-        proc = store.create_procedure_from_episode(
+        proc = await store.create_procedure_from_episode(
             name="fail_proc",
             description="Fail",
             steps=[{"instruction": "step1"}],
@@ -382,14 +387,15 @@ class TestProceduralStoreService:
             tags=["test"],
         )
         initial_rel = proc.reliability
-        store.record_procedure_outcome(proc.id, success=False)
-        updated = store.get_procedure(proc.id)
+        await store.record_procedure_outcome(proc.id, success=False)
+        updated = await store.get_procedure(proc.id)
         assert updated.reliability < initial_rel
         assert updated.failure_count == 1
 
-    def test_decay_all_reliability(self):
+    @pytest.mark.asyncio
+    async def test_decay_all_reliability(self):
         store = self._make_store()
-        proc = store.create_procedure_from_episode(
+        proc = await store.create_procedure_from_episode(
             name="decay_proc",
             description="Decay",
             steps=[{"instruction": "s"}],
@@ -397,14 +403,15 @@ class TestProceduralStoreService:
             tags=["test"],
         )
         proc.reliability = 0.9
-        decayed = store.decay_all_reliability(decay_rate=0.1)
+        decayed = await store.decay_all_reliability(decay_rate=0.1)
         assert decayed >= 1
-        assert store.get_procedure(proc.id).reliability < 0.9
+        assert (await store.get_procedure(proc.id)).reliability < 0.9
 
-    def test_persistence_round_trip(self):
+    @pytest.mark.asyncio
+    async def test_persistence_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = self._make_store(tmp_dir=tmp)
-            store.create_procedure_from_episode(
+            await store.create_procedure_from_episode(
                 name="persistent",
                 description="Persist test",
                 steps=[{"instruction": "step1"}],
@@ -418,23 +425,24 @@ class TestProceduralStoreService:
             assert len(all_procs) == 1
             assert all_procs[0].name == "persistent"
 
-    def test_get_stats(self):
+    @pytest.mark.asyncio
+    async def test_get_stats(self):
         store = self._make_store()
-        store.create_procedure_from_episode(
+        await store.create_procedure_from_episode(
             name="p1",
             description="d",
             steps=[{"instruction": "s"}],
             trigger_pattern="t1",
             tags=[],
         )
-        store.create_procedure_from_episode(
+        await store.create_procedure_from_episode(
             name="p2",
             description="d",
             steps=[{"instruction": "s"}],
             trigger_pattern="t2",
             tags=[],
         )
-        stats = store.get_stats()
+        stats = await store.get_stats()
         assert stats["total_procedures"] == 2
 
 

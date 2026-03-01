@@ -32,12 +32,20 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, time as dt_time
+from datetime import datetime, timezone, time as dt_time, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
+
+# Croniter for robust cron parsing
+try:
+    from croniter import croniter
+    CRONITER_AVAILABLE = True
+except ImportError:
+    CRONITER_AVAILABLE = False
+    logger.warning("croniter not installed. Scheduled dreaming will use fallback parser.")
 
 if TYPE_CHECKING:
     from ..core.engine import HAIMEngine
@@ -491,7 +499,7 @@ class DreamScheduler:
 
         logger.info(
             f"[DreamScheduler] Initialized - "
-            f"idle_threshold={self.cfg.idle_threshold}s, "
+            f"idle_threshold={self.cfg.idle_threshold_seconds}s, "
             f"schedules={len(self.cfg.schedules)}"
         )
 
@@ -593,10 +601,41 @@ class DreamScheduler:
 
     def _parse_next_run(self, cron_expr: str, after: datetime) -> Optional[datetime]:
         """
-        Parse a simplified cron expression and return the next run time.
+        Parse a cron expression and return the next run time.
 
-        Format: "minute hour day month dow"
-        Supports: "*" for wildcard, numbers, and comma-separated lists.
+        Uses croniter library for robust parsing of standard cron syntax:
+        - Standard 5-field format: "minute hour day month dow"
+        - Supports: "*" (wildcard), "*/N" (steps), "N-M" (ranges), comma-separated lists
+
+        Args:
+            cron_expr: Standard 5-field cron expression
+            after: Base datetime to calculate next run from
+
+        Returns:
+            Next run datetime, or None if parsing fails
+        """
+        if not cron_expr or not cron_expr.strip():
+            return None
+
+        try:
+            # Use croniter for robust cron parsing
+            if CRONITER_AVAILABLE:
+                cron = croniter(cron_expr, after)
+                return cron.get_next(datetime)
+            else:
+                # Fallback to simple parser (limited functionality)
+                return self._parse_next_run_fallback(cron_expr, after)
+
+        except Exception as e:
+            logger.debug(f"[DreamScheduler] Failed to parse cron '{cron_expr}': {e}")
+            return None
+
+    def _parse_next_run_fallback(self, cron_expr: str, after: datetime) -> Optional[datetime]:
+        """
+        Fallback parser for when croniter is not available.
+
+        Limited support: only handles simple expressions like "0 2 * * *"
+        Does NOT support: ranges (1-5), steps (*/5), or complex combinations.
         """
         try:
             parts = cron_expr.split()
@@ -606,7 +645,6 @@ class DreamScheduler:
             minute, hour, day, month, dow = parts
 
             # Simple implementation: check if current time matches
-            # For production, use a proper cron library like croniter
             current_minute = after.minute
             current_hour = after.hour
             current_day = after.day
@@ -618,7 +656,10 @@ class DreamScheduler:
                     return True
                 if "," in value:
                     return str(current) in value.split(",")
-                return int(value) == current
+                try:
+                    return int(value) == current
+                except ValueError:
+                    return False
 
             # If all parts match, next run is tomorrow
             if (
@@ -629,9 +670,14 @@ class DreamScheduler:
                 matches(dow, current_dow)
             ):
                 # Schedule for same time tomorrow
-                return after.replace(hour=int(hour) if hour != "*" else 0,
-                                     minute=int(minute) if minute != "*" else 0,
-                                     second=0, microsecond=0) + timedelta(days=1)
+                target_hour = int(hour) if hour != "*" else 0
+                target_minute = int(minute) if minute != "*" else 0
+                return after.replace(
+                    hour=target_hour,
+                    minute=target_minute,
+                    second=0,
+                    microsecond=0
+                ) + timedelta(days=1)
 
             # Otherwise, schedule for today at the specified time
             target_hour = int(hour) if hour != "*" else current_hour
@@ -646,13 +692,12 @@ class DreamScheduler:
 
             # If we've passed that time today, schedule for tomorrow
             if next_run <= after:
-                from datetime import timedelta
                 next_run += timedelta(days=1)
 
             return next_run
 
         except Exception as e:
-            logger.debug(f"[DreamScheduler] Failed to parse cron '{cron_expr}': {e}")
+            logger.debug(f"[DreamScheduler] Fallback parser failed for cron '{cron_expr}': {e}")
             return None
 
     # ---------------------------------------------------------------------

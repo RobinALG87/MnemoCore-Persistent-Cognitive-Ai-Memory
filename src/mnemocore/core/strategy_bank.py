@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -409,7 +410,7 @@ class StrategyBankService:
        ~40% failure strategies. Negative exemplars prevent the agent from
        repeating mistakes. The bank actively monitors this ratio.
     2. **Bayesian Confidence** (extends bayesian_ltp.py): Every strategy has a
-       Beta(α, β) posterior. Each judge verdict updates the posterior.
+       Beta(alpha, beta) posterior. Each judge verdict updates the posterior.
        Under-explored strategies get UCB exploration bonus.
     3. **Test-Time Learning**: The agent improves during execution without
        model retraining. Bayesian updates + outcome recording = online learning.
@@ -419,6 +420,8 @@ class StrategyBankService:
     Thread-safety: All mutations are protected by a reentrant lock.
 
     Persistence: JSON file at ``config.strategy_bank.persistence_path``.
+    Uses debounced writes with dirty flag - call flush() or close() to persist,
+    or enable periodic flush via _auto_persist and _flush_interval.
     """
 
     def __init__(
@@ -443,6 +446,17 @@ class StrategyBankService:
         self._min_confidence_threshold = getattr(config, "min_confidence_threshold", 0.3)
         self._persistence_path = getattr(config, "persistence_path", None)
         self._auto_persist = getattr(config, "auto_persist", True)
+        raw_flush_interval = getattr(config, "flush_interval_seconds", 5.0)
+        try:
+            self._flush_interval = float(raw_flush_interval)
+            if self._flush_interval <= 0:
+                self._flush_interval = 5.0
+        except (TypeError, ValueError):
+            self._flush_interval = 5.0
+
+        # Debounced persistence
+        self._dirty = False
+        self._last_flush_time = 0.0
 
         # Judge for the feedback loop
         self.judge = judge or RetrievalJudge()
@@ -589,11 +603,14 @@ class StrategyBankService:
             logger.debug(
                 f"Strategy '{strategy.name}' judged: "
                 f"success={verdict.success} quality={verdict.quality_score:.3f} "
-                f"→ confidence={strategy.confidence:.4f} ± {strategy.uncertainty:.4f}"
+                f"-> confidence={strategy.confidence:.4f} +/- {strategy.uncertainty:.4f}"
             )
 
+            self._dirty = True
+
+        # Debounced persistence
         if self._auto_persist and self._persistence_path:
-            self._persist_to_disk()
+            self._maybe_flush()
 
         return verdict
 
@@ -712,24 +729,25 @@ class StrategyBankService:
             self._enforce_capacity()
 
         if self._auto_persist and self._persistence_path:
-            self._persist_to_disk()
+            self._dirty = True
+            self._maybe_flush()
 
         return strategy.id
 
-    def get_strategy(self, strategy_id: str) -> Optional[Strategy]:
+    async def get_strategy(self, strategy_id: str) -> Optional[Strategy]:
         """Retrieve a single strategy by ID."""
-        with self._lock:
+        async with self._lock:
             return self._strategies.get(strategy_id)
 
-    def get_strategies_by_category(self, category: str) -> List[Strategy]:
+    async def get_strategies_by_category(self, category: str) -> List[Strategy]:
         """Get all strategies in a given category."""
-        with self._lock:
+        async with self._lock:
             ids = self._category_index.get(category, [])
             return [self._strategies[sid] for sid in ids if sid in self._strategies]
 
-    def get_strategies_by_agent(self, agent_id: str) -> List[Strategy]:
+    async def get_strategies_by_agent(self, agent_id: str) -> List[Strategy]:
         """Get all strategies created by a specific agent."""
-        with self._lock:
+        async with self._lock:
             ids = self._agent_index.get(agent_id, [])
             return [self._strategies[sid] for sid in ids if sid in self._strategies]
 
@@ -912,15 +930,56 @@ class StrategyBankService:
             self._remove_strategy(strategy.id)
             logger.debug(f"Evicted strategy '{strategy.name}' (confidence={strategy.confidence:.3f})")
 
-    # ── Persistence ───────────────────────────────────────────────────
+    # -- Persistence with debouncing and atomic writes -------------------
+
+    def _maybe_flush(self) -> None:
+        """
+        Flush to disk if dirty and flush interval has elapsed.
+        Implements debounced persistence to avoid excessive I/O.
+        """
+        import time
+        now = time.monotonic()
+        if self._dirty and (now - self._last_flush_time) >= self._flush_interval:
+            self._persist_to_disk()
+
+    def flush(self) -> None:
+        """Force immediate flush of dirty state to disk."""
+        if self._dirty:
+            self._persist_to_disk()
+
+    def close(self) -> None:
+        """Flush and close the strategy bank."""
+        self.flush()
+
+    def _atomic_write_json(self, path: Path, data: dict) -> None:
+        """
+        Atomically write JSON data to a file.
+        Writes to a temporary file first, then renames to target path.
+        """
+        import tempfile
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = None
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix='.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, default=str)
+            os.replace(tmp_path, str(path))
+        except Exception as e:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise e
 
     def _persist_to_disk(self) -> None:
-        """Save all strategies to JSON file."""
+        """Save all strategies to JSON file using atomic write."""
         if not self._persistence_path:
             return
+        import time
         try:
             path = Path(self._persistence_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
             with self._lock:
                 data = {
                     "version": "1.0",
@@ -931,7 +990,9 @@ class StrategyBankService:
                         "total_distillations": self._total_distillations,
                     },
                 }
-            path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+            self._atomic_write_json(path, data)
+            self._dirty = False
+            self._last_flush_time = time.monotonic()
         except Exception as e:
             logger.error(f"Failed to persist strategy bank: {e}")
 

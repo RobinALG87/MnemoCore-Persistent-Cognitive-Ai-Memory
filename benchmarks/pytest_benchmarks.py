@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Generator
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+_src = str(Path(__file__).resolve().parent.parent / "src")
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.config import reset_config

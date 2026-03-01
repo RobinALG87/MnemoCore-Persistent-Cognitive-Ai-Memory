@@ -848,9 +848,21 @@ class ContextWindowPrioritizer:
 
     def _cosine_similarity(self, a: Optional[Any], b: Optional[Any]) -> float:
         """Compute cosine similarity between vectors."""
-        # Placeholder for actual vector similarity
-        # Would use numpy or similar for real implementation
-        return 0.0
+        if a is None or b is None:
+            return 0.0
+        try:
+            import numpy as np
+            a_arr = np.asarray(a, dtype=np.float32).flatten()
+            b_arr = np.asarray(b, dtype=np.float32).flatten()
+            if a_arr.shape != b_arr.shape or a_arr.size == 0:
+                return 0.0
+            norm_a = np.linalg.norm(a_arr)
+            norm_b = np.linalg.norm(b_arr)
+            if norm_a == 0 or norm_b == 0:
+                return 0.0
+            return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
+        except Exception:
+            return 0.0
 
     def _compute_coverage_stats(
         self,

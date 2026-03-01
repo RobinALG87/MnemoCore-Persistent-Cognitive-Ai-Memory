@@ -13,10 +13,8 @@ import random
 import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-import sys
 import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from loguru import logger
 
 from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.async_storage import AsyncRedisStorage
@@ -30,13 +28,68 @@ from mnemocore.core.metrics import (
     DREAM_LOOP_ACTIVE
 )
 
-# Default Config (overridden by config.yaml)
+# Default Config (overridden by config.yaml or environment variables)
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
 DEFAULT_MODEL = "gemma3:1b"
-HAIM_DATA_PATH = "./data/memory.jsonl"
 DEFAULT_CYCLE_INTERVAL = 60  # seconds between thought cycles
-LOG_PATH = "/tmp/subconscious.log"
-EVOLUTION_STATE_PATH = "./data/subconscious_evolution.json"
+DEFAULT_LOG_PATH = "./data/subconscious.log"
+DEFAULT_DATA_PATH = "./data/memory.jsonl"
+DEFAULT_EVOLUTION_STATE_PATH = "./data/subconscious_evolution.json"
+
+
+def _get_path_from_config_or_env(env_var: str, config_attr: str, default: str) -> str:
+    """
+    Get a path from environment variable, config, or fallback to default.
+
+    Priority: ENV > config.yaml > default
+    """
+    # Check environment variable first
+    env_value = os.environ.get(env_var)
+    if env_value:
+        return env_value
+
+    # Try config
+    try:
+        config = get_config()
+        if hasattr(config, 'paths') and hasattr(config.paths, config_attr):
+            return getattr(config.paths, config_attr)
+    except Exception as e:
+        logger.warning(f"Failed to get config path for {config_attr}: {e}")
+
+    return default
+
+
+def _get_log_path() -> str:
+    """Get log path from config or environment variable."""
+    return _get_path_from_config_or_env(
+        "HAIM_SUBCONSCIOUS_LOG_PATH",
+        "subconscious_log",
+        DEFAULT_LOG_PATH
+    )
+
+
+def _get_data_path() -> str:
+    """Get data path from config or environment variable."""
+    return _get_path_from_config_or_env(
+        "HAIM_DATA_PATH",
+        "memory_data",
+        DEFAULT_DATA_PATH
+    )
+
+
+def _get_evolution_state_path() -> str:
+    """Get evolution state path from config or environment variable."""
+    return _get_path_from_config_or_env(
+        "HAIM_EVOLUTION_STATE_PATH",
+        "evolution_state",
+        DEFAULT_EVOLUTION_STATE_PATH
+    )
+
+
+# Module-level paths (computed once at import)
+LOG_PATH = _get_log_path()
+HAIM_DATA_PATH = _get_data_path()
+EVOLUTION_STATE_PATH = _get_evolution_state_path()
 
 
 def _write_state_to_disk(state: Dict[str, Any], filepath: str):
@@ -101,6 +154,9 @@ class SubconsciousDaemon:
 
         # Async Redis Storage (injected or initialized in run)
         self.storage: Optional[AsyncRedisStorage] = storage
+
+        # Reusable aiohttp session (created in start/run, closed in stop)
+        self._http_session: Optional[aiohttp.ClientSession] = None
 
     def _should_stop(self) -> bool:
         """Check if the daemon should stop (non-blocking check)."""
@@ -234,7 +290,7 @@ class SubconsciousDaemon:
         )
     
     async def query_ollama(self, prompt: str, max_tokens: int = 200) -> str:
-        """Query local Gemma model."""
+        """Query local Gemma model using reusable aiohttp session."""
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -246,14 +302,17 @@ class SubconsciousDaemon:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.ollama_url, json=payload, timeout=30) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data.get("response", "").strip()
-                    else:
-                        self.log(f"Ollama error: {resp.status}")
-                        return ""
+            # Use reusable session (created in run())
+            if self._http_session is None:
+                self._http_session = aiohttp.ClientSession()
+
+            async with self._http_session.post(self.ollama_url, json=payload, timeout=30) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("response", "").strip()
+                else:
+                    self.log(f"Ollama error: {resp.status}")
+                    return ""
         except Exception as e:
             self.log(f"Ollama connection error: {e}")
             return ""
@@ -285,8 +344,8 @@ Only output valid JSON array, nothing else."""
                 end = response.rindex("]") + 1
                 concepts = json.loads(response[start:end])
                 return concepts
-        except:
-            pass
+        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
+            self.log(f"Failed to parse concepts JSON from LLM response: {e}")
         return []
     
     async def draw_parallels(self, memories: List[MemoryNode]) -> List[str]:
@@ -341,8 +400,8 @@ Only output valid JSON object."""
                     if key in values:
                         result[m.id] = float(values[key])
                 return result
-        except:
-            pass
+        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
+            self.log(f"Failed to parse valuations JSON from LLM response: {e}")
         return {}
     
     async def generate_insight(self, memories: List[MemoryNode]) -> Optional[str]:
@@ -663,25 +722,63 @@ Output just the insight, max 60 words."""
         DREAM_LOOP_ACTIVE.set(0)
         self.log("Daemon stopped.")
 
-    def stop(self):
-        """Request daemon stop (can be called from signal handler)."""
+    async def stop(self):
+        """Request daemon stop and clean up resources (async for session cleanup)."""
         self._stop_event.set()
         self.running = False
+
+        # Close reusable aiohttp session
+        if self._http_session is not None:
+            try:
+                await self._http_session.close()
+            except Exception as e:
+                self.log(f"Error closing HTTP session: {e}")
+            finally:
+                self._http_session = None
+
         self.log("Daemon stop requested...")
 
 
 async def main():
+    import signal
+    import sys
+
     daemon = SubconsciousDaemon()
 
-    # Handle graceful shutdown
-    import signal
-    def shutdown(sig, frame):
-        daemon.stop()
+    # Handle graceful shutdown with Windows compatibility
+    # On Windows, signal.signal() from async context can be problematic
+    # Use loop.add_signal_handler on Unix, or handle keyboard interrupt on Windows
+    loop = asyncio.get_running_loop()
 
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+    if sys.platform != "win32":
+        # Unix: Use add_signal_handler for safe async signal handling
+        def handle_signal(sig):
+            logger.info(f"Received signal {sig}, initiating graceful shutdown...")
+            daemon._stop_event.set()
+            daemon.running = False
 
-    await daemon.run()
+        try:
+            loop.add_signal_handler(signal.SIGINT, lambda: handle_signal(signal.SIGINT))
+            loop.add_signal_handler(signal.SIGTERM, lambda: handle_signal(signal.SIGTERM))
+        except NotImplementedError:
+            # Fallback for platforms that don't support add_signal_handler
+            signal.signal(signal.SIGINT, lambda s, f: daemon._stop_event.set())
+            signal.signal(signal.SIGTERM, lambda s, f: daemon._stop_event.set())
+    else:
+        # Windows: signal handlers in async can be unsafe
+        # Use a simpler approach - just handle KeyboardInterrupt
+        # Note: Windows doesn't support SIGTERM well, so we rely on Ctrl+C
+        logger.info("Running on Windows - using KeyboardInterrupt for shutdown")
+
+    try:
+        await daemon.run()
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, shutting down...")
+    finally:
+        # Clean up resources
+        if daemon._http_session is not None:
+            await daemon._http_session.close()
+            daemon._http_session = None
 
 
 if __name__ == "__main__":

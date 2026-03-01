@@ -95,8 +95,8 @@ def configure_logging(
         format=format_str,
         colorize=not json_format and sink is None,
         enqueue=True,  # Thread-safe
-        backtrace=True,
-        diagnose=True,
+        backtrace=False,  # Disabled for production security
+        diagnose=False,  # Disabled to prevent leaking sensitive data in tracebacks
     )
 
     # Intercept standard logging

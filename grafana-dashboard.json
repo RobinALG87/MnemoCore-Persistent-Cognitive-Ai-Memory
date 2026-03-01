@@ -105,7 +105,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(haim_api_request_count_total[5m])",
+          "expr": "rate(mnemocore_api_request_total{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
           "legendFormat": "{{endpoint}} - {{method}}",
           "range": true,
           "refId": "A"
@@ -151,7 +151,7 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
@@ -163,11 +163,16 @@
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 0.3
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 0.5
               }
             ]
-          }
+          },
+          "unit": "s"
         },
         "overrides": []
       },
@@ -197,14 +202,41 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(haim_api_request_latency_seconds_sum[5m]) / rate(haim_api_request_latency_seconds_count[5m])",
+          "expr": "rate(mnemocore_api_request_duration_seconds_sum{namespace=\"$namespace\", pod=~\"$pod\"}[5m]) / rate(mnemocore_api_request_duration_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
           "legendFormat": "{{endpoint}}",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "API Avg Latency (5m avg)",
-      "type": "timeseries"
+      "type": "timeseries",
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [0.5],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["A", "5m", "now"]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "P95 Latency Alert",
+        "noDataState": "no_data",
+        "notifications": []
+      }
     },
     {
       "datasource": {
@@ -259,14 +291,41 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "haim_engine_memory_total",
+          "expr": "mnemocore_memory_count_total{namespace=\"$namespace\", pod=~\"$pod\"}",
           "legendFormat": "{{tier}}",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Memory Count per Tier",
-      "type": "stat"
+      "type": "stat",
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [0.1],
+              "type": "lt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["A", "5m", "now"]
+            },
+            "reducer": {
+              "params": [],
+              "type": "diff"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "Memory Count Drop Alert",
+        "noDataState": "alerting",
+        "notifications": []
+      }
     },
     {
       "datasource": {
@@ -288,11 +347,11 @@
               },
               {
                 "color": "yellow",
-                "value": 50
+                "value": 500
               },
               {
                 "color": "red",
-                "value": 100
+                "value": 1000
               }
             ]
           }
@@ -325,14 +384,41 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "mnemocore_queue_length",
+          "expr": "mnemocore_queue_length{namespace=\"$namespace\", pod=~\"$pod\"}",
           "legendFormat": "Queue Length",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Subconscious Queue Length",
-      "type": "stat"
+      "type": "stat",
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [1000],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["A", "5m", "now"]
+            },
+            "reducer": {
+              "params": [],
+              "type": "last"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "Queue Length Alert",
+        "noDataState": "no_data",
+        "notifications": []
+      }
     },
     {
       "datasource": {
@@ -371,7 +457,7 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
@@ -383,8 +469,12 @@
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 0.3
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 0.5
               }
             ]
           },
@@ -418,7 +508,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, rate(mnemocore_store_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(mnemocore_store_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
           "legendFormat": "p50 store",
           "range": true,
           "refId": "A"
@@ -429,7 +519,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, rate(mnemocore_store_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(mnemocore_store_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
           "legendFormat": "p95 store",
           "range": true,
           "refId": "B"
@@ -440,14 +530,41 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(mnemocore_store_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(mnemocore_store_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
           "legendFormat": "p99 store",
           "range": true,
           "refId": "C"
         }
       ],
       "title": "Store Duration Percentiles",
-      "type": "timeseries"
+      "type": "timeseries",
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [0.5],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["B", "5m", "now"]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "P95 Store Latency Alert",
+        "noDataState": "no_data",
+        "notifications": []
+      }
     },
     {
       "datasource": {
@@ -486,7 +603,7 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
@@ -498,8 +615,12 @@
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 0.3
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 0.5
               }
             ]
           },
@@ -533,7 +654,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, rate(mnemocore_query_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(mnemocore_query_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
           "legendFormat": "p50 query",
           "range": true,
           "refId": "A"
@@ -544,7 +665,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, rate(mnemocore_query_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(mnemocore_query_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
           "legendFormat": "p95 query",
           "range": true,
           "refId": "B"
@@ -555,14 +676,41 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(mnemocore_query_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(mnemocore_query_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
           "legendFormat": "p99 query",
           "range": true,
           "refId": "C"
         }
       ],
       "title": "Query Duration Percentiles",
-      "type": "timeseries"
+      "type": "timeseries",
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [0.5],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["B", "5m", "now"]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "P95 Query Latency Alert",
+        "noDataState": "no_data",
+        "notifications": []
+      }
     },
     {
       "datasource": {
@@ -647,14 +795,41 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(mnemocore_error_total[5m])",
+          "expr": "rate(mnemocore_error_total{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
           "legendFormat": "{{error_type}}",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Error Rate by Type (5m avg)",
-      "type": "timeseries"
+      "type": "timeseries",
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [0.01],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["A", "5m", "now"]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "Error Rate Alert",
+        "noDataState": "no_data",
+        "notifications": []
+      }
     },
     {
       "datasource": {
@@ -739,7 +914,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "mnemocore_memory_count_total",
+          "expr": "mnemocore_memory_count_total{namespace=\"$namespace\", pod=~\"$pod\"}",
           "legendFormat": "{{tier}}",
           "range": true,
           "refId": "A"
@@ -831,7 +1006,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(haim_dream_loop_total[5m])",
+          "expr": "rate(mnemocore_dream_loop_total{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -924,13 +1099,568 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(haim_dream_iteration_seconds_sum[5m]) / rate(haim_dream_iteration_seconds_count[5m])",
+          "expr": "rate(mnemocore_dream_iteration_duration_seconds_sum{namespace=\"$namespace\", pod=~\"$pod\"}[5m]) / rate(mnemocore_dream_iteration_duration_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
           "legendFormat": "Dream Iteration",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Dream Iteration Duration (5m avg)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, rate(mnemocore_dream_pipeline_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{operation}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Dream Pipeline Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "rate(mnemocore_subconscious_pulse_skips_total{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
+          "legendFormat": "{{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Subconscious Pulse Skip Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "rate(mnemocore_webhook_delivery_duration_seconds_sum{namespace=\"$namespace\", pod=~\"$pod\"}[5m]) / rate(mnemocore_webhook_delivery_duration_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
+          "legendFormat": "Webhook Latency",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Webhook Delivery Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "rate(mnemocore_webhook_delivery_total{namespace=\"$namespace\", pod=~\"$pod\"}[5m])",
+          "legendFormat": "{{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Webhook Delivery Rate by Status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, rate(mnemocore_backup_operation_duration_seconds_bucket{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{operation}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Backup/Restore Operation Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "mnemocore_working_memory_size{namespace=\"$namespace\", pod=~\"$pod\"}",
+          "legendFormat": "{{component}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Working Memory Size by Component",
       "type": "timeseries"
     }
   ],
@@ -939,7 +1669,89 @@
   "style": "dark",
   "tags": ["mnemocore", "observability", "cognitive-memory"],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "default",
+          "value": "default"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(mnemocore_api_request_total, namespace)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "query": "label_values(mnemocore_api_request_total, namespace)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(mnemocore_api_request_total{namespace=\"$namespace\"}, pod)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Pod",
+        "multi": true,
+        "name": "pod",
+        "options": [],
+        "query": {
+          "query": "label_values(mnemocore_api_request_total{namespace=\"$namespace\"}, pod)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(mnemocore_api_request_total{namespace=\"$namespace\"}, instance)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instance",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": {
+          "query": "label_values(mnemocore_api_request_total{namespace=\"$namespace\"}, instance)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-6h",
@@ -949,6 +1761,6 @@
   "timezone": "",
   "title": "MnemoCore Observability Dashboard",
   "uid": "mnemocore-monitoring",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

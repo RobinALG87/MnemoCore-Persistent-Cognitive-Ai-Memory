@@ -4,6 +4,11 @@ Process utilities for MnemoCore optimizations.
 import os
 from loguru import logger
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 def lower_process_priority():
     """
     Lowers the current process priority to yield CPU to the main thread and OS.
@@ -12,7 +17,9 @@ def lower_process_priority():
     """
     try:
         if os.name == 'nt':
-            import psutil
+            if psutil is None:
+                logger.debug("psutil not installed, could not lower Windows process priority")
+                return
             p = psutil.Process(os.getpid())
             p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
             logger.debug("Lowered Windows process priority to BELOW_NORMAL")
@@ -20,7 +27,5 @@ def lower_process_priority():
             # Unix-like systems
             os.nice(10)
             logger.debug("Lowered Unix Unix process niceness +10")
-    except ImportError:
-        logger.debug("psutil not installed, could not lower Windows process priority")
     except Exception as e:
         logger.debug(f"Failed to lower process priority: {e}")

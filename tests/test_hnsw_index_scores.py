@@ -1,4 +1,5 @@
 import numpy as np
+from threading import Lock
 
 from mnemocore.core.hnsw_index import HNSWIndexManager
 import mnemocore.core.hnsw_index as hnsw_module
@@ -21,6 +22,7 @@ def test_search_uses_index_dimension_and_clamps_scores(monkeypatch):
     manager.dimension = 16384
     manager._id_map = ["n1", "n2"]
     manager._stale_count = 0
+    manager._write_lock = Lock()
     manager._index = _FakeIndex(d=10000, distances=[[12000, 5000]], ids=[[0, 1]])
 
     monkeypatch.setattr(hnsw_module, "FAISS_AVAILABLE", True)

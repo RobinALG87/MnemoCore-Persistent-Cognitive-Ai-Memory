@@ -56,7 +56,7 @@ class TestNativeCircuitBreaker:
         """State should transition to half-open after timeout."""
         breaker = NativeCircuitBreaker(2, 1, "Test")
         breaker.state = "open"
-        breaker.last_failure_time = time.time() - 2  # 2 seconds ago
+        breaker.last_failure_time = time.monotonic() - 2  # 2 seconds ago
 
         breaker._check_state()
         assert breaker.state == "half-open"
@@ -65,7 +65,7 @@ class TestNativeCircuitBreaker:
         """State should remain open if timeout not elapsed."""
         breaker = NativeCircuitBreaker(5, 60, "Test")
         breaker.state = "open"
-        breaker.last_failure_time = time.time()
+        breaker.last_failure_time = time.monotonic()
 
         breaker._check_state()
         assert breaker.state == "open"
@@ -233,7 +233,7 @@ class TestNativeCircuitBreakerRecovery:
         # Open the circuit
         breaker.state = "open"
         breaker.failures = 2
-        breaker.last_failure_time = time.time() - 2  # Past timeout
+        breaker.last_failure_time = time.monotonic() - 2  # Past timeout
 
         # Check should move to half-open
         breaker._check_state()

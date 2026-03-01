@@ -26,6 +26,8 @@ def mock_config():
     cfg.hysteresis = MagicMock()
     cfg.hysteresis.promote_delta = 0.1
     cfg.hysteresis.demote_delta = 0.1
+    cfg.ltp = MagicMock()
+    cfg.ltp.decay_lambda = 0.001
     cfg.tiers_warm = MagicMock()
     cfg.tiers_warm.eviction_policy = "lru"
     cfg.paths = MagicMock()

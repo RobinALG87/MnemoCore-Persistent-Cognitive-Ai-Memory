@@ -244,7 +244,7 @@ class PredictionStore:
                         si.add_or_strengthen(rec.id, mem_id, delta=0.15)
                     logger.debug(f"Prediction {rec.id}: strengthened memory {mem_id[:8]}")
             except Exception as exc:
-                logger.debug(f"Prediction strengthen failed for {mem_id}: {exc}")
+                logger.warning(f"Prediction {rec.id}: strengthen_related failed for memory {mem_id}: {exc}")
 
     async def _weaken_related(self, rec: PredictionRecord) -> None:
         """Falsified prediction → reduce confidence on related memories."""
@@ -257,7 +257,7 @@ class PredictionStore:
                     updater.observe_node_retrieval(node, helpful=False, eig_signal=0.5)
                     logger.debug(f"Prediction {rec.id}: weakened memory {mem_id[:8]}")
             except Exception as exc:
-                logger.debug(f"Prediction weaken failed for {mem_id}: {exc}")
+                logger.warning(f"Prediction {rec.id}: weaken_related failed for memory {mem_id}: {exc}")
 
     async def _generate_lesson(self, rec: PredictionRecord) -> None:
         """Ask SubconsciousAI to synthesize a 'lesson learned' for a falsified prediction."""
@@ -283,7 +283,7 @@ class PredictionStore:
             )
             logger.info(f"Lesson learned generated for falsified prediction {rec.id}")
         except Exception as exc:
-            logger.debug(f"Lesson generation failed: {exc}")
+            logger.warning(f"Prediction {rec.id}: _generate_lesson failed: {exc}")
 
     # ---- Serialization ------------------------------------------- #
 

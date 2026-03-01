@@ -7,7 +7,7 @@ Provides fast caching, item eviction (via LRU + importance), and contextual focu
 
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta, timezone
-import threading
+import asyncio
 import logging
 
 from .memory_model import WorkingMemoryItem, WorkingMemoryState
@@ -16,23 +16,34 @@ logger = logging.getLogger(__name__)
 
 
 class WorkingMemoryService:
+    """
+    Working memory service for managing short-term operational state.
+
+    Thread-safety: Uses asyncio.Lock for async-safe operations.
+    All public methods are async coroutines.
+    """
+
     def __init__(self, max_items_per_agent: int = 32):
         self.max_items_per_agent = max_items_per_agent
         self._states: Dict[str, WorkingMemoryState] = {}
-        self._lock = threading.RLock()
+        self._lock = asyncio.Lock()
 
-    def _get_or_create_state(self, agent_id: str) -> WorkingMemoryState:
-        with self._lock:
+    async def _get_or_create_state(self, agent_id: str) -> WorkingMemoryState:
+        async with self._lock:
             if agent_id not in self._states:
                 self._states[agent_id] = WorkingMemoryState(
                     agent_id=agent_id, max_items=self.max_items_per_agent
                 )
             return self._states[agent_id]
 
-    def push_item(self, agent_id: str, item: WorkingMemoryItem) -> None:
+    async def push_item(self, agent_id: str, item: WorkingMemoryItem) -> None:
         """Push a new item into the agent's working memory, pruning if necessary."""
-        with self._lock:
-            state = self._get_or_create_state(agent_id)
+        async with self._lock:
+            if agent_id not in self._states:
+                self._states[agent_id] = WorkingMemoryState(
+                    agent_id=agent_id, max_items=self.max_items_per_agent
+                )
+            state = self._states[agent_id]
             # Prevent exact duplicate IDs from being appended twice
             existing_idx = next(
                 (i for i, x in enumerate(state.items) if x.id == item.id), None
@@ -41,25 +52,25 @@ class WorkingMemoryService:
                 state.items[existing_idx] = item
             else:
                 state.items.append(item)
-            
+
             self._prune(agent_id)
 
-    def get_state(self, agent_id: str) -> Optional[WorkingMemoryState]:
+    async def get_state(self, agent_id: str) -> Optional[WorkingMemoryState]:
         """Retrieve the current working memory state for an agent."""
-        with self._lock:
+        async with self._lock:
             return self._states.get(agent_id)
 
-    def clear(self, agent_id: str) -> None:
+    async def clear(self, agent_id: str) -> None:
         """Clear the working memory for a specific agent."""
-        with self._lock:
+        async with self._lock:
             if agent_id in self._states:
                 self._states[agent_id].items.clear()
                 # Phase 5.4 Optimization: Garbage collect empty states
                 del self._states[agent_id]
 
-    def prune_all(self) -> None:
+    async def prune_all(self) -> None:
         """Prune TTL-expired items and overflows across all agents. Typically called by Pulse."""
-        with self._lock:
+        async with self._lock:
             for agent_id in list(self._states.keys()):
                 self._prune(agent_id)
                 # Phase 5.4 Optimization: Garbage collect empty states to minimize RAM footprint
@@ -67,7 +78,7 @@ class WorkingMemoryService:
                     del self._states[agent_id]
 
     def _prune(self, agent_id: str) -> None:
-        """Internal method to prune a specific agent's state based on TTL and capacity limits."""
+        """Internal method to prune a specific agent's state based on TTL and capacity limits. Must be called with lock held."""
         state = self._states.get(agent_id)
         if not state:
             return
@@ -94,9 +105,9 @@ class WorkingMemoryService:
 
         state.items = active_items
 
-    def promote_item(self, agent_id: str, item_id: str, bonus: float = 0.1) -> None:
+    async def promote_item(self, agent_id: str, item_id: str, bonus: float = 0.1) -> None:
         """Locally boost the importance of an item and refresh its creation time if accessed."""
-        with self._lock:
+        async with self._lock:
             state = self._states.get(agent_id)
             if not state:
                 return

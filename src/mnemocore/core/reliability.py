@@ -19,6 +19,7 @@ Usage:
 """
 
 import time
+import threading
 from typing import Optional, Callable, Any
 from loguru import logger
 
@@ -34,32 +35,39 @@ QDRANT_RESET_TIMEOUT_SEC = 30
 CircuitBreakerError = CircuitOpenError
 
 class NativeCircuitBreaker:
-    """Light-weight native implementation of a Circuit Breaker."""
-    
+    """Light-weight native implementation of a Circuit Breaker.
+
+    Thread-safe: All state transitions are protected by threading.Lock.
+    Uses time.monotonic() for reliable timing (not affected by system clock changes).
+    """
+
     def __init__(self, fail_max: int, reset_timeout: int, name: str):
         self.fail_max = fail_max
         self.reset_timeout = reset_timeout
         self.name = name
         self.failures = 0
-        self.last_failure_time = 0
-        self.state = "closed" # closed, open, half-open
+        self.last_failure_time = 0.0
+        self.state = "closed"  # closed, open, half-open
+        self._lock = threading.Lock()
 
     def _check_state(self):
+        """Check and potentially transition state. Must be called with lock held or from within locked context."""
         if self.state == "open":
-            if time.time() - self.last_failure_time > self.reset_timeout:
+            if time.monotonic() - self.last_failure_time > self.reset_timeout:
                 logger.warning(f"Circuit Breaker {self.name} moving to half-open")
                 self.state = "half-open"
         
     async def call(self, func: Callable, *args, **kwargs) -> Any:
-        self._check_state()
+        with self._lock:
+            self._check_state()
 
-        if self.state == "open":
-            raise CircuitOpenError(
-                breaker_name=self.name,
-                failures=self.failures,
-                context={"state": self.state, "reset_timeout": self.reset_timeout}
-            )
-            
+            if self.state == "open":
+                raise CircuitOpenError(
+                    breaker_name=self.name,
+                    failures=self.failures,
+                    context={"state": self.state, "reset_timeout": self.reset_timeout}
+                )
+
         try:
             if hasattr(func, "__call__"):
                 # Check if it's already an awaitable or a function returning awaitable
@@ -73,7 +81,7 @@ class NativeCircuitBreaker:
             else:
                 # Direct awaitable? (not recommended for breaker logic)
                 result = await func
-                
+
             self.success()
             return result
         except Exception as e:
@@ -81,18 +89,20 @@ class NativeCircuitBreaker:
             raise e
 
     def success(self):
-        if self.state == "half-open":
-            logger.info(f"Circuit Breaker {self.name} back to CLOSED")
-            self.state = "closed"
-        self.failures = 0
+        with self._lock:
+            if self.state == "half-open":
+                logger.info(f"Circuit Breaker {self.name} back to CLOSED")
+                self.state = "closed"
+            self.failures = 0
 
     def fail(self):
-        self.failures += 1
-        self.last_failure_time = time.time()
-        if self.failures >= self.fail_max:
-            if self.state != "open":
-                logger.critical(f"Circuit Breaker {self.name} OPENED after {self.failures} failures")
-                self.state = "open"
+        with self._lock:
+            self.failures += 1
+            self.last_failure_time = time.monotonic()
+            if self.failures >= self.fail_max:
+                if self.state != "open":
+                    logger.critical(f"Circuit Breaker {self.name} OPENED after {self.failures} failures")
+                    self.state = "open"
 
 class StorageCircuitBreaker:
     """Centralized management for native storage circuit breakers."""

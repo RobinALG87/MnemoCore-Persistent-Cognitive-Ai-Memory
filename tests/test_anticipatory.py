@@ -55,13 +55,13 @@ async def test_anticipatory_memory(test_engine):
     mem_b_obj.tier = "hot"
     # Actually wait get_memory doesn't demote instantly unless threshold checks out, let's just forcefuly delete from hot
     async with test_engine.tier_manager.lock:
-        if node_b in test_engine.tier_manager.hot:
-            del test_engine.tier_manager.hot[node_b]
+        if await test_engine.tier_manager._hot_storage.contains(node_b):
+            await test_engine.tier_manager._hot_storage.delete(node_b)
             test_engine.tier_manager._remove_from_faiss(node_b)
             mem_b_obj.tier = "warm"
             
     await test_engine.tier_manager._warm_storage.save(mem_b_obj)
-    assert node_b not in test_engine.tier_manager.hot
+    assert not await test_engine.tier_manager._hot_storage.contains(node_b)
     
     # Query for something exact to node_a to guarantee it ranks first
     results = await test_engine.query("I love learning about Machine Learning and AI algorithms.", top_k=2)
@@ -73,6 +73,6 @@ async def test_anticipatory_memory(test_engine):
     await asyncio.sleep(0.5)
     
     # Check if node_b is back in HOT
-    assert node_b in test_engine.tier_manager.hot, "Anticipatory engine failed to preload node_b."
+    assert await test_engine.tier_manager._hot_storage.contains(node_b), "Anticipatory engine failed to preload node_b."
 
     await test_engine.close()

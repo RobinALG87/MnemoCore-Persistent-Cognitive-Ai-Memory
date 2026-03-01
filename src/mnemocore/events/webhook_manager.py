@@ -259,6 +259,27 @@ class WebhookDelivery:
         }
 
 
+@dataclass
+class RetryQueueEntry:
+    """
+    Entry in the retry queue for failed webhook deliveries.
+
+    Attributes:
+        delivery: The delivery record
+        event: The original event to deliver
+        webhook: The webhook configuration
+        retry_at: When to retry delivery (with exponential backoff)
+        created_at: When this entry was created
+    """
+    delivery: WebhookDelivery
+    event: Event
+    webhook: WebhookConfig
+    retry_at: datetime
+    created_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
 # =============================================================================
 # Webhook Signature (HMAC)
 # =============================================================================
@@ -688,7 +709,10 @@ class WebhookManager:
         webhook: WebhookConfig,
     ) -> WebhookDelivery:
         """
-        Deliver event to a single webhook with retry logic.
+        Deliver event to a single webhook with retry queue support.
+
+        Instead of blocking with inline sleep, failed deliveries are pushed
+        to a background retry queue that processes them with exponential backoff.
 
         Args:
             event: Event to deliver
@@ -706,36 +730,39 @@ class WebhookManager:
             attempt=1,
         )
 
-        # Attempt delivery with retries
-        for attempt in range(1, webhook.retry_config.max_attempts + 1):
-            delivery.attempt = attempt
+        # First attempt only - retries are handled by background queue
+        try:
+            success = await self._attempt_delivery(event, webhook, delivery)
 
-            try:
-                success = await self._attempt_delivery(event, webhook, delivery)
-
-                if success:
-                    delivery.status = "success"
-                    delivery.completed_at = datetime.now(timezone.utc)
-                    self._deliveries_success += 1
-                    break
+            if success:
+                delivery.status = "success"
+                delivery.completed_at = datetime.now(timezone.utc)
+                self._deliveries_success += 1
+            else:
+                # Queue for retry instead of inline sleep
+                if webhook.retry_config.max_attempts > 1:
+                    delivery.status = "queued_retry"
+                    await self._queue_for_retry(event, webhook, delivery)
+                    logger.info(
+                        f"[WebhookManager] Queued {webhook.id} for retry "
+                        f"(attempt {delivery.attempt}/{webhook.retry_config.max_attempts})"
+                    )
                 else:
-                    # Non-success response, retry if configured
-                    if attempt < webhook.retry_config.max_attempts:
-                        delivery.status = "retrying"
-                        delay = webhook.retry_config.get_delay(attempt)
-                        logger.info(
-                            f"[WebhookManager] Retrying {webhook.id} "
-                            f"(attempt {attempt}/{webhook.retry_config.max_attempts}) "
-                            f"after {delay}s"
-                        )
-                        await asyncio.sleep(delay)
-                    else:
-                        delivery.status = "failed"
-                        delivery.completed_at = datetime.now(timezone.utc)
-                        self._deliveries_failed += 1
+                    delivery.status = "failed"
+                    delivery.completed_at = datetime.now(timezone.utc)
+                    self._deliveries_failed += 1
 
-            except Exception as e:
-                delivery.error_message = str(e)
+        except Exception as e:
+            delivery.error_message = str(e)
+
+            # Queue for retry instead of inline sleep
+            if webhook.retry_config.max_attempts > 1:
+                delivery.status = "queued_retry"
+                await self._queue_for_retry(event, webhook, delivery)
+                logger.info(
+                    f"[WebhookManager] Queued {webhook.id} for retry after exception: {e}"
+                )
+            else:
                 delivery.status = "failed"
                 delivery.completed_at = datetime.now(timezone.utc)
                 self._deliveries_failed += 1
@@ -743,14 +770,45 @@ class WebhookManager:
                     f"[WebhookManager] Delivery {delivery_id} failed: {e}",
                     exc_info=True
                 )
-                break
 
-        # Record delivery
-        await self._add_to_history(webhook.id, delivery)
+        # Record delivery (only if not queued for retry)
+        if delivery.status != "queued_retry":
+            await self._add_to_history(webhook.id, delivery)
 
         self._deliveries_total += 1
 
         return delivery
+
+    async def _queue_for_retry(
+        self,
+        event: Event,
+        webhook: WebhookConfig,
+        delivery: WebhookDelivery,
+    ) -> None:
+        """
+        Queue a failed delivery for background retry with exponential backoff.
+
+        Args:
+            event: The original event
+            webhook: Webhook configuration
+            delivery: Current delivery record
+        """
+        # Calculate retry delay with exponential backoff
+        delay = webhook.retry_config.get_delay(delivery.attempt)
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+
+        entry = RetryQueueEntry(
+            delivery=delivery,
+            event=event,
+            webhook=webhook,
+            retry_at=retry_at,
+        )
+
+        await self._retry_queue.put(entry)
+        logger.debug(
+            f"[WebhookManager] Queued delivery {delivery.id} for retry at {retry_at} "
+            f"(attempt {delivery.attempt + 1}/{webhook.retry_config.max_attempts})"
+        )
 
     async def _attempt_delivery(
         self,
@@ -788,7 +846,8 @@ class WebhookManager:
         close_session = False
         session = self._session
         if session is None:
-            session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(total=webhook.retry_config.timeout_seconds)
+            session = aiohttp.ClientSession(timeout=timeout)
             close_session = True
 
         try:
@@ -797,13 +856,12 @@ class WebhookManager:
                 webhook.url,
                 data=payload_str,
                 headers=headers,
-                timeout=aiohttp.ClientSession(total=webhook.retry_config.timeout_seconds),
             ) as response:
                 delivery.http_status = response.status
 
                 # Read response body (limited size)
                 try:
-                    body = await response.text(limit=10000)
+                    body = await response.text()
                     delivery.response_body = body[:1000]  # Truncate
                 except Exception:
                     pass
@@ -926,29 +984,131 @@ class WebhookManager:
     # ======================================================================
 
     async def _retry_loop(self) -> None:
-        """Background loop for retrying failed deliveries."""
+        """
+        Background loop for retrying failed webhook deliveries.
+
+        This replaces the previous inline sleep approach with a proper
+        background queue processor that uses exponential backoff.
+
+        The retry loop:
+        1. Pulls entries from the retry queue
+        2. Waits until their scheduled retry time
+        3. Re-attempts delivery
+        4. Either completes successfully or re-queues for further retries
+        """
         logger.debug("[WebhookManager] Retry loop started")
 
         while self._running:
             try:
                 # Get next delivery to retry (with timeout)
-                delivery = await asyncio.wait_for(
+                entry = await asyncio.wait_for(
                     self._retry_queue.get(),
                     timeout=5.0
                 )
 
-                webhook = self._webhooks.get(delivery.webhook_id)
+                # Check if webhook still exists and is enabled
+                webhook = self._webhooks.get(entry.webhook.id)
                 if not webhook or not webhook.enabled:
+                    logger.debug(
+                        f"[WebhookManager] Skipping retry for {entry.delivery.id} - "
+                        "webhook disabled or removed"
+                    )
                     continue
 
-                # Get the original event (we'd need to store events)
-                # For now, skip retry since we don't have event persistence
-                logger.debug(f"[WebhookManager] Skipping retry for {delivery.id}")
+                # Calculate time until retry
+                now = datetime.now(timezone.utc)
+                if entry.retry_at > now:
+                    wait_seconds = (entry.retry_at - now).total_seconds()
+                    logger.debug(
+                        f"[WebhookManager] Waiting {wait_seconds:.1f}s "
+                        f"before retry of {entry.delivery.id}"
+                    )
+                    await asyncio.sleep(wait_seconds)
+
+                # Increment attempt counter
+                entry.delivery.attempt += 1
+
+                # Check if we've exceeded max attempts
+                if entry.delivery.attempt > webhook.retry_config.max_attempts:
+                    entry.delivery.status = "failed"
+                    entry.delivery.completed_at = datetime.now(timezone.utc)
+                    self._deliveries_failed += 1
+                    await self._add_to_history(webhook.id, entry.delivery)
+                    logger.warning(
+                        f"[WebhookManager] Delivery {entry.delivery.id} failed after "
+                        f"{entry.delivery.attempt - 1} attempts"
+                    )
+                    continue
+
+                # Re-attempt delivery
+                logger.info(
+                    f"[WebhookManager] Retrying {entry.delivery.id} "
+                    f"(attempt {entry.delivery.attempt}/{webhook.retry_config.max_attempts})"
+                )
+
+                try:
+                    success = await self._attempt_delivery(
+                        entry.event,
+                        webhook,
+                        entry.delivery,
+                    )
+
+                    if success:
+                        entry.delivery.status = "success"
+                        entry.delivery.completed_at = datetime.now(timezone.utc)
+                        self._deliveries_success += 1
+                        await self._add_to_history(webhook.id, entry.delivery)
+                        logger.info(
+                            f"[WebhookManager] Retry succeeded for {entry.delivery.id}"
+                        )
+                    else:
+                        # Re-queue for another retry
+                        if entry.delivery.attempt < webhook.retry_config.max_attempts:
+                            await self._queue_for_retry(
+                                entry.event,
+                                webhook,
+                                entry.delivery,
+                            )
+                        else:
+                            entry.delivery.status = "failed"
+                            entry.delivery.completed_at = datetime.now(timezone.utc)
+                            self._deliveries_failed += 1
+                            await self._add_to_history(webhook.id, entry.delivery)
+                            logger.warning(
+                                f"[WebhookManager] Delivery {entry.delivery.id} failed after "
+                                f"all retry attempts"
+                            )
+
+                except Exception as e:
+                    entry.delivery.error_message = str(e)
+
+                    # Re-queue for another retry
+                    if entry.delivery.attempt < webhook.retry_config.max_attempts:
+                        await self._queue_for_retry(
+                            entry.event,
+                            webhook,
+                            entry.delivery,
+                        )
+                        logger.debug(
+                            f"[WebhookManager] Re-queued {entry.delivery.id} after error: {e}"
+                        )
+                    else:
+                        entry.delivery.status = "failed"
+                        entry.delivery.completed_at = datetime.now(timezone.utc)
+                        self._deliveries_failed += 1
+                        await self._add_to_history(webhook.id, entry.delivery)
+                        logger.error(
+                            f"[WebhookManager] Retry failed for {entry.delivery.id}: {e}"
+                        )
 
             except asyncio.TimeoutError:
+                # No items in queue, continue polling
                 continue
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"[WebhookManager] Retry loop error: {e}")
+                await asyncio.sleep(1.0)  # Prevent tight error loop
 
         logger.debug("[WebhookManager] Retry loop stopped")
 
@@ -963,6 +1123,20 @@ class WebhookManager:
 
         try:
             import aiofiles
+            import os as _os
+            import stat as _stat
+
+            # SECURITY: Refuse to load secrets from world-readable files (Unix)
+            try:
+                file_stat = _os.stat(self._persistence_path)
+                if hasattr(_stat, "S_IROTH") and file_stat.st_mode & _stat.S_IROTH:
+                    logger.error(
+                        f"[WebhookManager] Refusing to load {self._persistence_path}: "
+                        "file is world-readable. Fix permissions: chmod 600"
+                    )
+                    return
+            except (OSError, AttributeError):
+                pass  # Windows or stat not available
 
             async with aiofiles.open(self._persistence_path, "r") as f:
                 content = await f.read()
@@ -982,12 +1156,19 @@ class WebhookManager:
             logger.error(f"[WebhookManager] Failed to load webhooks: {e}")
 
     async def _save_webhooks(self) -> None:
-        """Save webhook configurations to disk."""
+        """Save webhook configurations to disk.
+
+        SECURITY NOTE: Webhook secrets are stored in plaintext JSON.
+        In production, use a proper secrets manager (e.g., HashiCorp Vault,
+        AWS Secrets Manager) and restrict file permissions.
+        """
         if not self._persistence_path:
             return
 
         try:
             import aiofiles
+            import os as _os
+            import stat as _stat
 
             self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1002,6 +1183,21 @@ class WebhookManager:
 
             async with aiofiles.open(self._persistence_path, "w") as f:
                 await f.write(json.dumps(data, indent=2))
+
+            # SECURITY: Restrict file permissions to owner-only (Unix)
+            try:
+                _os.chmod(
+                    self._persistence_path,
+                    _stat.S_IRUSR | _stat.S_IWUSR,  # 0o600
+                )
+            except (OSError, AttributeError):
+                # Windows or permission error — log warning
+                pass
+
+            logger.warning(
+                "[WebhookManager] Webhook secrets saved to disk in plaintext. "
+                "Use a secrets manager in production."
+            )
 
         except Exception as e:
             logger.error(f"[WebhookManager] Failed to save webhooks: {e}")

@@ -39,9 +39,10 @@ import asyncio
 import json
 import os
 import shutil
+import aiosqlite
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -184,23 +185,25 @@ class WriteAheadLog:
         self.wal_path = Path(wal_path)
         self.collection_name = collection_name
         self.max_size_bytes = max_size_mb * 1024 * 1024
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: Optional[aiosqlite.Connection] = None
         self._lock = asyncio.Lock()
-        self._init_db()
+        self._initialized = False
 
-    def _init_db(self):
-        """Initialize WAL database."""
+    async def _init_db(self):
+        """Initialize WAL database asynchronously."""
+        if self._initialized:
+            return
+
         self.wal_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = sqlite3.connect(
+        self._conn = await aiosqlite.connect(
             str(self.wal_path),
-            check_same_thread=False,
             timeout=30.0,
         )
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
+        await self._conn.execute("PRAGMA journal_mode=WAL")
+        await self._conn.execute("PRAGMA synchronous=NORMAL")
 
-        self._conn.execute("""
+        await self._conn.execute("""
             CREATE TABLE IF NOT EXISTS wal_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp INTEGER NOT NULL,
@@ -211,17 +214,18 @@ class WriteAheadLog:
             )
         """)
 
-        self._conn.execute("""
+        await self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp
             ON wal_entries(timestamp)
         """)
 
-        self._conn.execute("""
+        await self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_operation
             ON wal_entries(operation)
         """)
 
-        self._conn.commit()
+        await self._conn.commit()
+        self._initialized = True
 
     async def log_insert(
         self,
@@ -273,12 +277,15 @@ class WriteAheadLog:
     ) -> bool:
         """Internal method to log an operation."""
         async with self._lock:
+            if not self._initialized:
+                await self._init_db()
+
             if not self._conn:
                 logger.warning("WAL connection not initialized")
                 return False
 
             # Check size limit
-            if self._get_size() >= self.max_size_bytes:
+            if await self._get_size() >= self.max_size_bytes:
                 await self._rotate_wal()
 
             try:
@@ -288,37 +295,38 @@ class WriteAheadLog:
 
                 metadata_json = dumps(metadata or {})
 
-                self._conn.execute(
+                await self._conn.execute(
                     """
                     INSERT INTO wal_entries
                     (timestamp, operation, point_id, point_data, metadata)
                     VALUES (?, ?, ?, ?, ?)
                     """,
                     (
-                        int(datetime.now().timestamp()),
+                        int(datetime.now(timezone.utc).timestamp()),
                         operation,
                         point_id,
                         data_blob,
                         metadata_json,
                     ),
                 )
-                self._conn.commit()
+                await self._conn.commit()
                 return True
             except Exception as e:
                 logger.error(f"Failed to log WAL operation: {e}")
                 return False
 
-    def _get_size(self) -> int:
+    async def _get_size(self) -> int:
         """Get current WAL size in bytes."""
         if not self._conn:
             return 0
         try:
-            cursor = self._conn.execute(
+            cursor = await self._conn.execute(
                 "SELECT SUM(LENGTH(point_data)) FROM wal_entries"
             )
-            result = cursor.fetchone()
+            result = await cursor.fetchone()
             return result[0] or 0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to get WAL size: {e}")
             return 0
 
     async def _rotate_wal(self):
@@ -330,13 +338,13 @@ class WriteAheadLog:
 
         # Archive current WAL
         archive_path = self.wal_path.with_suffix(
-            f".{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
+            f".{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.bak"
         )
         shutil.copy2(self.wal_path, archive_path)
 
         # Clear current WAL
-        self._conn.execute("DELETE FROM wal_entries")
-        self._conn.commit()
+        await self._conn.execute("DELETE FROM wal_entries")
+        await self._conn.commit()
 
     async def get_entries_since(
         self,
@@ -344,10 +352,14 @@ class WriteAheadLog:
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get WAL entries since a timestamp."""
+        if not self._initialized:
+            await self._init_db()
+
         if not self._conn:
             return []
 
         try:
+            params: list = [since_timestamp]
             query = """
                 SELECT timestamp, operation, point_id, point_data, metadata
                 FROM wal_entries
@@ -355,12 +367,13 @@ class WriteAheadLog:
                 ORDER BY timestamp ASC
             """
             if limit:
-                query += f" LIMIT {limit}"
+                query += " LIMIT ?"
+                params.append(int(limit))
 
-            cursor = self._conn.execute(query, (since_timestamp,))
+            cursor = await self._conn.execute(query, tuple(params))
             entries = []
 
-            for row in cursor.fetchall():
+            async for row in cursor:
                 point_data = None
                 if row[3]:
                     point_data = loads(row[3])
@@ -382,25 +395,29 @@ class WriteAheadLog:
 
     async def truncate(self, before_timestamp: int) -> int:
         """Remove WAL entries before a timestamp."""
+        if not self._initialized:
+            await self._init_db()
+
         if not self._conn:
             return 0
 
         try:
-            cursor = self._conn.execute(
+            cursor = await self._conn.execute(
                 "DELETE FROM wal_entries WHERE timestamp < ?",
                 (before_timestamp,),
             )
-            self._conn.commit()
+            await self._conn.commit()
             return cursor.rowcount
         except Exception as e:
             logger.error(f"Failed to truncate WAL: {e}")
             return 0
 
-    def close(self):
+    async def close(self):
         """Close WAL connection."""
         if self._conn:
-            self._conn.close()
+            await self._conn.close()
             self._conn = None
+            self._initialized = False
 
 
 # =============================================================================
@@ -441,7 +458,8 @@ class BackupManager:
 
         # Snapshots database
         self.snapshots_db_path = self.backup_dir / "snapshots.db"
-        self._init_snapshots_db()
+        self._snapshots_conn: Optional[aiosqlite.Connection] = None
+        self._snapshots_initialized = False
 
         # WAL instances per collection
         self._wals: Dict[str, WriteAheadLog] = {}
@@ -450,10 +468,15 @@ class BackupManager:
         self._snapshot_task: Optional[asyncio.Task] = None
         self._running = False
 
-    def _init_snapshots_db(self):
-        """Initialize snapshots metadata database."""
-        conn = sqlite3.connect(str(self.snapshots_db_path))
-        conn.execute("""
+    async def _init_snapshots_db(self):
+        """Initialize snapshots metadata database asynchronously."""
+        if self._snapshots_initialized:
+            return
+
+        self._snapshots_conn = await aiosqlite.connect(
+            str(self.snapshots_db_path)
+        )
+        await self._snapshots_conn.execute("""
             CREATE TABLE IF NOT EXISTS snapshots (
                 snapshot_id TEXT PRIMARY KEY,
                 collection_name TEXT NOT NULL,
@@ -469,13 +492,13 @@ class BackupManager:
             )
         """)
 
-        conn.execute("""
+        await self._snapshots_conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_collection
             ON snapshots(collection_name, created_at DESC)
         """)
 
-        conn.commit()
-        conn.close()
+        await self._snapshots_conn.commit()
+        self._snapshots_initialized = True
 
     # -------------------------------------------------------------------------
     # Snapshot Management
@@ -542,7 +565,7 @@ class BackupManager:
             snapshot_info = SnapshotInfo(
                 snapshot_id=snapshot_id,
                 collection_name=collection_name,
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 status=status,
                 size_bytes=size_bytes,
                 point_count=point_count,
@@ -807,11 +830,13 @@ class BackupManager:
         Returns:
             List of SnapshotInfo objects
         """
+        if not self._snapshots_initialized:
+            await self._init_snapshots_db()
+
         snapshots = []
 
         try:
-            conn = sqlite3.connect(str(self.snapshots_db_path))
-            conn.row_factory = sqlite3.Row
+            self._snapshots_conn.row_factory = aiosqlite.Row
 
             query = "SELECT * FROM snapshots WHERE 1=1"
             params = []
@@ -827,12 +852,11 @@ class BackupManager:
             query += " ORDER BY created_at DESC LIMIT ?"
             params.append(limit)
 
-            cursor = conn.execute(query, params)
+            cursor = await self._snapshots_conn.execute(query, params)
 
-            for row in cursor.fetchall():
+            async for row in cursor:
                 snapshots.append(SnapshotInfo.from_dict(dict(row)))
 
-            conn.close()
         except Exception as e:
             logger.error(f"Failed to list snapshots: {e}")
 
@@ -840,16 +864,17 @@ class BackupManager:
 
     async def get_snapshot_info(self, snapshot_id: str) -> Optional[SnapshotInfo]:
         """Get information about a specific snapshot."""
-        try:
-            conn = sqlite3.connect(str(self.snapshots_db_path))
-            conn.row_factory = sqlite3.Row
+        if not self._snapshots_initialized:
+            await self._init_snapshots_db()
 
-            cursor = conn.execute(
+        try:
+            self._snapshots_conn.row_factory = aiosqlite.Row
+
+            cursor = await self._snapshots_conn.execute(
                 "SELECT * FROM snapshots WHERE snapshot_id = ?",
                 (snapshot_id,),
             )
-            row = cursor.fetchone()
-            conn.close()
+            row = await cursor.fetchone()
 
             if row:
                 return SnapshotInfo.from_dict(dict(row))
@@ -879,9 +904,25 @@ class BackupManager:
             snapshot_id: ID of the snapshot to delete
 
         Returns:
-            True if deletion succeeded
+            True if deletion succeeded, False if snapshot not found
         """
         logger.info(f"Deleting snapshot {snapshot_id}")
+
+        if not self._snapshots_initialized:
+            await self._init_snapshots_db()
+
+        # Check if snapshot exists first
+        try:
+            cursor = await self._snapshots_conn.execute(
+                "SELECT snapshot_id FROM snapshots WHERE snapshot_id = ?",
+                (snapshot_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return False
+        except Exception as e:
+            logger.error(f"Failed to check snapshot existence: {e}")
+            return False
 
         try:
             # Delete files
@@ -890,13 +931,11 @@ class BackupManager:
                 shutil.rmtree(snapshot_dir)
 
             # Delete from database
-            conn = sqlite3.connect(str(self.snapshots_db_path))
-            conn.execute(
+            await self._snapshots_conn.execute(
                 "DELETE FROM snapshots WHERE snapshot_id = ?",
                 (snapshot_id,),
             )
-            conn.commit()
-            conn.close()
+            await self._snapshots_conn.commit()
 
             return True
         except Exception as e:
@@ -1023,12 +1062,12 @@ class BackupManager:
                 if not latest:
                     should_snapshot = True
                 else:
-                    age = datetime.now() - latest.created_at
+                    age = datetime.now(timezone.utc) - latest.created_at
                     if age >= timedelta(hours=self.config.snapshot_interval_hours):
                         should_snapshot = True
 
                 if should_snapshot:
-                    description = f"Auto-snapshot at {datetime.now().isoformat()}"
+                    description = f"Auto-snapshot at {datetime.now(timezone.utc).isoformat()}"
                     await self.create_snapshot(collection, description)
 
             except Exception as e:
@@ -1049,7 +1088,7 @@ class BackupManager:
             return
 
         to_delete = set()
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # Apply max snapshots limit
         if len(snapshots) > self.config.max_snapshots:
@@ -1073,7 +1112,7 @@ class BackupManager:
 
     def _generate_snapshot_id(self, collection_name: str) -> str:
         """Generate a unique snapshot ID."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         rand = os.urandom(4).hex()
         return f"{collection_name}_{timestamp}_{rand}"
 
@@ -1089,9 +1128,11 @@ class BackupManager:
 
     async def _save_snapshot_info(self, snapshot_info: SnapshotInfo):
         """Save snapshot info to database."""
+        if not self._snapshots_initialized:
+            await self._init_snapshots_db()
+
         try:
-            conn = sqlite3.connect(str(self.snapshots_db_path))
-            conn.execute(
+            await self._snapshots_conn.execute(
                 """
                 INSERT OR REPLACE INTO snapshots
                 (snapshot_id, collection_name, created_at, status, size_bytes,
@@ -1113,8 +1154,7 @@ class BackupManager:
                     dumps(snapshot_info.metadata),
                 ),
             )
-            conn.commit()
-            conn.close()
+            await self._snapshots_conn.commit()
         except Exception as e:
             logger.error(f"Failed to save snapshot info: {e}")
 
@@ -1124,14 +1164,15 @@ class BackupManager:
         status: SnapshotStatus,
     ):
         """Update snapshot status in database."""
+        if not self._snapshots_initialized:
+            await self._init_snapshots_db()
+
         try:
-            conn = sqlite3.connect(str(self.snapshots_db_path))
-            conn.execute(
+            await self._snapshots_conn.execute(
                 "UPDATE snapshots SET status = ? WHERE snapshot_id = ?",
                 (status.value, snapshot_id),
             )
-            conn.commit()
-            conn.close()
+            await self._snapshots_conn.commit()
         except Exception as e:
             logger.error(f"Failed to update snapshot status: {e}")
 
@@ -1140,8 +1181,13 @@ class BackupManager:
         await self.stop_scheduled_snapshots()
 
         for wal in self._wals.values():
-            wal.close()
+            await wal.close()
         self._wals.clear()
+
+        if self._snapshots_conn:
+            await self._snapshots_conn.close()
+            self._snapshots_conn = None
+            self._snapshots_initialized = False
 
         logger.info("BackupManager closed")
 

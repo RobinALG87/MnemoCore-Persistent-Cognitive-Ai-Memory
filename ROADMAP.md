@@ -2,7 +2,7 @@
 
 **Open Source Infrastructure for Persistent Cognitive Memory**
 
-Version: 5.0.0 | Updated: 2026-03-01
+Version: 2.0.0 | Updated: 2026-03-01
 
 ---
 
@@ -13,7 +13,7 @@ a production-ready, self-hosted alternative to cloud-dependent memory solutions.
 
 ---
 
-## Current Status (v5.0.0)
+## Current Status (v2.0.0)
 
 | Component | Status |
 |-----------|--------|
@@ -25,7 +25,7 @@ a production-ready, self-hosted alternative to cloud-dependent memory solutions.
 | MCP Server | ✅ Functional |
 | Cognitive Services (Phase 5) | ✅ Complete |
 | Research Services (Phase 6) | ✅ Complete |
-| PyPI Distribution | ✅ Published |
+| Private GitHub Distribution | ✅ Active |
 | Test Suite | ✅ 1291+ tests |
 
 ---
@@ -157,7 +157,7 @@ a production-ready, self-hosted alternative to cloud-dependent memory solutions.
 MnemoCore is open source under MIT license.
 
 - **GitHub:** https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
-- **PyPI:** `pip install mnemocore`
+- **Install (private repo):** `pip install git+https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git@main`
 - **Issues:** Use GitHub Issues for bugs and feature requests
 - **PRs:** Welcome — performance, algorithms, integrations, tests
 

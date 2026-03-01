@@ -1,8 +1,10 @@
+import pytest
 from datetime import datetime, timezone
 from mnemocore.core.procedural_store import ProceduralStoreService
 from mnemocore.core.memory_model import Procedure
 
-def test_procedural_store_add_and_get():
+@pytest.mark.asyncio
+async def test_procedural_store_add_and_get():
     store = ProceduralStoreService()
     
     proc = Procedure(
@@ -20,13 +22,14 @@ def test_procedural_store_add_and_get():
         tags=[]
     )
     
-    store.store_procedure(proc)
+    await store.store_procedure(proc)
     
-    p2 = store.get_procedure("proc-1")
+    p2 = await store.get_procedure("proc-1")
     assert p2 is not None
     assert p2.name == "extract_information"
 
-def test_procedural_store_outcome():
+@pytest.mark.asyncio
+async def test_procedural_store_outcome():
     store = ProceduralStoreService()
     proc = Procedure(
         id="proc-2",
@@ -42,22 +45,23 @@ def test_procedural_store_outcome():
         reliability=1.0,
         tags=[]
     )
-    store.store_procedure(proc)
+    await store.store_procedure(proc)
     
     # Success
-    store.record_procedure_outcome("proc-2", success=True)
-    p2 = store.get_procedure("proc-2")
+    await store.record_procedure_outcome("proc-2", success=True)
+    p2 = await store.get_procedure("proc-2")
     assert p2.success_count == 1
     assert p2.failure_count == 0
     
     # Failure
-    store.record_procedure_outcome("proc-2", success=False)
-    p3 = store.get_procedure("proc-2")
+    await store.record_procedure_outcome("proc-2", success=False)
+    p3 = await store.get_procedure("proc-2")
     assert p3.success_count == 1
     assert p3.failure_count == 1
     assert p3.reliability == 0.9
 
-def test_procedural_store_find():
+@pytest.mark.asyncio
+async def test_procedural_store_find():
     store = ProceduralStoreService()
     proc1 = Procedure(
         id="p1", name="search_web", description="Find info online", steps=[],
@@ -68,10 +72,10 @@ def test_procedural_store_find():
         created_by_agent="system", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc), trigger_pattern="math", success_count=0, failure_count=0, reliability=1.0, tags=[]
     )
     
-    store.store_procedure(proc1)
-    store.store_procedure(proc2)
+    await store.store_procedure(proc1)
+    await store.store_procedure(proc2)
     
-    results = store.find_applicable_procedures("math expression")
+    results = await store.find_applicable_procedures("math expression")
     assert len(results) > 0
     # The basic regex search should catch math
     assert any(p.id == "p2" for p in results)

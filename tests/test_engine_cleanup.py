@@ -49,9 +49,9 @@ async def test_cleanup_decay(test_engine):
     await test_engine.cleanup_decay(threshold=0.1)
 
     # Verify results
-    assert len(test_engine._synapse_index) == 1
-    assert test_engine._synapse_index.get("mem_3", "mem_4") is not None
-    assert test_engine._synapse_index.get("mem_1", "mem_2") is None
+    assert await test_engine._synapse_index.__len__() == 1
+    assert await test_engine._synapse_index.get("mem_3", "mem_4") is not None
+    assert await test_engine._synapse_index.get("mem_1", "mem_2") is None
 
     # Verify persistence
     assert os.path.exists(test_engine.synapse_path)
@@ -65,4 +65,4 @@ async def test_cleanup_no_decay(test_engine):
 
     await test_engine.cleanup_decay(threshold=0.1)
 
-    assert len(test_engine._synapse_index) == 1
+    assert await test_engine._synapse_index.__len__() == 1

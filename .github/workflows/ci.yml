@@ -140,11 +140,9 @@ jobs:
 
       - name: Run pip-audit (dependency vulnerability scan)
         run: pip-audit -r requirements.txt
-        continue-on-error: true
 
       - name: Run Bandit (code security analysis)
         run: bandit -r src/ -ll --skip B101,B601
-        continue-on-error: true
 
   # ===========================================================================
   # PROPERTY-BASED TESTS - Hypothesis

@@ -7,7 +7,7 @@ Command-line interface for MnemoCore persistent cognitive memory system.
 After installing MnemoCore, the CLI is available as `mnemocore-cli`:
 
 ```bash
-pip install mnemocore
+pip install git+https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git@main
 mnemocore-cli --help
 ```
 

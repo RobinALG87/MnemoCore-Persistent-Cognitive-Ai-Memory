@@ -8,7 +8,7 @@ type: application
 version: 1.0.0
 
 # Application version
-appVersion: "3.5.0"
+appVersion: "2.0.0"
 
 # Metadata
 home: https://github.com/your-org/mnemocore

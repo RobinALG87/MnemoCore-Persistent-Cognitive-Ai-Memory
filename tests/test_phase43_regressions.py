@@ -189,7 +189,7 @@ async def test_get_stats_reports_engine_version_45(isolated_engine):
     engine = isolated_engine
     engine.tier_manager.get_stats = AsyncMock(return_value={"hot_count": 0, "warm_count": 0})
     stats = await engine.get_stats()
-    assert stats["engine_version"] == "4.5.0"
+    assert stats["engine_version"] == "2.0.0"
 
 
 @pytest.mark.asyncio
@@ -211,9 +211,13 @@ async def test_tier_manager_search_applies_hot_time_range_filter(isolated_engine
         content="new",
         created_at=now,
     )
-    tm.hot.clear()
-    tm.hot["old"] = old_node
-    tm.hot["new"] = new_node
+    tm._hot_storage._storage.clear()
+    tm._hot_storage._storage["old"] = old_node
+    tm._hot_storage._storage["new"] = new_node
+
+    # Mock search_hot since HNSW index doesn't have these nodes
+    from unittest.mock import MagicMock
+    tm.search_hot = MagicMock(return_value=[("old", 0.8), ("new", 0.9)])
 
     query_vec = BinaryHDV.random(engine.dimension)
     results = await tm.search(
@@ -237,7 +241,7 @@ async def test_orchestrate_orch_or_is_async_and_lock_guarded(isolated_engine):
     node.ltp_strength = 0.8
     node.epistemic_value = 0.4
     node.access_count = 5
-    engine.tier_manager.hot[node.id] = node
+    engine.tier_manager._hot_storage._storage[node.id] = node
 
     await engine.tier_manager.lock.acquire()
     task = asyncio.create_task(engine.orchestrate_orch_or(max_collapse=1))

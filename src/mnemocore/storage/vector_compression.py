@@ -36,7 +36,8 @@ Usage:
 
 from __future__ import annotations
 
-import pickle
+import json
+import struct
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -46,6 +47,10 @@ import numpy as np
 from loguru import logger
 
 from mnemocore.core.exceptions import ValidationError
+
+# Magic bytes for safe binary format identification
+VECTOR_FORMAT_MAGIC = b"MNCV"  # MnemoCore Vector
+VECTOR_FORMAT_VERSION = 1
 
 
 # =============================================================================
@@ -94,19 +99,108 @@ class CompressedVector:
     metadata: CompressionMetadata
 
     def to_bytes(self) -> bytes:
-        """Serialize to bytes."""
-        return pickle.dumps({
-            "data": self.data,
-            "metadata": self.metadata.to_dict(),
-        })
+        """
+        Serialize to bytes using safe binary format.
+
+        Format:
+        - 4 bytes: Magic bytes "MNCV"
+        - 1 byte: Format version
+        - 4 bytes: Metadata JSON length (uint32, big-endian)
+        - N bytes: Metadata JSON (UTF-8)
+        - 4 bytes: Data dtype length (uint32, big-endian)
+        - M bytes: Data dtype string (UTF-8)
+        - 4 bytes: Data shape length (uint32, big-endian)
+        - P bytes: Data shape as JSON array
+        - Rest: Raw numpy data bytes (tobytes())
+        """
+        metadata_json = json.dumps(self.metadata.to_dict())
+
+        # Convert numpy data to bytes
+        data_bytes = self.data.tobytes()
+        dtype_str = str(self.data.dtype)
+        shape_json = json.dumps(list(self.data.shape))
+
+        parts = [
+            VECTOR_FORMAT_MAGIC,
+            struct.pack(">B", VECTOR_FORMAT_VERSION),
+            struct.pack(">I", len(metadata_json)),
+            metadata_json.encode("utf-8"),
+            struct.pack(">I", len(dtype_str)),
+            dtype_str.encode("utf-8"),
+            struct.pack(">I", len(shape_json)),
+            shape_json.encode("utf-8"),
+            data_bytes,
+        ]
+
+        return b"".join(parts)
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> "CompressedVector":
-        """Deserialize from bytes."""
-        loaded = pickle.loads(raw)
+        """
+        Deserialize from bytes using safe binary format.
+
+        Raises:
+            ValidationError: If the format is invalid or corrupted.
+        """
+        if len(raw) < 4:
+            raise ValidationError("data", "Invalid compressed vector: too short")
+
+        # Check magic bytes
+        if raw[:4] != VECTOR_FORMAT_MAGIC:
+            raise ValidationError(
+                "data",
+                f"Invalid compressed vector: bad magic bytes. "
+                "This may indicate corrupted data or an unsafe pickle payload was rejected."
+            )
+
+        offset = 4
+
+        # Version
+        version = struct.unpack(">B", raw[offset:offset + 1])[0]
+        offset += 1
+        if version != VECTOR_FORMAT_VERSION:
+            raise ValidationError(
+                "data",
+                f"Unsupported compressed vector version: {version}"
+            )
+
+        # Metadata JSON
+        metadata_len = struct.unpack(">I", raw[offset:offset + 4])[0]
+        offset += 4
+        metadata_json = raw[offset:offset + metadata_len].decode("utf-8")
+        offset += metadata_len
+        metadata_dict = json.loads(metadata_json)
+
+        # Data dtype
+        dtype_len = struct.unpack(">I", raw[offset:offset + 4])[0]
+        offset += 4
+        dtype_str = raw[offset:offset + dtype_len].decode("utf-8")
+        offset += dtype_len
+
+        # Validate dtype against allowlist to prevent injection
+        _SAFE_DTYPES = {"float32", "float64", "float16", "uint8", "int8", "int16", "int32", "int64", "uint16", "uint32", "uint64"}
+        if dtype_str not in _SAFE_DTYPES:
+            raise ValidationError(
+                "data",
+                f"Untrusted dtype: {dtype_str!r}. Allowed: {_SAFE_DTYPES}"
+            )
+
+        # Data shape
+        shape_len = struct.unpack(">I", raw[offset:offset + 4])[0]
+        offset += 4
+        shape_json = raw[offset:offset + shape_len].decode("utf-8")
+        offset += shape_len
+        shape = tuple(json.loads(shape_json))
+
+        # Raw data
+        data_bytes = raw[offset:]
+        data = np.frombuffer(data_bytes, dtype=np.dtype(dtype_str)).reshape(shape)
+        # Make a copy since frombuffer creates a read-only view
+        data = data.copy()
+
         return cls(
-            data=loaded["data"],
-            metadata=CompressionMetadata(**loaded["metadata"]),
+            data=data,
+            metadata=CompressionMetadata(**metadata_dict),
         )
 
 
@@ -538,35 +632,38 @@ class BinaryQuantizer:
 
     def compress(self, vectors: np.ndarray) -> np.ndarray:
         """
-        Compress vectors to binary.
+        Compress vectors to binary using vectorized operations.
 
         Args:
-            vectors: Float32 vectors
+            vectors: Float32 vectors of shape (n_vectors, dimension)
 
         Returns:
-            Binary vectors (packed as uint8)
+            Binary vectors (packed as uint8) of shape (n_vectors, packed_dim)
         """
         # Binarize
         binary = (vectors > self.threshold).astype(np.uint8)
 
-        # Pack bits
-        n_vectors = vectors.shape[0]
-        packed_dim = (self.dimension + 7) // 8
-        packed = np.zeros((n_vectors, packed_dim), dtype=np.uint8)
-
-        for i in range(n_vectors):
-            packed[i] = np.packbits(binary[i])
+        # Vectorized bit packing using np.packbits
+        # np.packbits packs along the last axis by default
+        packed = np.packbits(binary, axis=1)
 
         return packed
 
     def decompress(self, compressed: np.ndarray) -> np.ndarray:
-        """Decompress binary vectors back to float32."""
-        n_vectors = compressed.shape[0]
-        vectors = np.zeros((n_vectors, self.dimension), dtype=np.float32)
+        """
+        Decompress binary vectors back to float32 using vectorized operations.
 
-        for i in range(n_vectors):
-            bits = np.unpackbits(compressed[i])[:self.dimension]
-            vectors[i] = bits.astype(np.float32)
+        Args:
+            compressed: Packed uint8 array of shape (n_vectors, packed_dim)
+
+        Returns:
+            Float32 array of shape (n_vectors, dimension)
+        """
+        # Vectorized unpacking
+        unpacked = np.unpackbits(compressed, axis=1)
+
+        # Truncate to original dimension and convert to float32
+        vectors = unpacked[:, :self.dimension].astype(np.float32)
 
         return vectors
 
@@ -576,26 +673,30 @@ class BinaryQuantizer:
         vectors_compressed: np.ndarray,
     ) -> np.ndarray:
         """
-        Compute Hamming distance between compressed vectors.
+        Compute Hamming distance between compressed vectors using vectorized popcount.
 
         Args:
-            query_compressed: Single compressed query
-            vectors_compressed: Multiple compressed vectors
+            query_compressed: Single compressed query (1D or 2D with shape (1, packed_dim))
+            vectors_compressed: Multiple compressed vectors (n_vectors, packed_dim)
 
         Returns:
-            Hamming distances
+            Hamming distances as 1D array of shape (n_vectors,)
         """
-        # XOR and count set bits
+        # Ensure query is broadcastable
+        if query_compressed.ndim == 1:
+            query_compressed = query_compressed[np.newaxis, :]
+
+        # XOR and count set bits (vectorized)
         xor_result = np.bitwise_xor(vectors_compressed, query_compressed)
 
-        # Count bits efficiently
-        distances = np.zeros(vectors_compressed.shape[0], dtype=np.int32)
+        # Vectorized popcount using lookup table
+        # Pre-computed popcount for all 256 possible byte values
+        popcount_table = np.array([
+            bin(i).count("1") for i in range(256)
+        ], dtype=np.int32)
 
-        # Create popcount lookup table
-        popcount_table = np.array([bin(i).count("1") for i in range(256)], dtype=np.int32)
-
-        for i in range(vectors_compressed.shape[0]):
-            distances[i] = popcount_table[xor_result[i]].sum()
+        # Apply lookup table to all XOR results and sum along axis 1
+        distances = popcount_table[xor_result].sum(axis=1)
 
         return distances
 
@@ -724,56 +825,96 @@ class VectorCompressor:
             raise ValidationError("compressor", "Unknown quantizer type")
 
     def save(self, path: Union[str, Path]):
-        """Save compressor to file."""
-        path = Path(path)
+        """
+        Save compressor to file using safe format.
 
-        save_data = {
-            "config": {
-                "method": self.config.method.value,
-                "n_subvectors": self.config.n_subvectors,
-                "n_pq_bits": self.config.n_pq_bits,
-                "scalar_bits": self.config.scalar_bits,
-                "binary_threshold": self.config.binary_threshold,
-            },
-            "state": None,
+        Uses a directory containing:
+        - config.json: Configuration metadata
+        - state.json: Quantizer state metadata
+        - data.npy: NumPy arrays (codebooks, min/max, etc.)
+
+        This replaces the unsafe pickle-based serialization.
+        """
+        path = Path(path)
+        save_dir = path if path.suffix == "" else path.with_suffix("")
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        config_data = {
+            "method": self.config.method.value,
+            "n_subvectors": self.config.n_subvectors,
+            "n_pq_bits": self.config.n_pq_bits,
+            "scalar_bits": self.config.scalar_bits,
+            "binary_threshold": self.config.binary_threshold,
         }
 
+        state_data = {"type": None}
+        arrays_to_save = {}
+
         if isinstance(self._quantizer, ScalarQuantizer):
-            save_data["state"] = {
+            state_data = {
                 "type": "scalar",
-                "min": self._quantizer.min,
-                "max": self._quantizer.max,
-                "scale": self._quantizer.scale,
                 "dimension": self._quantizer.dimension,
                 "bits": self._quantizer.bits,
             }
+            arrays_to_save["min"] = self._quantizer.min
+            arrays_to_save["max"] = self._quantizer.max
+            arrays_to_save["scale"] = self._quantizer.scale
         elif isinstance(self._quantizer, ProductQuantization):
-            save_data["state"] = {
+            state_data = {
                 "type": "pq",
-                "codebooks": self._quantizer.codebooks,
                 "dimension": self._quantizer.dimension,
                 "n_subvectors": self._quantizer.n_subvectors,
                 "n_bits": self._quantizer.n_bits,
             }
+            arrays_to_save["codebooks"] = self._quantizer.codebooks
         elif isinstance(self._quantizer, BinaryQuantizer):
-            save_data["state"] = {
+            state_data = {
                 "type": "binary",
                 "dimension": self._quantizer.dimension,
                 "threshold": self._quantizer.threshold,
             }
 
-        with open(path, "wb") as f:
-            pickle.dump(save_data, f)
+        # Save config and state as JSON
+        with open(save_dir / "config.json", "w") as f:
+            json.dump(config_data, f, indent=2)
 
-        logger.info(f"Saved compressor to {path}")
+        with open(save_dir / "state.json", "w") as f:
+            json.dump(state_data, f, indent=2)
+
+        # Save numpy arrays using np.savez (safe format)
+        if arrays_to_save:
+            np.savez(save_dir / "data.npz", **arrays_to_save)
+
+        logger.info(f"Saved compressor to {save_dir}")
 
     @classmethod
     def load(cls, path: Union[str, Path]) -> "VectorCompressor":
-        """Load compressor from file."""
-        with open(path, "rb") as f:
-            save_data = pickle.load(f)
+        """
+        Load compressor from file (safe format).
 
-        config_data = save_data["config"]
+        Raises:
+            ValidationError: If the format is invalid or files are corrupted.
+        """
+        path = Path(path)
+        load_dir = path if path.suffix == "" else path.with_suffix("")
+
+        if not load_dir.exists():
+            raise ValidationError("path", f"Compressor directory not found: {load_dir}")
+
+        config_path = load_dir / "config.json"
+        state_path = load_dir / "state.json"
+        data_path = load_dir / "data.npz"
+
+        if not config_path.exists() or not state_path.exists():
+            raise ValidationError(
+                "path",
+                f"Invalid compressor format: missing config.json or state.json in {load_dir}"
+            )
+
+        # Load config
+        with open(config_path, "r") as f:
+            config_data = json.load(f)
+
         config = VectorCompressionConfig(
             method=CompressionMethod(config_data["method"]),
             n_subvectors=config_data.get("n_subvectors", 256),
@@ -784,12 +925,20 @@ class VectorCompressor:
 
         compressor = cls(config)
 
-        state = save_data["state"]
+        # Load state
+        with open(state_path, "r") as f:
+            state = json.load(f)
+
+        # Load arrays if present
+        arrays = {}
+        if data_path.exists():
+            arrays = dict(np.load(data_path))
+
         if state["type"] == "scalar":
             q = ScalarQuantizer(bits=state["bits"])
-            q.min = state["min"]
-            q.max = state["max"]
-            q.scale = state["scale"]
+            q.min = arrays["min"]
+            q.max = arrays["max"]
+            q.scale = arrays["scale"]
             q.dimension = state["dimension"]
             q.is_fitted = True
             compressor._quantizer = q
@@ -799,7 +948,7 @@ class VectorCompressor:
                 n_subvectors=state["n_subvectors"],
                 n_bits=state["n_bits"],
             )
-            q.codebooks = state["codebooks"]
+            q.codebooks = arrays["codebooks"]
             q.is_fitted = True
             compressor._quantizer = q
         elif state["type"] == "binary":
@@ -808,7 +957,7 @@ class VectorCompressor:
             q.is_fitted = True
             compressor._quantizer = q
 
-        logger.info(f"Loaded compressor from {path}")
+        logger.info(f"Loaded compressor from {load_dir}")
         return compressor
 
 

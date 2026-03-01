@@ -306,7 +306,7 @@ class TestImmunologyLoopAssessNode:
         all_nodes = [node]
         vecs = np.array([node.hdv.data])
 
-        result = await loop._assess_node(node, 0, all_nodes, vecs)
+        result = await loop._assess_node_with_reference(node, 0, vecs, vecs)
 
         assert result == "ok"
 
@@ -336,7 +336,7 @@ class TestImmunologyLoopAssessNode:
         all_nodes = [node]
         vecs = np.array([node.hdv.data])
 
-        result = await loop._assess_node(node, 0, all_nodes, vecs)
+        result = await loop._assess_node_with_reference(node, 0, vecs, vecs)
 
         assert result == "quarantined"
         mock_engine.tier_manager.delete_memory.assert_called_once()
@@ -366,11 +366,15 @@ class TestImmunologyLoopAssessNode:
         # Very different neighbor
         other = MagicMock()
         other.hdv = BinaryHDV.random(1024)
+        other2 = MagicMock()
+        other2.hdv = BinaryHDV.random(1024)
 
-        all_nodes = [node, other]
-        vecs = np.array([n.hdv.data for n in all_nodes])
+        batch_vecs = np.array([node.hdv.data])
+        reference_vecs = np.array([other.hdv.data, other2.hdv.data])
 
-        result = await loop._assess_node(node, 0, all_nodes, vecs)
+        result = await loop._assess_node_with_reference(
+            node, 0, batch_vecs, reference_vecs
+        )
 
         assert result == "corrected"
         assert node.hdv == new_hdv
@@ -406,7 +410,7 @@ class TestImmunologyLoopAssessNode:
         all_nodes = [node] + neighbors
         vecs = np.array([n.hdv.data for n in all_nodes])
 
-        result = await loop._assess_node(node, 0, all_nodes, vecs)
+        result = await loop._assess_node_with_reference(node, 0, vecs, vecs)
 
         # Should converge to attractor (bundled neighbors)
         assert result == "ok" or result == "corrected"

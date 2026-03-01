@@ -398,7 +398,7 @@ def majority_bundle(
     # Unpack all vectors to bits
     # Optimization: Stack packed data first, then unpack all at once
     # This avoids K calls to unpackbits and list comprehension overhead
-    packed_data = np.stack([v.data for v in vectors], axis=0)  # (K, D//8)
+    packed_data = np.stack([v.data for v in vectors], axis=0).astype(np.uint8)  # (K, D//8)
     all_bits = np.unpackbits(packed_data, axis=1)  # (K, D)
 
     # Sum along vectors axis: count of 1-bits per position
@@ -579,7 +579,7 @@ class TextEncoder:
         # Improved Tokenization: consistent alphanumeric extraction
         tokens = re.findall(r'\b\w+\b', text.lower())
         if not tokens:
-            return BinaryHDV.random(self.dimension)
+            return BinaryHDV.zeros(self.dimension)
 
         if len(tokens) == 1:
             vec = self.get_token_vector(tokens[0])
@@ -592,7 +592,7 @@ class TextEncoder:
         # Build position-bound token vectors (#27)
         # Optimized: Batch process data instead of multiple object instantiations
         token_hdvs = [self.get_token_vector(t) for t in tokens]
-        packed_data = np.stack([v.data for v in token_hdvs], axis=0)
+        packed_data = np.stack([v.data for v in token_hdvs], axis=0).astype(np.uint8)
         all_bits = np.unpackbits(packed_data, axis=1)
 
         # Apply position-based permutations (roll)

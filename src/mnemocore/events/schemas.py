@@ -89,7 +89,7 @@ class EventSchema:
         properties = self.schema.get("properties", {})
         for field_name, value in data.items():
             if field_name not in properties:
-                errors.append(f"Unknown field: {field_name}")
+                # Allow unknown fields for forward compatibility
                 continue
 
             field_schema = properties[field_name]

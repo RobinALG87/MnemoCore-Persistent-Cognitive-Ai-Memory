@@ -3,9 +3,12 @@ Conceptual/Structural Memory Layer for HAIM.
 Implements VSA-based knowledge graphs using Binary HDV.
 """
 
+import asyncio
 import numpy as np
 import json
 import os
+import tempfile
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 from .binary_hdv import BinaryHDV, majority_bundle
@@ -19,6 +22,9 @@ class ConceptualMemory:
 
     Note: XOR binding is self-inverse, so bind() and unbind() are the same operation.
     This simplifies analogy solving compared to HRR binding.
+
+    Thread-safety: File operations are protected by asyncio.Lock and use atomic writes.
+    Debouncing: Writes are debounced - only flush on explicit save() or close().
     """
 
     def __init__(self, dimension: int = 16384, storage_dir: Optional[str] = None):
@@ -36,6 +42,11 @@ class ConceptualMemory:
         # Concept table (concept name -> BinaryHDV)
         self.concepts: Dict[str, BinaryHDV] = {}
 
+        # Thread-safety for file operations
+        self._file_lock = asyncio.Lock()
+        # Dirty flag for debouncing
+        self._dirty = False
+
         self.load()
 
     def get_symbol(self, name: str) -> BinaryHDV:
@@ -50,6 +61,7 @@ class ConceptualMemory:
         Concept = Bundled(Attribute XOR Value)
 
         Uses majority bundling for clean superposition with binary vectors.
+        Marks state as dirty - actual disk write happens on explicit save() or close().
         """
         bound_vectors = []
 
@@ -66,12 +78,13 @@ class ConceptualMemory:
             concept_hdv = BinaryHDV.random(self.dimension)
 
         self.concepts[name] = concept_hdv
-        self.save()
+        self._dirty = True
 
     def append_to_concept(self, name: str, attribute: str, value: str):
         """
         Add a new attribute-value pair to an existing concept bundle.
         Used for building growing hierarchies (e.g. Tag -> [Member1, Member2...])
+        Marks state as dirty - actual disk write happens on explicit save() or close().
         """
         attr_hdv = self.get_symbol(attribute)
         val_hdv = self.get_symbol(value)
@@ -85,7 +98,22 @@ class ConceptualMemory:
             concept_hdv = pair_hdv
 
         self.concepts[name] = concept_hdv
-        self.save()
+        self._dirty = True
+
+    async def flush(self):
+        """
+        Flush dirty state to disk if needed.
+        Uses atomic write (write to temp file then rename) to prevent corruption.
+        """
+        if not self._dirty:
+            return
+
+        async with self._file_lock:
+            await self._atomic_save()
+
+    async def close(self):
+        """Flush any pending changes and close the memory."""
+        await self.flush()
 
     def query(self, query_hdv: BinaryHDV, threshold: float = 0.5) -> List[Tuple[str, float]]:
         """
@@ -160,28 +188,58 @@ class ConceptualMemory:
         return sorted(matches, key=lambda x: x[1], reverse=True)
 
     def save(self):
-        """Persist symbols and concepts to disk."""
+        """Persist symbols and concepts to disk (synchronous wrapper for compatibility)."""
+        self._dirty = False  # Mark as clean since we're saving
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        # Save Codebook - store as base64 for compactness
-        codebook_data = {}
-        for k, v in self.symbols.items():
-            codebook_data[k] = {
-                "data": v.data.tolist(),  # Store as standard Python ints
-                "dimension": v.dimension
-            }
-        with open(self.codebook_path, 'w') as f:
-            json.dump(codebook_data, f)
+        # Use atomic write for codebook
+        self._atomic_write_json(self.codebook_path, {
+            k: {"data": v.data.tolist(), "dimension": v.dimension}
+            for k, v in self.symbols.items()
+        })
 
-        # Save Concepts
-        concepts_data = {}
-        for k, v in self.concepts.items():
-            concepts_data[k] = {
-                "data": v.data.tolist(),
-                "dimension": v.dimension
-            }
-        with open(self.concepts_path, 'w') as f:
-            json.dump(concepts_data, f)
+        # Use atomic write for concepts
+        self._atomic_write_json(self.concepts_path, {
+            k: {"data": v.data.tolist(), "dimension": v.dimension}
+            for k, v in self.concepts.items()
+        })
+
+    def _atomic_write_json(self, path: str, data: dict) -> None:
+        """
+        Atomically write JSON data to a file.
+
+        Writes to a temporary file first, then renames to target path.
+        This prevents corruption from concurrent writes or partial writes.
+        """
+        path_obj = Path(path)
+        fd = None
+        tmp_path = None
+        try:
+            # Create temp file in same directory for atomic rename
+            fd, tmp_path = tempfile.mkstemp(dir=path_obj.parent, suffix='.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+            # Atomic rename (on both POSIX and Windows)
+            os.replace(tmp_path, path)
+        except Exception as e:
+            # Clean up temp file on failure
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise e
+
+    async def _atomic_save(self):
+        """
+        Internal async atomic save. Must be called with _file_lock held.
+        """
+        self._dirty = False
+        os.makedirs(self.storage_dir, exist_ok=True)
+
+        # Run the blocking file operations in executor
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.save)
 
     def load(self):
         """

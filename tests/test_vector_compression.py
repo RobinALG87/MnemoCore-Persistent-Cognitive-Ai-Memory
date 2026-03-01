@@ -149,6 +149,8 @@ class TestVectorCompressor:
         self.config = BinaryCompressionConfig(
             enabled=True,
             storage_path=str(Path(self.temp_dir) / "compression.db"),
+            pq_n_bits=4,
+            pq_train_iterations=5,
         )
         self.compressor = VectorCompressor(config=self.config)
 
@@ -156,11 +158,12 @@ class TestVectorCompressor:
         """Cleanup temp directory."""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_compress_none_method(self):
+    @pytest.mark.asyncio
+    async def test_compress_none_method(self):
         """Test compression with NONE method (passthrough)."""
         original = BinaryHDV.random(dimension=16384)
 
-        compressed = self.compressor.compress(
+        compressed = await self.compressor.compress(
             vector_id="test1",
             vector=original,
             confidence=1.0,
@@ -170,11 +173,12 @@ class TestVectorCompressor:
         assert compressed.method == CompressionMethod.NONE
         assert compressed.metadata.compressed_size_bytes == original.data.nbytes
 
-    def test_compress_int8_method(self):
+    @pytest.mark.asyncio
+    async def test_compress_int8_method(self):
         """Test compression with INT8 method."""
         original = BinaryHDV.random(dimension=16384)
 
-        compressed = self.compressor.compress(
+        compressed = await self.compressor.compress(
             vector_id="test2",
             vector=original,
             confidence=0.2,  # Low confidence -> INT8
@@ -188,11 +192,12 @@ class TestVectorCompressor:
         # The implementation preserves data integrity over maximum compression
         assert compressed.metadata.compressed_size_bytes >= 2048
 
-    def test_decompress(self):
+    @pytest.mark.asyncio
+    async def test_decompress(self):
         """Test decompression."""
         original = BinaryHDV.random(dimension=16384)
 
-        compressed = self.compressor.compress(
+        compressed = await self.compressor.compress(
             vector_id="test3",
             vector=original,
             confidence=0.2,
@@ -200,16 +205,17 @@ class TestVectorCompressor:
             force_method=CompressionMethod.SCALAR_INT8,
         )
 
-        decompressed = self.compressor.decompress(compressed)
+        decompressed = await self.compressor.decompress(compressed)
 
         assert decompressed.dimension == original.dimension
         assert original.similarity(decompressed) > 0.95
 
-    def test_store_and_retrieve(self):
+    @pytest.mark.asyncio
+    async def test_store_and_retrieve(self):
         """Test storing and retrieving compressed vectors."""
         original = BinaryHDV.random(dimension=16384)
 
-        compressed = self.compressor.compress(
+        compressed = await self.compressor.compress(
             vector_id="test4",
             vector=original,
             confidence=0.5,
@@ -217,23 +223,24 @@ class TestVectorCompressor:
         )
 
         # Retrieve
-        retrieved = self.compressor.get_compressed("test4")
+        retrieved = await self.compressor.get_compressed("test4")
 
         assert retrieved is not None
         assert retrieved.vector_id == "test4"
         assert retrieved.method == compressed.method
 
         # Decompress and verify
-        decompressed = self.compressor.decompress(retrieved)
+        decompressed = await self.compressor.decompress(retrieved)
         assert decompressed.dimension == original.dimension
 
-    def test_method_selection(self):
+    @pytest.mark.asyncio
+    async def test_method_selection(self):
         """Test automatic method selection."""
         high_conf = BinaryHDV.random(dimension=16384)
         low_conf = BinaryHDV.random(dimension=16384)
 
         # Hot tier - no compression
-        c1 = self.compressor.compress(
+        c1 = await self.compressor.compress(
             vector_id="hot_high",
             vector=high_conf,
             confidence=0.9,
@@ -242,7 +249,7 @@ class TestVectorCompressor:
         assert c1.method == CompressionMethod.NONE
 
         # Warm tier, low confidence - INT8
-        c2 = self.compressor.compress(
+        c2 = await self.compressor.compress(
             vector_id="warm_low",
             vector=low_conf,
             confidence=0.2,
@@ -250,18 +257,19 @@ class TestVectorCompressor:
         )
         assert c2.method == CompressionMethod.SCALAR_INT8
 
-    def test_pq_workflow(self):
+    @pytest.mark.asyncio
+    async def test_pq_workflow(self):
         """Test full PQ workflow with training."""
         # Train PQ
         train_vectors = [BinaryHDV.random(dimension=16384) for _ in range(100)]
-        codebook_id = self.compressor.train_pq(train_vectors)
+        codebook_id = await self.compressor.train_pq(train_vectors)
 
         assert codebook_id is not None
         assert self.compressor.pq.codebooks is not None
 
         # Compress with PQ
         test_vec = BinaryHDV.random(dimension=16384)
-        compressed = self.compressor.compress(
+        compressed = await self.compressor.compress(
             vector_id="pq_test",
             vector=test_vec,
             confidence=0.8,
@@ -273,18 +281,19 @@ class TestVectorCompressor:
         assert compressed.metadata.pq_codebook_id == codebook_id
 
         # Decompress
-        decompressed = self.compressor.decompress(compressed)
+        decompressed = await self.compressor.decompress(compressed)
         assert decompressed.dimension == test_vec.dimension
         # PQ compression for binary vectors has significant loss due to quantization
         # Similarity threshold adjusted to reflect realistic PQ performance
         assert test_vec.similarity(decompressed) > 0.5  # PQ has more loss
 
-    def test_statistics(self):
+    @pytest.mark.asyncio
+    async def test_statistics(self):
         """Test statistics gathering."""
         original = BinaryHDV.random(dimension=16384)
 
         # Add some compressed vectors
-        self.compressor.compress(
+        await self.compressor.compress(
             vector_id="stat1",
             vector=original,
             confidence=0.5,
@@ -292,7 +301,7 @@ class TestVectorCompressor:
             force_method=CompressionMethod.SCALAR_INT8,
         )
 
-        stats = self.compressor.get_statistics()
+        stats = await self.compressor.get_statistics()
 
         assert "enabled" in stats
         # The implementation uses "int8_count" instead of "scalar_int8_count"

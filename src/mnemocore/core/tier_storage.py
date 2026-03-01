@@ -73,53 +73,49 @@ class HotTierStorage(TierInterface):
 
     Fastest access with limited capacity. Uses a simple dict
     for O(1) lookups.
+
+    Thread-safety: This class does NOT have its own lock. All locking is
+    delegated to TierManager's lock to prevent double-lock deadlock risk.
+    Callers must ensure proper synchronization when accessing this storage.
     """
 
     def __init__(self, max_memories: int):
         self.max_memories = max_memories
         self._storage: Dict[str, "MemoryNode"] = {}
         self._next_chain: Dict[str, str] = {}  # previous_id -> node_id for O(1) chain lookup
-        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def get(self, node_id: str) -> Optional["MemoryNode"]:
-        async with self._lock:
-            return self._storage.get(node_id)
+        return self._storage.get(node_id)
 
     async def save(self, node: "MemoryNode") -> bool:
-        async with self._lock:
-            self._storage[node.id] = node
-            if node.previous_id:
-                self._next_chain[node.previous_id] = node.id
+        self._storage[node.id] = node
+        if node.previous_id:
+            self._next_chain[node.previous_id] = node.id
         return True
 
     async def delete(self, node_id: str) -> bool:
-        async with self._lock:
-            node = self._storage.pop(node_id, None)
-            if node and node.previous_id:
-                self._next_chain.pop(node.previous_id, None)
-            return node is not None
+        node = self._storage.pop(node_id, None)
+        if node and node.previous_id:
+            self._next_chain.pop(node.previous_id, None)
+        return node is not None
 
     async def count(self) -> int:
-        async with self._lock:
-            return len(self._storage)
+        return len(self._storage)
 
     async def list_all(
         self, limit: int = 500, with_vectors: bool = False
     ) -> List["MemoryNode"]:
-        async with self._lock:
-            values = list(self._storage.values())
-            return values[:limit]
+        values = list(self._storage.values())
+        return values[:limit]
 
     async def get_snapshot(self) -> List["MemoryNode"]:
         """Return a snapshot of all nodes in HOT tier."""
-        async with self._lock:
-            return list(self._storage.values())
+        return list(self._storage.values())
 
     async def get_recent(self, n: int) -> List["MemoryNode"]:
         """Get the most recent n memories from HOT tier."""
-        async with self._lock:
-            all_nodes = list(self._storage.values())
-            return all_nodes[-n:]
+        all_nodes = list(self._storage.values())
+        return all_nodes[-n:]
 
     def get_next_in_chain_id(self, node_id: str) -> Optional[str]:
         """Synchronous O(1) lookup for episodic chain traversal."""
@@ -129,24 +125,31 @@ class HotTierStorage(TierInterface):
         self, node_id: str
     ) -> Optional["MemoryNode"]:
         """Get the next memory node in the episodic chain."""
-        async with self._lock:
-            next_id = self._next_chain.get(node_id)
-            if next_id:
-                return self._storage.get(next_id)
-            return None
+        next_id = self._next_chain.get(node_id)
+        if next_id:
+            return self._storage.get(next_id)
+        return None
 
     async def contains(self, node_id: str) -> bool:
         """Check if a node exists in HOT tier."""
-        async with self._lock:
-            return node_id in self._storage
+        return node_id in self._storage
 
     def get_storage_dict(self) -> Dict[str, "MemoryNode"]:
-        """Get direct access to storage dict (use with caution, for legacy compat)."""
-        return self._storage
+        """
+        Get a copy of the storage dict for iteration.
+
+        Returns a shallow copy to prevent external mutation bypassing locks.
+        For read-only iteration within a locked context.
+        """
+        return dict(self._storage)
 
     def get_next_chain_dict(self) -> Dict[str, str]:
-        """Get direct access to chain dict (use with caution, for legacy compat)."""
-        return self._next_chain
+        """
+        Get a copy of the chain dict for iteration.
+
+        Returns a copy to prevent external mutation bypassing locks.
+        """
+        return dict(self._next_chain)
 
 
 class WarmTierStorage(TierInterface):

@@ -48,7 +48,7 @@ async def test_get_memory_demotion_race_condition():
     node.ltp_strength = 0.0 
     
     # Add to manager directly
-    tier_manager.hot[node.id] = node
+    tier_manager._hot_storage._storage[node.id] = node
     
     # Mock config thresholds to ensure demotion triggers
     # Config objects are frozen, so we must safely replace them
@@ -58,7 +58,7 @@ async def test_get_memory_demotion_race_condition():
     real_config = get_config()
     # Set threshold very high (2.0) so even with access boost (LTP ~0.55) it still demotes
     # 2.0 - 0.1 = 1.9 > 0.55
-    new_hot_config = dataclasses.replace(real_config.tiers_hot, ltp_threshold_min=2.0)
+    new_hot_config = dataclasses.replace(real_config.tiers_hot, ltp_threshold_min=0.99)
     new_hysteresis = dataclasses.replace(real_config.hysteresis, demote_delta=0.1)
     new_config = dataclasses.replace(real_config, tiers_hot=new_hot_config, hysteresis=new_hysteresis)
     

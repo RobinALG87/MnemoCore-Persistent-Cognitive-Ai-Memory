@@ -10,6 +10,7 @@ from mnemocore.core.memory_model import WorkingMemoryState, WorkingMemoryItem, E
 def mock_engine():
     engine = HAIMEngine(persist_path=":memory:", tier_manager=AsyncMock())
     engine.working_memory = MagicMock()
+    engine.working_memory.get_state = AsyncMock()
     engine.episodic_store = MagicMock()
     
     # Mock node retrieval
@@ -36,6 +37,7 @@ async def test_generate_subtle_thoughts(mock_engine):
     mock_engine.working_memory.get_state.return_value = WorkingMemoryState(
         agent_id=agent_id, max_items=10, items=[wm_item]
     )
+    # get_state is already an AsyncMock from fixture
     
     # Setup episodic mock
     ep_event = EpisodeEvent(

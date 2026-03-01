@@ -212,6 +212,9 @@ class TierManager:
         Retrieve memory by ID from any tier.
 
         Triggers promotion/demotion based on LTP strength and hysteresis.
+
+        Thread-safety: All tier-transition I/O (both read and write) is performed
+        inside a single lock acquisition to prevent TOCTOU race conditions.
         """
         # Check HOT
         demote_candidate = None
@@ -225,42 +228,40 @@ class TierManager:
                 if self._eviction_manager.should_demote_to_warm(node):
                     node.tier = "warm"
                     demote_candidate = node
-
-                result_node = node
-
-        # Handle demotion
-        if demote_candidate:
-            try:
-                logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
-
-                save_ok = await self._warm_storage.save(demote_candidate)
-
-                if save_ok:
-                    async with self.lock:
-                        hot_node = await self._hot_storage.get(demote_candidate.id)
-                        if hot_node and hot_node.tier == "warm":
+                    # Perform demotion I/O inside the lock to prevent TOCTOU
+                    try:
+                        logger.info(f"Demoting {demote_candidate.id} to WARM (LTP: {demote_candidate.ltp_strength:.4f})")
+                        save_ok = await self._warm_storage.save(demote_candidate)
+                        if save_ok:
                             await self._hot_storage.delete(demote_candidate.id)
                             self._remove_from_faiss(demote_candidate.id)
-                else:
-                    logger.error(f"Demotion of {demote_candidate.id} failed. Node remains in HOT.")
-                    demote_candidate.tier = "hot"
-            except Exception as e:
-                logger.error(f"Demotion of {demote_candidate.id} failed: {e}")
-                demote_candidate.tier = "hot"
+                        else:
+                            logger.error(f"Demotion of {demote_candidate.id} failed. Node remains in HOT.")
+                            demote_candidate.tier = "hot"
+                    except Exception as e:
+                        logger.error(f"Demotion of {demote_candidate.id} failed: {e}")
+                        demote_candidate.tier = "hot"
+
+                result_node = node
 
         if result_node:
             return result_node
 
-        # Check WARM
-        warm_node = await self._warm_storage.get(node_id)
-        if warm_node:
-            warm_node.tier = "warm"
-            warm_node.access()
+        # Check WARM - promotion needs full lock coverage
+        async with self.lock:
+            warm_node = await self._warm_storage.get(node_id)
+            if warm_node:
+                warm_node.tier = "warm"
+                warm_node.access()
 
-            if self._eviction_manager.should_promote_to_hot(warm_node):
-                await self._promote_to_hot(warm_node)
+                if self._eviction_manager.should_promote_to_hot(warm_node):
+                    # Perform promotion entirely inside the lock
+                    await self._promote_to_hot_locked(warm_node)
+                else:
+                    # Release lock before returning non-promoted node
+                    pass
 
-            return warm_node
+                return warm_node
 
         # Check COLD
         cold_node = await self._cold_storage.get(node_id)
@@ -537,34 +538,45 @@ class TierManager:
     # =========================================================================
 
     async def _promote_to_hot(self, node: "MemoryNode"):
-        """Promote node from WARM to HOT."""
-        # Step 1: Delete from WARM (I/O)
+        """Promote node from WARM to HOT. Assumes caller does NOT hold lock."""
+        async with self.lock:
+            await self._promote_to_hot_locked(node)
+
+    async def _promote_to_hot_locked(self, node: "MemoryNode"):
+        """
+        Promote node from WARM to HOT. Must be called with self.lock held.
+
+        All I/O operations (delete from WARM, add to HOT, possible eviction to WARM)
+        are performed inside the lock to prevent race conditions and duplicates.
+        """
+        # Step 1: Delete from WARM (I/O) - inside lock
         deleted = await self._warm_storage.delete(node.id)
         if not deleted:
             logger.debug(f"Skipping promotion of {node.id}: not found in WARM")
             return
 
-        # Step 2: Add to HOT
-        victim_to_save = None
-        async with self.lock:
-            if await self._hot_storage.contains(node.id):
-                logger.debug(f"{node.id} already in HOT, skipping duplicate promotion")
-                return
+        # Step 2: Check if already in HOT
+        if await self._hot_storage.contains(node.id):
+            logger.debug(f"{node.id} already in HOT, skipping duplicate promotion")
+            return
 
-            logger.info(f"Promoting {node.id} to HOT (LTP: {node.ltp_strength:.4f})")
-            node.tier = "hot"
-            await self._hot_storage.save(node)
-            self._add_to_faiss(node)
+        # Step 3: Add to HOT
+        logger.info(f"Promoting {node.id} to HOT (LTP: {node.ltp_strength:.4f})")
+        node.tier = "hot"
+        await self._hot_storage.save(node)
+        self._add_to_faiss(node)
 
-            # Check eviction
-            hot_count = await self._hot_storage.count()
-            if hot_count > self.config.tiers_hot.max_memories:
-                candidates = list(self._hot_storage.get_storage_dict().values())
-                victim_to_save = self._eviction_manager.select_hot_victim(candidates)
-
-        # Step 3: Evict if needed
-        if victim_to_save:
-            await self._warm_storage.save(victim_to_save)
+        # Step 4: Check eviction - if needed, evict to WARM (inside same lock)
+        hot_count = await self._hot_storage.count()
+        if hot_count > self.config.tiers_hot.max_memories:
+            candidates = list(self._hot_storage.get_storage_dict().values())
+            victim_to_save = self._eviction_manager.select_hot_victim(candidates)
+            if victim_to_save:
+                victim_to_save.tier = "warm"
+                await self._warm_storage.save(victim_to_save)
+                await self._hot_storage.delete(victim_to_save.id)
+                self._remove_from_faiss(victim_to_save.id)
+                logger.debug(f"Evicted {victim_to_save.id} to WARM during promotion")
 
     def _add_to_faiss(self, node: "MemoryNode"):
         """Add node to the ANN index (HNSW preferred, legacy flat as fallback)."""

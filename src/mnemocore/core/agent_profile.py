@@ -29,7 +29,27 @@ class AgentProfile:
 
 
 class AgentProfileService:
+    """
+    Service for managing agent identity profiles.
+
+    Provides thread-safe access to agent profiles including preferences,
+    core directives, and reliability tracking. Profiles are currently
+    stored in-memory but should be backed by persistent storage (SQLite/Redis)
+    in production deployments.
+
+    Attributes:
+        _profiles: Dictionary mapping agent IDs to their profiles.
+        _lock: Reentrant lock for thread-safe access.
+    """
+
     def __init__(self):
+        """
+        Initialize the AgentProfileService.
+
+        Creates an empty profile store with thread-safe access.
+        Note: Profiles are not persisted between restarts in the current
+        implementation. Consider backing with SQLite or Redis for production.
+        """
         # Local state dict, should back out to SQLite or Redis
         self._profiles: Dict[str, AgentProfile] = {}
         self._lock = threading.RLock()

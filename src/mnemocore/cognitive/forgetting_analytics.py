@@ -34,10 +34,15 @@ from loguru import logger
 if TYPE_CHECKING:
     from ..core.forgetting_curve import (
         ForgettingCurveManager,
+        ForgettingAnalytics as CoreAnalytics,
         LearningProfile,
         SM2State,
         ReviewEntry,
     )
+
+# Placeholder so tests can patch 'mnemocore.cognitive.forgetting_analytics.CoreAnalytics'.
+# Lazily replaced by the real class in ForgettingAnalyticsCognitive.__init__.
+CoreAnalytics: Any = None
 
 
 # ------------------------------------------------------------------ #
@@ -133,8 +138,12 @@ class ForgettingAnalyticsCognitive:
             manager: The ForgettingCurveManager to analyze
             default_agent_id: Default agent for filtered queries
         """
-        # Import here to avoid circular dependency
-        from ..core.forgetting_curve import ForgettingAnalytics as CoreAnalytics
+        # Import here to avoid circular dependency; also expose at module level
+        # so that tests can patch 'mnemocore.cognitive.forgetting_analytics.CoreAnalytics'
+        global CoreAnalytics
+        if CoreAnalytics is None:
+            from ..core.forgetting_curve import ForgettingAnalytics as _CA
+            CoreAnalytics = _CA
 
         self.manager = manager
         self.default_agent_id = default_agent_id

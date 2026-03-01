@@ -5,9 +5,17 @@ HTTP client adapter for communicating with MnemoCore API server.
 """
 
 from typing import Any, Dict, Optional
+import urllib.parse
+import os
+
 import requests
 
 from mnemocore.core.exceptions import MnemoCoreError
+
+
+def _is_production_mode() -> bool:
+    """Check if running in production mode."""
+    return os.environ.get("HAIM_ENV", "development").lower() in ("production", "prod", "staging")
 
 
 class MnemoCoreAPIError(MnemoCoreError):
@@ -31,6 +39,38 @@ class MnemoCoreAPIAdapter:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+
+        # SECURITY: Enforce HTTPS in production mode
+        if _is_production_mode() and not self.base_url.startswith("https://"):
+            raise MnemoCoreAPIError(
+                f"SECURITY ERROR: API URL must use HTTPS in production mode. "
+                f"Got: {self.base_url}. Set HAIM_ENV=development for local testing."
+            )
+
+        # Warn if using HTTP in any non-development environment
+        if not self.base_url.startswith("https://") and not self.base_url.startswith("http://localhost"):
+            import warnings
+            warnings.warn(
+                f"API URL '{self.base_url}' is not using HTTPS. "
+                "API key will be sent over an unencrypted connection. "
+                "This is strongly discouraged for production.",
+                UserWarning
+            )
+
+    def _build_url(self, path: str, query_params: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Build URL with properly encoded query parameters.
+
+        SECURITY: Uses urllib.parse.urlencode() to prevent URL injection attacks.
+        """
+        url = f"{self.base_url}{path}"
+        if query_params:
+            # Filter out None values and encode properly
+            filtered_params = {k: v for k, v in query_params.items() if v is not None}
+            if filtered_params:
+                encoded_params = urllib.parse.urlencode(filtered_params, safe='')
+                url = f"{url}?{encoded_params}"
+        return url
 
     def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
@@ -89,7 +129,9 @@ class MnemoCoreAPIAdapter:
         return self._request("POST", "/wm/observe", payload)
 
     def get_working_context(self, agent_id: str, limit: int = 16) -> Dict[str, Any]:
-        return self._request("GET", f"/wm/context/{agent_id}?limit={limit}")
+        encoded_agent_id = urllib.parse.quote(agent_id, safe='')
+        url = self._build_url(f"/wm/context/{encoded_agent_id}", {"limit": limit})
+        return self._request("GET", url.replace(self.base_url, ""))
 
     def start_episode(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/episodes/start", payload)
@@ -98,13 +140,16 @@ class MnemoCoreAPIAdapter:
         return self._request("GET", "/gaps")
         
     def get_subtle_thoughts(self, agent_id: str, limit: int = 5) -> Dict[str, Any]:
-        return self._request("GET", f"/agents/{agent_id}/subtle-thoughts?limit={limit}")
-        
+        encoded_agent_id = urllib.parse.quote(agent_id, safe='')
+        url = self._build_url(f"/agents/{encoded_agent_id}/subtle-thoughts", {"limit": limit})
+        return self._request("GET", url.replace(self.base_url, ""))
+
     def search_procedures(self, query: str, agent_id: Optional[str] = None, top_k: int = 5) -> Dict[str, Any]:
-        url = f"/procedures/search?query={query}&top_k={top_k}"
+        params = {"query": query, "top_k": top_k}
         if agent_id:
-            url += f"&agent_id={agent_id}"
-        return self._request("GET", url)
+            params["agent_id"] = agent_id
+        url = self._build_url("/procedures/search", params)
+        return self._request("GET", url.replace(self.base_url, ""))
         
     def procedure_feedback(self, proc_id: str, success: bool) -> Dict[str, Any]:
         return self._request("POST", f"/procedures/{proc_id}/feedback", {"success": success})
@@ -124,15 +169,17 @@ class MnemoCoreAPIAdapter:
 
     def export(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Export memories as JSON."""
-        # Build query string for export parameters
-        params = []
+        # Build query string for export parameters using safe encoding
+        params = {
+            "limit": payload.get("limit", 100),
+            "include_metadata": str(payload.get("include_metadata", True)).lower(),
+            "format": payload.get("format", "json"),
+        }
         if payload.get("agent_id"):
-            params.append(f"agent_id={payload['agent_id']}")
+            params["agent_id"] = payload["agent_id"]
         if payload.get("tier"):
-            params.append(f"tier={payload['tier']}")
-        params.append(f"limit={payload['limit']}")
-        params.append(f"include_metadata={str(payload['include_metadata']).lower()}")
-        params.append(f"format={payload['format']}")
-        query_string = "&".join(params)
-        return self._request("GET", f"/export?{query_string}")
+            params["tier"] = payload["tier"]
+
+        url = self._build_url("/export", params)
+        return self._request("GET", url.replace(self.base_url, ""))
 

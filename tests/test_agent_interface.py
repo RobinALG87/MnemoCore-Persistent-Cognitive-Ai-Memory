@@ -15,7 +15,8 @@ def mock_engine():
     engine.encoder = MagicMock()
     return engine
 
-def test_cognitive_client_observe_and_context(mock_engine):
+@pytest.mark.asyncio
+async def test_cognitive_client_observe_and_context(mock_engine):
     wm = WorkingMemoryService()
     client = CognitiveMemoryClient(
         engine=mock_engine,
@@ -27,14 +28,15 @@ def test_cognitive_client_observe_and_context(mock_engine):
     )
     
     agent_id = "agent-alpha"
-    client.observe(agent_id, content="User said hi", importance=0.9)
-    client.observe(agent_id, content="User asked about weather", importance=0.7)
+    await client.observe(agent_id, content="User said hi", importance=0.9)
+    await client.observe(agent_id, content="User asked about weather", importance=0.7)
     
-    ctx = client.get_working_context(agent_id)
+    ctx = await client.get_working_context(agent_id)
     assert len(ctx) == 2
     assert ctx[0].content == "User said hi"
 
-def test_cognitive_client_episodic(mock_engine):
+@pytest.mark.asyncio
+async def test_cognitive_client_episodic(mock_engine):
     episodic = EpisodicStoreService()
     client = CognitiveMemoryClient(
         engine=mock_engine,
@@ -46,9 +48,9 @@ def test_cognitive_client_episodic(mock_engine):
     )
     
     agent_id = "agent-beta"
-    ep_id = client.start_episode(agent_id, goal="Greet user")
-    client.append_event(ep_id, kind="action", content="Said hello")
-    client.end_episode(ep_id, outcome="Success")
+    ep_id = await client.start_episode(agent_id, goal="Greet user")
+    await client.append_event(ep_id, kind="action", content="Said hello")
+    await client.end_episode(ep_id, outcome="Success")
     
     recent = episodic.get_recent(agent_id)
     assert len(recent) == 1
@@ -67,8 +69,8 @@ async def test_cognitive_client_recall(mock_engine):
     )
     
     agent_id = "agent-gamma"
-    ep_id = client.start_episode(agent_id, goal="Buy milk")
-    client.end_episode(ep_id, outcome="Success")
+    ep_id = await client.start_episode(agent_id, goal="Buy milk")
+    await client.end_episode(ep_id, outcome="Success")
     
     # Mock engine query
     mock_engine.query.return_value = [("mem-1", 0.9)]

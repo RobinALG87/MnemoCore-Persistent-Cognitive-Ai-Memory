@@ -117,7 +117,9 @@ def test_cors_headers(client):
     headers = {"Origin": "https://example.com"}
     response = client.get("/", headers=headers)
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "*"
+    # CORS is restricted by default (no wildcard origins)
+    # When origins list is empty, no Access-Control-Allow-Origin header is set
+    assert "access-control-allow-origin" not in response.headers
 
 def test_api_key_missing_enhanced(client):
     response = client.post("/store", json={"content": "test"})

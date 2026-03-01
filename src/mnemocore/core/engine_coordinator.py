@@ -164,7 +164,7 @@ class EngineCoordinator:
         Returns:
             The boost factor (>= 1.0, where higher means more connected).
         """
-        return self._synapse_index.boost(node_id)
+        return await self._synapse_index.boost(node_id)
 
     # ==========================================================================
     # OR (Orchestration/Recall) Operations
@@ -261,7 +261,7 @@ class EngineCoordinator:
 
             for seed_id in current_level_ids:
                 # Get neighbors via synapse index
-                neighbour_synapses = self._synapse_index.neighbours(seed_id)
+                neighbour_synapses = await self._synapse_index.neighbours(seed_id)
 
                 for syn in neighbour_synapses:
                     neighbor = (
@@ -439,7 +439,6 @@ class EngineCoordinator:
             Number of memories exported.
         """
         import json
-        import functools
 
         # Get memories matching filters
         # This is a simplified export - in production you'd want streaming
@@ -456,31 +455,36 @@ class EngineCoordinator:
             async with self.tier_manager.warm.lock:
                 all_ids.extend(list(self.tier_manager.warm.cache.keys()))
 
+        # Fetch all memories asynchronously before writing
+        memories_to_export = []
+        for node_id in all_ids:
+            mem = await self.tier_manager.get_memory(node_id)
+            if not mem:
+                continue
+
+            # Apply time range filter
+            if time_range:
+                start, end = time_range
+                if mem.created_at < start or mem.created_at > end:
+                    continue
+
+            # Apply metadata filter
+            if metadata_filter:
+                mem_meta = mem.metadata or {}
+                match = True
+                for k, v in metadata_filter.items():
+                    if mem_meta.get(k) != v:
+                        match = False
+                        break
+                if not match:
+                    continue
+
+            memories_to_export.append(mem)
+
         def _write_export():
             nonlocal exported
             with open(output_path, 'w', encoding='utf-8') as f:
-                for node_id in all_ids:
-                    mem = asyncio.run(self.tier_manager.get_memory(node_id))
-                    if not mem:
-                        continue
-
-                    # Apply time range filter
-                    if time_range:
-                        start, end = time_range
-                        if mem.created_at < start or mem.created_at > end:
-                            continue
-
-                    # Apply metadata filter
-                    if metadata_filter:
-                        mem_meta = mem.metadata or {}
-                        match = True
-                        for k, v in metadata_filter.items():
-                            if mem_meta.get(k) != v:
-                                match = False
-                                break
-                        if not match:
-                            continue
-
+                for mem in memories_to_export:
                     # Write record
                     record = {
                         'id': mem.id,
@@ -494,7 +498,7 @@ class EngineCoordinator:
                     f.write(json.dumps(record) + '\n')
                     exported += 1
 
-        await functools._run_in_thread(self._run_in_thread, _write_export)
+        await self._run_in_thread(_write_export)
         logger.info(f"Exported {exported} memories to {output_path}")
         return exported
 
@@ -536,7 +540,7 @@ class EngineCoordinator:
                 continue
 
             # Get neighbors
-            neighbour_synapses = self._synapse_index.neighbours(current_id)
+            neighbour_synapses = await self._synapse_index.neighbours(current_id)
 
             for syn in neighbour_synapses:
                 neighbor = (
@@ -570,7 +574,7 @@ class EngineCoordinator:
         if not node:
             return {"error": "Memory not found"}
 
-        neighbour_synapses = self._synapse_index.neighbours(node_id)
+        neighbour_synapses = await self._synapse_index.neighbours(node_id)
 
         connections = {
             "node_id": node_id,
@@ -633,7 +637,7 @@ class EngineCoordinator:
         # Build adjacency map
         adjacency = {nid: set() for nid in hot_ids}
         for nid in hot_ids:
-            neighbour_synapses = self._synapse_index.neighbours(nid)
+            neighbour_synapses = await self._synapse_index.neighbours(nid)
             for syn in neighbour_synapses:
                 neighbor = (
                     syn.neuron_b_id if syn.neuron_a_id == nid else syn.neuron_a_id
@@ -694,7 +698,7 @@ class EngineCoordinator:
 
         # 1. Gather context from WM
         if self.working_memory:
-            wm_state = self.working_memory.get_state(agent_id)
+            wm_state = await self.working_memory.get_state(agent_id)
             if wm_state and wm_state.items:
                 # Use top 3 most important WM items as seed
                 top_items = sorted(wm_state.items, key=lambda x: x.importance, reverse=True)[:3]
@@ -764,11 +768,10 @@ class EngineCoordinator:
         return await self._run_in_thread(self.soul.extract_attribute, name, attr)
 
     # ==========================================================================
-    # Helper Methods
+    # Helper Methods (Task 4.4: delegate to shared utils)
     # ==========================================================================
 
     async def _run_in_thread(self, func, *args, **kwargs):
-        """Run blocking function in thread pool."""
-        import functools
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+        """Run blocking function in thread pool. Delegates to shared utility."""
+        from ._utils import run_in_thread
+        return await run_in_thread(func, *args, **kwargs)

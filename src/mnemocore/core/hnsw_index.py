@@ -298,14 +298,17 @@ class HNSWIndexManager:
             similarity = 1 - normalised_hamming_distance  ∈ [0, 1].
         """
         # Defensive: take local reference to index and id_map for thread safety during background rebuild
-        index = self._index
-        id_map = self._id_map
+        # Also read _stale_count under lock protection
+        with self._write_lock:
+            index = self._index
+            id_map = self._id_map
+            stale_count = self._stale_count
 
         if not FAISS_AVAILABLE or index is None or not id_map:
             return []
 
         # Fetch more to account for deleted (None) entries
-        k = min(top_k + self._stale_count + 50, len(id_map))
+        k = min(top_k + stale_count + 50, len(id_map))
         if k <= 0:
             return []
 
@@ -326,15 +329,18 @@ class HNSWIndexManager:
 
         try:
             distances, ids = index.search(q, k)
-        except Exception as exc:
-            logger.error(f"HNSW/FAISS search failed: {exc}")
+        except RuntimeError as exc:
+            logger.error(f"HNSW/FAISS search failed (RuntimeError): {exc}")
+            return []
+        except ValueError as exc:
+            logger.error(f"HNSW/FAISS search failed (ValueError): {exc}")
             return []
 
         results: List[Tuple[str, float]] = []
         for dist, idx in zip(distances[0], ids[0]):
             if idx < 0 or idx >= len(id_map):
                 continue
-                
+
             node_id = id_map[idx]
             if node_id is not None:
                 sim = 1.0 - float(dist) / max(index_dimension, 1)
@@ -346,20 +352,32 @@ class HNSWIndexManager:
         return results
 
     def _save(self):
+        """Save index state to disk. Uses specific exception handling."""
         try:
             faiss.write_index_binary(self._index, str(self.INDEX_PATH))
+        except (RuntimeError, OSError, IOError) as e:
+            logger.error(f"Failed to save HNSW index (FAISS write): {e}")
+            return
+
+        try:
             with open(self.IDMAP_PATH, "w") as f:
                 json.dump({
                     "id_map": self._id_map,
                     "use_hnsw": self._use_hnsw,
                     "stale_count": self._stale_count
                 }, f)
-            if self._vector_store:
+        except (OSError, IOError, json.JSONEncodeError) as e:
+            logger.error(f"Failed to save HNSW idmap (JSON write): {e}")
+            return
+
+        if self._vector_store:
+            try:
                 np.save(str(self.VECTOR_PATH), np.stack(self._vector_store))
-        except Exception as e:
-            logger.error(f"Failed to save HNSW index state: {e}")
+            except (OSError, IOError, ValueError) as e:
+                logger.error(f"Failed to save HNSW vectors (NPY write): {e}")
 
     def _load(self):
+        """Load index state from disk. Uses specific exception handling."""
         try:
             self._index = faiss.read_index_binary(str(self.INDEX_PATH))
             index_dimension = int(getattr(self._index, "d", self.dimension) or self.dimension)
@@ -369,17 +387,28 @@ class HNSWIndexManager:
                     "Using index dimension."
                 )
                 self.dimension = index_dimension
+        except (RuntimeError, OSError, IOError) as e:
+            logger.error(f"Failed to load HNSW index (FAISS read): {e}")
+            self._build_flat_index()
+            return
+
+        try:
             with open(self.IDMAP_PATH, "r") as f:
                 state = json.load(f)
                 self._id_map = state.get("id_map", [])
                 self._use_hnsw = state.get("use_hnsw", False)
                 self._stale_count = state.get("stale_count", 0)
-                
+        except (OSError, IOError, json.JSONDecodeError, KeyError) as e:
+            logger.error(f"Failed to load HNSW idmap (JSON read): {e}")
+            self._build_flat_index()
+            return
+
+        try:
             vecs = np.load(str(self.VECTOR_PATH))
             self._vector_store = list(vecs)
             logger.info("Loaded HNSW persistent state from disk")
-        except Exception as e:
-            logger.error(f"Failed to load HNSW index state: {e}")
+        except (OSError, IOError, ValueError) as e:
+            logger.error(f"Failed to load HNSW vectors (NPY read): {e}")
             self._build_flat_index()
 
     @property

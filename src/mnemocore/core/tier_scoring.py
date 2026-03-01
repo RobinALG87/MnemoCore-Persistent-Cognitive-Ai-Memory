@@ -118,24 +118,30 @@ class RecencyScorer:
     Recency-based scoring for memory retrieval.
 
     Newer memories and recently accessed memories get higher scores.
+
+    Note: The current timestamp is computed at scoring time (not at construction)
+    to ensure recency calculations are always accurate.
     """
 
     def __init__(self, config: HAIMConfig):
         self.config = config
-        self.now = datetime.now(timezone.utc)
 
     def score(self, node: "MemoryNode") -> float:
         """
         Calculate recency score (0.0 to 1.0).
 
         Combines creation time and last access time.
+        Uses the current time at scoring time for accurate recency calculation.
         """
+        # Get current time at scoring time (not construction time)
+        now = datetime.now(timezone.utc)
+
         # Time since creation (normalized to 0-1 range over 30 days)
         creation_age_hours = node.age_seconds() / 3600.0
         creation_score = max(0.0, 1.0 - creation_age_hours / (30 * 24))
 
         # Time since last access (normalized to 0-1 range over 7 days)
-        access_age_hours = (self.now - node.last_accessed).total_seconds() / 3600.0
+        access_age_hours = (now - node.last_accessed).total_seconds() / 3600.0
         access_score = max(0.0, 1.0 - access_age_hours / (7 * 24))
 
         # Combine: 70% last access, 30% creation

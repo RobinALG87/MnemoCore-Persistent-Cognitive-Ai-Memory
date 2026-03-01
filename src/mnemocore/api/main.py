@@ -1,15 +1,21 @@
 """
 MnemoCore REST API
 ==================
-FastAPI server for MnemoCore (Phase 3.5.1+).
+FastAPI server for MnemoCore (Phase 5.0+).
 Fully Async I/O with Redis backing.
+
+This is the main entry point that:
+- Configures the FastAPI application
+- Sets up middleware and security
+- Includes route modules for different functional areas
+- Handles lifecycle management
 """
 
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List, Literal
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
-import sys
 import os
+import sys
 import asyncio
 import secrets
 
@@ -21,8 +27,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field, field_validator
 from loguru import logger
 
-# Add parent to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Version management - single source of truth
+from mnemocore.api.version import get_version as get_api_version
 
 from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.config import get_config
@@ -52,6 +58,20 @@ from mnemocore.api.models import (
     HealthResponse,
     RootResponse,
     ErrorResponse,
+    # Phase 5.0: Cognitive models
+    ObserveRequest,
+    EpisodeStartRequest,
+    ProcedureFeedbackRequest,
+    ProposalStatusUpdate,
+    RLMQueryRequest,
+    RLMQueryResponse,
+    ResolveContradictionRequest,
+    EmotionalTagPatchRequest,
+    CreatePredictionRequest,
+    VerifyPredictionRequest,
+    DreamRequest,
+    DreamResponse,
+    ExportResponse,
     # Phase 6.0: Association models
     AssociationsQueryRequest,
     AssociationsQueryResponse,
@@ -81,7 +101,7 @@ from prometheus_client import make_asgi_app
 from mnemocore.core.metrics import (
     API_REQUEST_COUNT,
     API_REQUEST_LATENCY,
-    track_async_latency,
+    timer,
     STORAGE_OPERATION_COUNT,
     extract_trace_context,
     get_trace_id,
@@ -191,10 +211,14 @@ async def lifespan(app: FastAPI):
     if container.redis_storage:
         await container.redis_storage.close()
 
+
+# --- FastAPI App Creation ---
+API_VERSION = get_api_version()
+
 app = FastAPI(
     title="MnemoCore API",
     description="MnemoCore - Infrastructure for Persistent Cognitive Memory - REST API (Async)",
-    version="3.5.2",
+    version=API_VERSION,
     lifespan=lifespan
 )
 
@@ -253,7 +277,7 @@ app.add_middleware(TraceContextMiddleware)
 
 # CORS
 config = get_config()
-cors_origins = config.security.cors_origins if hasattr(config, "security") else ["*"]
+cors_origins = config.security.cors_origins if hasattr(config, "security") else []
 
 app.add_middleware(
     CORSMiddleware,
@@ -300,283 +324,49 @@ def get_container(request: Request) -> Container:
     return request.app.state.container
 
 
-# --- Endpoints ---
+# ============================================================================
+# ROUTE MODULES - Include routers from route modules
+# ============================================================================
 
-@app.get("/", response_model=RootResponse)
-async def root():
-    return {
-        "status": "ok",
-        "service": "MnemoCore",
-        "version": "3.5.1",
-        "phase": "Async I/O",
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+# Import and include route modules
+# Note: Each router handles its own API key dependencies where needed
 
+# Health routes (no API key required for /health, /, /rate-limits, /stats)
+from mnemocore.api.routes.health import router as health_router
+app.include_router(health_router, dependencies=[])
 
-@app.get("/health", response_model=HealthResponse)
-async def health(container: Container = Depends(get_container), engine: HAIMEngine = Depends(get_engine)):
-    # Check Redis connectivity
-    redis_connected = False
-    if container.redis_storage:
-        redis_connected = await container.redis_storage.check_health()
+# Memory routes (API key required)
+from mnemocore.api.routes.memories import router as memories_router
+app.include_router(memories_router, dependencies=[Depends(get_api_key)])
 
-    # Check Circuit Breaker States (native implementation uses string state)
-    storage_cb_state = storage_circuit_breaker.state
-    vector_cb_state = vector_circuit_breaker.state
+# Episode routes
+from mnemocore.api.routes.episodes import router as episodes_router
+app.include_router(episodes_router, dependencies=[Depends(get_api_key)])
 
-    is_healthy = redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
+# Observation routes
+from mnemocore.api.routes.observations import router as observations_router
+app.include_router(observations_router, dependencies=[Depends(get_api_key)])
 
-    return {
-        "status": "healthy" if is_healthy else "degraded",
-        "redis_connected": redis_connected,
-        "storage_circuit_breaker": storage_cb_state,
-        "qdrant_circuit_breaker": vector_cb_state,
-        "engine_ready": engine is not None,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+# Dream routes (includes rate limiting)
+from mnemocore.api.routes.dreams import router as dreams_router
+app.include_router(dreams_router, dependencies=[Depends(get_api_key)])
 
+# Export routes
+from mnemocore.api.routes.export import router as export_router
+app.include_router(export_router, dependencies=[Depends(get_api_key)])
 
-@app.post(
-    "/store",
-    response_model=StoreResponse,
-    dependencies=[Depends(get_api_key), Depends(StoreRateLimiter())]
-)
-@track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/store"})
-async def store_memory(
-    req: StoreRequest,
-    engine: HAIMEngine = Depends(get_engine),
-    container: Container = Depends(get_container)
-):
-    """Store a new memory (Async + Dual Write). Rate limit: 100/minute."""
-    API_REQUEST_COUNT.labels(method="POST", endpoint="/store", status="200").inc()
+# Procedure routes
+from mnemocore.api.routes.procedures import router as procedures_router
+app.include_router(procedures_router, dependencies=[Depends(get_api_key)])
 
-    metadata = req.metadata or {}
-    if req.agent_id:
-        metadata["agent_id"] = req.agent_id
-
-    # 1. Run Core Engine (now Async)
-    mem_id = await engine.store(req.content, metadata=metadata)
-
-    # 2. Async Write to Redis (Metadata & LTP Index)
-    # Get the node details we just created
-    node = await engine.get_memory(mem_id)
-    if node and container.redis_storage:
-        redis_data = {
-            "id": node.id,
-            "content": node.content,
-            "metadata": node.metadata,
-            "ltp_strength": node.ltp_strength,
-            "created_at": node.created_at.isoformat()
-        }
-        try:
-            await container.redis_storage.store_memory(mem_id, redis_data, ttl=req.ttl)
-
-            # PubSub Event
-            await container.redis_storage.publish_event("memory.created", {"id": mem_id})
-        except Exception as e:
-            logger.exception(f"Failed async write for {mem_id}")
-            # Non-blocking failure for Redis write
-
-    return {
-        "ok": True,
-        "memory_id": mem_id,
-        "message": f"Stored memory: {mem_id}"
-    }
+# Prediction routes
+from mnemocore.api.routes.predictions import router as predictions_router
+app.include_router(predictions_router, dependencies=[Depends(get_api_key)])
 
 
-@app.post(
-    "/query",
-    response_model=QueryResponse,
-    dependencies=[Depends(get_api_key), Depends(QueryRateLimiter())]
-)
-@track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/query"})
-async def query_memory(
-    req: QueryRequest,
-    engine: HAIMEngine = Depends(get_engine)
-):
-    """Query memories by semantic similarity (Async Wrapper). Rate limit: 500/minute."""
-    API_REQUEST_COUNT.labels(method="POST", endpoint="/query", status="200").inc()
-
-    # CPU heavy vector search (offloaded inside engine)
-    metadata_filter = {"agent_id": req.agent_id} if req.agent_id else None
-    results = await engine.query(req.query, top_k=req.top_k, metadata_filter=metadata_filter)
-
-    formatted = []
-    for mem_id, score in results:
-        # Check Redis first? For now rely on Engine's TierManager (which uses RAM/File)
-        # because Engine has the object cache + Hashing logic.
-        node = await engine.get_memory(mem_id)
-        if node:
-            formatted.append({
-                "id": mem_id,
-                "content": node.content,
-                "score": float(score),
-                "metadata": node.metadata,
-                "tier": getattr(node, "tier", "unknown")
-            })
-
-    return {
-        "ok": True,
-        "query": req.query,
-        "results": formatted
-    }
-
-
-@app.get("/memory/{memory_id}", dependencies=[Depends(get_api_key)])
-async def get_memory(
-    memory_id: str,
-    engine: HAIMEngine = Depends(get_engine),
-    container: Container = Depends(get_container)
-):
-    """Get a specific memory by ID."""
-    # Validate memory_id format
-    if not memory_id or len(memory_id) > 256:
-        raise ValidationError(
-            field="memory_id",
-            reason="Memory ID must be between 1 and 256 characters",
-            value=memory_id
-        )
-
-    # Try Redis first (L2 cache)
-    cached = None
-    if container.redis_storage:
-        cached = await container.redis_storage.retrieve_memory(memory_id)
-
-    if cached:
-        return {
-            "source": "redis",
-            **cached
-        }
-
-    # Fallback to Engine (TierManager)
-    node = await engine.get_memory(memory_id)
-    if not node:
-        raise MemoryNotFoundError(memory_id)
-
-    return {
-        "source": "engine",
-        "id": node.id,
-        "content": node.content,
-        "metadata": node.metadata,
-        "created_at": node.created_at.isoformat(),
-        "epistemic_value": getattr(node, "epistemic_value", 0.0),
-        "ltp_strength": getattr(node, "ltp_strength", 0.0),
-        "tier": getattr(node, "tier", "unknown")
-    }
-
-
-@app.delete(
-    "/memory/{memory_id}",
-    response_model=DeleteResponse,
-    dependencies=[Depends(get_api_key)]
-)
-async def delete_memory(
-    memory_id: str,
-    engine: HAIMEngine = Depends(get_engine),
-    container: Container = Depends(get_container)
-):
-    """Delete a memory via Engine."""
-    # Validate memory_id format
-    if not memory_id or len(memory_id) > 256:
-        raise ValidationError(
-            field="memory_id",
-            reason="Memory ID must be between 1 and 256 characters",
-            value=memory_id
-        )
-
-    # Check if exists first for 404
-    node = await engine.get_memory(memory_id)
-    if not node:
-        raise MemoryNotFoundError(memory_id)
-
-    # Engine delete (handles HOT/WARM)
-    await engine.delete_memory(memory_id)
-
-    # Also Redis
-    if container.redis_storage:
-        await container.redis_storage.delete_memory(memory_id)
-
-    return {"ok": True, "deleted": memory_id}
-
-# --- Phase 5: Cognitive Client Endpoints ---
-
-class ObserveRequest(BaseModel):
-    agent_id: str
-    content: str
-    kind: str = "observation"
-    importance: float = 0.5
-    tags: Optional[List[str]] = None
-
-@app.post("/wm/observe", dependencies=[Depends(get_api_key)])
-async def observe_context(req: ObserveRequest, request: Request):
-    """Push an observation explicitly into Working Memory."""
-    client = request.app.state.cognitive_client
-    if not client:
-        raise HTTPException(status_code=503, detail="Cognitive Client unavailable")
-    item_id = client.observe(
-        agent_id=req.agent_id,
-        content=req.content,
-        kind=req.kind,
-        importance=req.importance,
-        tags=req.tags
-    )
-    return {"ok": True, "item_id": item_id}
-
-@app.get("/wm/context/{agent_id}", dependencies=[Depends(get_api_key)])
-async def get_working_context(agent_id: str, limit: int = 16, request: Request = None):
-    """Read active Working Memory context."""
-    client = request.app.state.cognitive_client
-    items = client.get_working_context(agent_id, limit=limit)
-    return {"ok": True, "items": [
-        {"id": i.id, "content": i.content, "kind": i.kind, "importance": i.importance} 
-        for i in items
-    ]}
-
-class EpisodeStartRequest(BaseModel):
-    agent_id: str
-    goal: str
-    context: Optional[str] = None
-
-@app.post("/episodes/start", dependencies=[Depends(get_api_key)])
-async def start_episode(req: EpisodeStartRequest, request: Request):
-    """Start a new episode chain."""
-    client = request.app.state.cognitive_client
-    ep_id = client.start_episode(req.agent_id, goal=req.goal, context=req.context)
-    return {"ok": True, "episode_id": ep_id}
-
-@app.get("/agents/{agent_id}/subtle-thoughts", dependencies=[Depends(get_api_key)])
-async def get_subtle_thoughts(agent_id: str, limit: int = 5, engine: HAIMEngine = Depends(get_engine)):
-    """Retrieve subtle thoughts (associations) generated from active working memory and episodic history."""
-    if not hasattr(engine, "generate_subtle_thoughts"):
-        return {"ok": True, "associations": []}
-        
-    associations = await engine.generate_subtle_thoughts(agent_id, limit=limit)
-    return {"ok": True, "associations": associations}
-
-@app.get("/procedures/search", dependencies=[Depends(get_api_key)])
-async def search_procedures(query: str, agent_id: Optional[str] = None, top_k: int = 5, request: Request = None):
-    """Search for applicable procedural skills or workflows."""
-    client = request.app.state.cognitive_client
-    if not client:
-        raise HTTPException(status_code=503, detail="Cognitive Client unavailable")
-        
-    procedures = client.suggest_procedures(agent_id=agent_id, query=query, top_k=top_k)
-    import dataclasses
-    
-    return {"ok": True, "procedures": [dataclasses.asdict(p) for p in procedures]}
-
-class ProcedureFeedbackRequest(BaseModel):
-    success: bool
-
-@app.post("/procedures/{proc_id}/feedback", dependencies=[Depends(get_api_key)])
-async def procedure_feedback(proc_id: str, req: ProcedureFeedbackRequest, request: Request = None):
-    """Provide success/failure feedback on a procedure to update its reliability."""
-    client = request.app.state.cognitive_client
-    if not client:
-        raise HTTPException(status_code=503, detail="Cognitive Client unavailable")
-        
-    client.record_procedure_outcome(proc_id, req.success)
-    return {"ok": True, "procedure_id": proc_id, "success_recorded": req.success}
+# ============================================================================
+# ADDITIONAL ROUTES - Routes not yet modularized (Conceptual, RLM, etc.)
+# ============================================================================
 
 # --- Conceptual Endpoints ---
 
@@ -610,43 +400,35 @@ async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_en
     }
 
 
-@app.get("/stats", dependencies=[Depends(get_api_key)])
-async def get_stats(engine: HAIMEngine = Depends(get_engine)):
-    """Get aggregate engine stats."""
-    return await engine.get_stats()
+# --- Meta Memory Endpoints ---
 
-
-@app.get("/meta/proposals", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 — Autonomy"])
+@app.get("/meta/proposals", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 - Autonomy"])
 async def get_meta_proposals(status: Optional[str] = None, request: Request = None):
     """List all self-improvement proposals generated by the AGI loop."""
     client = request.app.state.cognitive_client
     if not client:
         raise HTTPException(status_code=503, detail="Cognitive Client unavailable")
-        
+
     proposals = client.get_self_improvement_proposals()
     if status:
         proposals = [p for p in proposals if p.status == status]
-        
+
     import dataclasses
     return {"ok": True, "count": len(proposals), "proposals": [dataclasses.asdict(p) for p in proposals]}
 
-class ProposalStatusUpdate(BaseModel):
-    status: Literal["accepted", "rejected", "implemented"]
 
-@app.post("/meta/proposals/{proposal_id}/status", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 — Autonomy"])
+@app.post("/meta/proposals/{proposal_id}/status", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 - Autonomy"])
 async def update_proposal_status(proposal_id: str, req: ProposalStatusUpdate, request: Request = None):
     """Mark a generated self-improvement proposal as accepted, rejected, or implemented."""
     client = request.app.state.cognitive_client
     if not client:
         raise HTTPException(status_code=503, detail="Cognitive Client unavailable")
-        
+
     client.meta.update_proposal_status(proposal_id, req.status)
     return {"ok": True, "proposal_id": proposal_id, "status": req.status}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Maintenance Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Maintenance Endpoints ---
 
 @app.post("/maintenance/cleanup", dependencies=[Depends(get_api_key)])
 async def cleanup_maintenance(threshold: float = 0.1, engine: HAIMEngine = Depends(get_engine)):
@@ -660,7 +442,7 @@ async def consolidate_maintenance(engine: HAIMEngine = Depends(get_engine)):
     """Trigger manual semantic consolidation pulse."""
     if not engine._semantic_worker:
         raise HTTPException(status_code=503, detail="Consolidation worker not initialized")
-    
+
     stats = await engine._semantic_worker.run_once()
     return {"ok": True, "stats": stats}
 
@@ -670,55 +452,24 @@ async def sweep_maintenance(engine: HAIMEngine = Depends(get_engine)):
     """Trigger manual immunology sweep."""
     if not engine._immunology:
         raise HTTPException(status_code=503, detail="Immunology loop not initialized")
-    
+
     stats = await engine._immunology.sweep()
     return {"ok": True, "stats": stats}
 
 
-# Rate limit info endpoint
-@app.get("/rate-limits")
-async def get_rate_limits():
-    """Get current rate limit configuration."""
-    return {
-        "limits": {
-            category: {
-                "requests": cfg["requests"],
-                "window_seconds": cfg["window"],
-                "requests_per_minute": cfg["requests"],
-                "description": cfg["description"]
-            }
-            for category, cfg in RATE_LIMIT_CONFIGS.items()
-        }
-    }
+# --- Subtle Thoughts Endpoint ---
+
+@app.get("/agents/{agent_id}/subtle-thoughts", dependencies=[Depends(get_api_key)])
+async def get_subtle_thoughts(agent_id: str, limit: int = 5, engine: HAIMEngine = Depends(get_engine)):
+    """Retrieve subtle thoughts (associations) generated from active working memory and episodic history."""
+    if not hasattr(engine, "generate_subtle_thoughts"):
+        return {"ok": True, "associations": []}
+
+    associations = await engine.generate_subtle_thoughts(agent_id, limit=limit)
+    return {"ok": True, "associations": associations}
 
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 4.5: Recursive Synthesis Engine Endpoint
-# ─────────────────────────────────────────────────────────────────────────────
-
-class RLMQueryRequest(BaseModel):
-    """Request model for Phase 4.5 recursive memory query."""
-    query: str = Field(..., min_length=1, max_length=4096, description="The query to synthesize (can be complex/multi-topic)")
-    context_text: Optional[str] = Field(None, max_length=500000, description="Optional large external text (Ripple environment)")
-    project_id: Optional[str] = Field(None, max_length=128, description="Optional project scope for isolation masking")
-    max_depth: Optional[int] = Field(None, ge=0, le=5, description="Max recursion depth (0-5, default 3)")
-    max_sub_queries: Optional[int] = Field(None, ge=1, le=10, description="Max sub-queries to decompose into (1-10, default 5)")
-    top_k: Optional[int] = Field(None, ge=1, le=50, description="Final results to return (default 10)")
-
-
-class RLMQueryResponse(BaseModel):
-    """Response model for Phase 4.5 recursive memory query."""
-    ok: bool
-    query: str
-    sub_queries: List[str]
-    results: List[Dict[str, Any]]
-    synthesis: str
-    max_depth_hit: int
-    elapsed_ms: float
-    ripple_snippets: List[str]
-    stats: Dict[str, Any]
-
+# --- Phase 4.5: Recursive Synthesis Engine Endpoint ---
 
 @app.post(
     "/rlm/query",
@@ -733,7 +484,7 @@ class RLMQueryResponse(BaseModel):
         "Implements the MIT CSAIL RLM paradigm to eliminate Context Rot."
     ),
 )
-@track_async_latency(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/rlm/query"})
+@timer(API_REQUEST_LATENCY, {"method": "POST", "endpoint": "/rlm/query"})
 async def rlm_query(
     req: RLMQueryRequest,
     engine: HAIMEngine = Depends(get_engine),
@@ -766,8 +517,7 @@ async def rlm_query(
     if req.context_text and req.context_text.strip():
         ripple_ctx = RippleContext(text=req.context_text, source_label="api_context")
 
-    # Run recursive synthesis (no LLM wired at API level — use heuristic mode)
-    # To enable LLM synthesis, configure via RLMIntegrator in your application code
+    # Run recursive synthesis (no LLM wired at API level - use heuristic mode)
     synthesizer = RecursiveSynthesizer(engine=engine, config=synth_config)
     result = await synthesizer.synthesize(
         query=req.query,
@@ -788,14 +538,12 @@ async def rlm_query(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 5.0 — Agent 1: Trust & Provenance Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Phase 5.0: Trust & Provenance Endpoints ---
 
 @app.get(
     "/memory/{memory_id}/lineage",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Trust"],
+    tags=["Phase 5.0 - Trust"],
     summary="Get full provenance lineage for a memory",
 )
 async def get_memory_lineage(
@@ -804,8 +552,7 @@ async def get_memory_lineage(
 ):
     """
     Return the complete provenance lineage of a memory:
-    origin (who created it, how, when) and all transformation events
-    (consolidated, verified, contradicted, archived, …).
+    origin (who created it, how, when) and all transformation events.
     """
     node = await engine.get_memory(memory_id)
     if not node:
@@ -830,7 +577,7 @@ async def get_memory_lineage(
 @app.get(
     "/memory/{memory_id}/confidence",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Trust"],
+    tags=["Phase 5.0 - Trust"],
     summary="Get confidence envelope for a memory",
 )
 async def get_memory_confidence(
@@ -838,14 +585,7 @@ async def get_memory_confidence(
     engine: HAIMEngine = Depends(get_engine),
 ):
     """
-    Return a structured confidence envelope for a memory, combining:
-    - Bayesian reliability (BayesianLTP posterior mean)
-    - access_count (evidence strength)
-    - staleness (days since last verification)
-    - source_type trust weight
-    - contradiction flag
-
-    Level: high | medium | low | contradicted | stale
+    Return a structured confidence envelope for a memory.
     """
     from mnemocore.core.confidence import build_confidence_envelope
 
@@ -863,15 +603,12 @@ async def get_memory_confidence(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 5.0 — Agent 3 stub: Proactive Recall
-# (Full implementation added by Agent 3 workstream)
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Phase 5.0: Proactive Recall ---
 
 @app.get(
     "/proactive",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Autonomy"],
+    tags=["Phase 5.0 - Autonomy"],
     summary="Retrieve contextually relevant memories without explicit query",
 )
 async def get_proactive_memories(
@@ -881,8 +618,7 @@ async def get_proactive_memories(
 ):
     """
     Proactive recall stub (Phase 5.0 / Agent 3).
-    Returns the most recently active high-LTP memories as a stand-in
-    until the full ProactiveRecallDaemon is implemented.
+    Returns the most recently active high-LTP memories.
     """
     nodes = await engine.tier_manager.get_hot_snapshot() if hasattr(engine, "tier_manager") else []
     sorted_nodes = sorted(nodes, key=lambda n: n.ltp_strength, reverse=True)[:limit]
@@ -902,14 +638,12 @@ async def get_proactive_memories(
     return {"ok": True, "proactive_results": results, "count": len(results)}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 5.0 — Agent 2: Memory Lifecycle Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Phase 5.0: Contradiction Endpoints ---
 
 @app.get(
     "/contradictions",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Lifecycle"],
+    tags=["Phase 5.0 - Lifecycle"],
     summary="List active contradiction groups requiring resolution",
 )
 async def list_contradictions(
@@ -917,7 +651,6 @@ async def list_contradictions(
 ):
     """
     Returns all detected contradiction groups from the ContradictionRegistry.
-    By default only unresolved contradictions are returned.
     """
     from mnemocore.core.contradiction import get_contradiction_detector
     detector = get_contradiction_detector()
@@ -929,14 +662,10 @@ async def list_contradictions(
     }
 
 
-class ResolveContradictionRequest(BaseModel):
-    note: Optional[str] = None
-
-
 @app.post(
     "/contradictions/{group_id}/resolve",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Lifecycle"],
+    tags=["Phase 5.0 - Lifecycle"],
     summary="Mark a contradiction group as resolved",
 )
 async def resolve_contradiction(group_id: str, req: ResolveContradictionRequest):
@@ -949,14 +678,12 @@ async def resolve_contradiction(group_id: str, req: ResolveContradictionRequest)
     return {"ok": True, "resolved_group_id": group_id}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 5.0 — Agent 3: Autonomous Cognition Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Phase 5.0: Emotional Tag Endpoints ---
 
 @app.get(
     "/memory/{memory_id}/emotional-tag",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Autonomy"],
+    tags=["Phase 5.0 - Autonomy"],
     summary="Get emotional (valence/arousal) tag for a memory",
 )
 async def get_emotional_tag_ep(
@@ -980,15 +707,10 @@ async def get_emotional_tag_ep(
     }
 
 
-class EmotionalTagPatchRequest(BaseModel):
-    valence: float
-    arousal: float
-
-
 @app.patch(
     "/memory/{memory_id}/emotional-tag",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Autonomy"],
+    tags=["Phase 5.0 - Autonomy"],
     summary="Attach or update emotional tag on a memory",
 )
 async def patch_emotional_tag(
@@ -1005,94 +727,9 @@ async def patch_emotional_tag(
     return {"ok": True, "memory_id": memory_id, "emotional_tag": tag.to_metadata_dict()}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 5.0 — Agent 4: Prediction Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Knowledge Gaps Endpoint ---
 
-_prediction_store_instance = None
-
-
-def _get_prediction_store(engine: HAIMEngine = Depends(get_engine)):
-    from mnemocore.core.prediction_store import PredictionStore
-    global _prediction_store_instance
-    if _prediction_store_instance is None:
-        _prediction_store_instance = PredictionStore(engine=engine)
-    return _prediction_store_instance
-
-
-class CreatePredictionRequest(BaseModel):
-    content: str
-    confidence: float = 0.5
-    deadline_days: Optional[float] = None
-    related_memory_ids: Optional[List[str]] = None
-    tags: Optional[List[str]] = None
-
-
-class VerifyPredictionRequest(BaseModel):
-    success: bool
-    notes: Optional[str] = None
-
-
-@app.post(
-    "/predictions",
-    dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Prediction"],
-    summary="Store a new forward-looking prediction",
-)
-async def create_prediction(req: CreatePredictionRequest):
-    from mnemocore.core.prediction_store import PredictionStore
-    global _prediction_store_instance
-    if _prediction_store_instance is None:
-        _prediction_store_instance = PredictionStore()
-    pred_id = _prediction_store_instance.create(
-        content=req.content,
-        confidence=req.confidence,
-        deadline_days=req.deadline_days,
-        related_memory_ids=req.related_memory_ids,
-        tags=req.tags,
-    )
-    pred = _prediction_store_instance.get(pred_id)
-    return {"ok": True, "prediction": pred.to_dict()}
-
-
-@app.get(
-    "/predictions",
-    dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Prediction"],
-    summary="List all predictions",
-)
-async def list_predictions(status: Optional[str] = None):
-    from mnemocore.core.prediction_store import PredictionStore
-    global _prediction_store_instance
-    if _prediction_store_instance is None:
-        _prediction_store_instance = PredictionStore()
-    return {
-        "ok": True,
-        "predictions": [
-            p.to_dict()
-            for p in _prediction_store_instance.list_all(status=status)
-        ],
-    }
-
-
-@app.post(
-    "/predictions/{pred_id}/verify",
-    dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Prediction"],
-    summary="Verify or falsify a prediction",
-)
-async def verify_prediction(pred_id: str, req: VerifyPredictionRequest):
-    from mnemocore.core.prediction_store import PredictionStore
-    global _prediction_store_instance
-    if _prediction_store_instance is None:
-        _prediction_store_instance = PredictionStore()
-    pred = await _prediction_store_instance.verify(pred_id, success=req.success, notes=req.notes)
-    if pred is None:
-        raise HTTPException(status_code=404, detail=f"Prediction {pred_id!r} not found.")
-    return {"ok": True, "prediction": pred.to_dict()}
-
-
-@app.get("/gaps", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 — Autonomy"])
+@app.get("/gaps", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 - Autonomy"])
 async def get_knowledge_gaps(engine: HAIMEngine = Depends(get_engine)):
     """Retrieve detected knowledge gaps from the GapDetector."""
     if not hasattr(engine, "gap_detector"):
@@ -1106,138 +743,13 @@ async def get_knowledge_gaps(engine: HAIMEngine = Depends(get_engine)):
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 5.0 — Advanced Synthesis, Dream & Export Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
-
-class DreamRequest(BaseModel):
-    """Request model for triggering a dream session."""
-    max_cycles: int = Field(default=1, ge=1, le=10, description="Number of dream cycles to run")
-    force_insight: bool = Field(default=False, description="Force generation of a meta-insight")
-
-
-class DreamResponse(BaseModel):
-    """Response model for dream session."""
-    ok: bool
-    cycles_completed: int
-    insights_generated: int
-    concepts_extracted: int
-    parallels_found: int
-    memories_processed: int
-    message: str
-
-
-@app.post(
-    "/dream",
-    response_model=DreamResponse,
-    dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Dream Loop"],
-    summary="Trigger a dream session",
-)
-async def trigger_dream(
-    req: DreamRequest,
-    engine: HAIMEngine = Depends(get_engine),
-):
-    """
-    Manually trigger a dream session (SubconsciousDaemon cycle).
-
-    The dream loop performs:
-    - Concept extraction from recent memories
-    - Parallel drawing (finding unexpected connections)
-    - Memory re-evaluation and valuation
-    - Meta-insight generation
-
-    This endpoint runs the daemon synchronously for the requested number of cycles
-    and returns the results immediately.
-    """
-    try:
-        # Import here to avoid circular dependency
-        from mnemocore.subconscious.daemon import SubconsciousDaemon
-    except ImportError as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Dream loop not available: {e}"
-        )
-
-    # Get all hot memories for processing
-    memories = list(engine.tier_manager.hot.values())
-
-    if not memories:
-        return {
-            "ok": True,
-            "cycles_completed": 0,
-            "insights_generated": 0,
-            "concepts_extracted": 0,
-            "parallels_found": 0,
-            "memories_processed": 0,
-            "message": "No memories to process",
-        }
-
-    # Create a temporary daemon instance for this session
-    daemon = SubconsciousDaemon(config=get_config())
-    daemon.engine = engine
-
-    # Run the requested number of cycles
-    total_insights = 0
-    total_concepts = 0
-    total_parallels = 0
-
-    for cycle in range(req.max_cycles):
-        daemon.cycle_count += 1
-
-        # 1. Extract concepts (every 5 cycles or forced)
-        if cycle % 5 == 0 or req.force_insight:
-            concepts = await daemon.extract_concepts(memories)
-            for concept in concepts:
-                if "name" in concept:
-                    attrs = {k: str(v) for k, v in concept.items() if k != "name"}
-                    engine.define_concept(concept["name"], attrs)
-                    total_concepts += 1
-
-        # 2. Draw parallels (every 3 cycles)
-        if cycle % 3 == 0:
-            parallels = await daemon.draw_parallels(memories)
-            for p in parallels:
-                # Store parallel as new memory
-                await asyncio.to_thread(
-                    engine.store,
-                    f"[PARALLEL] {p}",
-                    metadata={"type": "insight", "source": "dream_loop"}
-                )
-                total_insights += 1
-                total_parallels += 1
-
-        # 3. Generate meta-insight (every 7 cycles or forced)
-        if cycle % 7 == 0 or req.force_insight:
-            insight = await daemon.generate_insight(memories)
-            if insight:
-                await asyncio.to_thread(
-                    engine.store,
-                    f"[META-INSIGHT] {insight}",
-                    metadata={"type": "meta", "source": "dream_loop"}
-                )
-                total_insights += 1
-
-    return {
-        "ok": True,
-        "cycles_completed": req.max_cycles,
-        "insights_generated": total_insights,
-        "concepts_extracted": total_concepts,
-        "parallels_found": total_parallels,
-        "memories_processed": len(memories),
-        "message": f"Completed {req.max_cycles} dream cycles",
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 6.0 — Association Network Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Phase 6.0: Association Network Endpoints ---
 
 @app.get(
     "/associations/{node_id}",
     response_model=AssociationsQueryResponse,
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 6.0 — Associations"],
+    tags=["Phase 6.0 - Associations"],
     summary="Get associations for a memory node",
 )
 async def get_associations(
@@ -1249,9 +761,6 @@ async def get_associations(
 ):
     """
     Retrieve memories associated with the given node.
-
-    Associations are formed through co-retrieval and represent
-    Hebbian learning patterns in the memory network.
     """
     results = await engine.get_associated_memories(
         node_id=node_id,
@@ -1281,7 +790,7 @@ async def get_associations(
     "/associations/path",
     response_model=AssociationsPathResponse,
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 6.0 — Associations"],
+    tags=["Phase 6.0 - Associations"],
     summary="Find association paths between memories",
 )
 async def find_association_path(
@@ -1290,8 +799,6 @@ async def find_association_path(
 ):
     """
     Find paths connecting two memory nodes through the association network.
-
-    Useful for discovering indirect relationships between memories.
     """
     if not hasattr(engine, "associations"):
         raise HTTPException(
@@ -1317,7 +824,7 @@ async def find_association_path(
 @app.get(
     "/associations/{node_id}/clusters",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 6.0 — Associations"],
+    tags=["Phase 6.0 - Associations"],
     summary="Get clusters containing a memory node",
 )
 async def get_node_clusters(
@@ -1357,7 +864,7 @@ async def get_node_clusters(
     "/associations/metrics",
     response_model=GraphMetricsResponse,
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 6.0 — Associations"],
+    tags=["Phase 6.0 - Associations"],
     summary="Get association network metrics",
 )
 async def get_association_metrics(
@@ -1365,9 +872,6 @@ async def get_association_metrics(
 ):
     """
     Get structural metrics about the association network.
-
-    Includes node count, edge count, density, clustering coefficient,
-    and other graph-theoretic measures.
     """
     if not hasattr(engine, "associations"):
         raise HTTPException(
@@ -1396,7 +900,7 @@ async def get_association_metrics(
     "/associations/reinforce",
     response_model=ReinforceAssociationResponse,
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 6.0 — Associations"],
+    tags=["Phase 6.0 - Associations"],
     summary="Manually reinforce an association",
 )
 async def reinforce_association(
@@ -1405,9 +909,6 @@ async def reinforce_association(
 ):
     """
     Manually reinforce the association between two memory nodes.
-
-    This can be used to explicitly encode domain knowledge about
-    relationships between memories.
     """
     if not hasattr(engine, "associations"):
         raise HTTPException(
@@ -1449,7 +950,7 @@ async def reinforce_association(
 @app.get(
     "/associations/visualize",
     dependencies=[Depends(get_api_key)],
-    tags=["Phase 6.0 — Associations"],
+    tags=["Phase 6.0 - Associations"],
     summary="Get association network visualization",
 )
 async def visualize_associations(
@@ -1460,8 +961,6 @@ async def visualize_associations(
 ):
     """
     Generate an HTML visualization of the association network.
-
-    Returns HTML that can be rendered in a browser.
     """
     if not hasattr(engine, "associations"):
         raise HTTPException(
@@ -1483,92 +982,6 @@ async def visualize_associations(
 
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html)
-
-
-class ExportResponse(BaseModel):
-    """Response model for memory export."""
-    ok: bool
-    count: int
-    format: str
-    memories: List[Dict[str, Any]]
-
-
-@app.get(
-    "/export",
-    response_model=ExportResponse,
-    dependencies=[Depends(get_api_key)],
-    tags=["Phase 5.0 — Export"],
-    summary="Export memories as JSON",
-)
-async def export_memories(
-    agent_id: Optional[str] = None,
-    tier: Optional[str] = None,
-    limit: int = 100,
-    include_metadata: bool = True,
-    format: str = "json",
-    engine: HAIMEngine = Depends(get_engine),
-):
-    """
-    Export memories for backup, analysis, or migration.
-
-    Returns memories in the requested format with optional filtering by
-    agent_id or tier.
-    """
-    # Validate tier
-    valid_tiers = {"hot", "warm", "cold", "soul"}
-    if tier and tier not in valid_tiers:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid tier. Must be one of: {', '.join(valid_tiers)}"
-        )
-
-    # Validate format
-    if format not in ("json", "jsonl"):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid format. Must be 'json' or 'jsonl'"
-        )
-
-    # Collect memories based on tier filter
-    memories_to_export = []
-
-    if tier == "hot" or tier is None:
-        for node in engine.tier_manager.hot.values():
-            if agent_id is None or node.metadata.get("agent_id") == agent_id:
-                memories_to_export.append(node)
-
-    if tier == "warm" or tier is None:
-        # For warm tier, we need to fetch from Qdrant
-        if hasattr(engine.tier_manager, "qdrant_store") and engine.tier_manager.qdrant_store:
-            from mnemocore.core.qdrant_store import QdrantStore
-            qdrant: QdrantStore = engine.tier_manager.qdrant_store
-            # This would need a proper list method in QdrantStore
-            # For now, we skip warm tier export or add the method
-            pass
-
-    # Apply limit
-    memories_to_export = memories_to_export[:limit]
-
-    # Format output
-    exported = []
-    for node in memories_to_export:
-        mem_dict = {
-            "id": node.id,
-            "content": node.content,
-            "created_at": node.created_at.isoformat(),
-            "ltp_strength": node.ltp_strength,
-            "tier": getattr(node, "tier", "hot"),
-        }
-        if include_metadata:
-            mem_dict["metadata"] = node.metadata
-        exported.append(mem_dict)
-
-    return {
-        "ok": True,
-        "count": len(exported),
-        "format": format,
-        "memories": exported,
-    }
 
 
 if __name__ == "__main__":

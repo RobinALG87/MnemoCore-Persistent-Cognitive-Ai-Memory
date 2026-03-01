@@ -18,6 +18,7 @@ from loguru import logger
 from .reliability import qdrant_breaker
 from .exceptions import (
     CircuitOpenError,
+    ConfigurationError,
     StorageConnectionError,
     wrap_storage_exception,
 )
@@ -127,11 +128,18 @@ class QdrantStore:
                 info = await self.client.get_collection(collection_name)
                 current_distance = info.config.params.vectors.distance
                 if current_distance != models.Distance.DOT:
-                    logger.warning(
-                        f"Collection {collection_name} has distance {current_distance}, "
-                        f"but DOT is required. Recreating collection."
+                    # SAFETY: Never auto-drop collections with existing data
+                    # This prevents accidental data loss from config changes
+                    points_count = info.points_count or 0
+                    raise ConfigurationError(
+                        f"Collection '{collection_name}' exists with distance metric "
+                        f"'{current_distance.value}' but configuration requires '{models.Distance.DOT.value}'. "
+                        f"Collection contains {points_count} points that would be destroyed by recreation. "
+                        f"To resolve: either (1) update your configuration to use '{current_distance.value}', or "
+                        f"(2) manually migrate the collection by exporting data, deleting the collection, "
+                        f"and re-importing with the new distance metric. "
+                        f"Automatic recreation is intentionally disabled to prevent data loss."
                     )
-                    await self.client.delete_collection(collection_name)
                 else:
                     continue
 

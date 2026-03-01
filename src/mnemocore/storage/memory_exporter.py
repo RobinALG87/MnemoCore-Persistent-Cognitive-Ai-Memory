@@ -259,53 +259,77 @@ class MemoryExporter:
         progress_callback: Optional[Callable[[ExportProgress], None]],
         total_records: int,
     ) -> Tuple[int, int]:
-        """Export to JSON array format."""
-        records = []
-        size_bytes = 0
+        """
+        Export to JSON array format with streaming writes.
+
+        Instead of accumulating all records in memory before writing,
+        this implementation writes records incrementally to avoid
+        memory exhaustion with large exports.
+        """
+        total_exported = 0
         batch_num = 0
+        size_bytes = 0
 
         offset = None
-        while True:
-            batch_records, offset = await self.qdrant.scroll(
-                collection_name=collection_name,
-                limit=options.batch_size,
-                offset=offset,
-                with_vectors=options.vector_mode != VectorExportMode.NONE,
-            )
 
-            if not batch_records:
-                break
-
-            for record in batch_records:
-                data = self._serialize_record(record, options)
-                records.append(data)
-
-            # Report progress
-            batch_num += 1
-            if progress_callback:
-                progress = ExportProgress(
-                    total_records=total_records,
-                    exported_records=len(records),
-                    current_batch=batch_num,
-                    percent_complete=(len(records) / total_records * 100) if total_records > 0 else 0,
-                )
-                progress_callback(progress)
-
-            # Check limit
-            if options.limit and len(records) >= options.limit:
-                records = records[:options.limit]
-                break
-
-        # Write to file
         with open(output_path, 'w', encoding='utf-8') as f:
-            json_str = dumps(
-                records,
-                indent=2 if options.pretty_print else None,
-            )
-            f.write(json_str)
-            size_bytes = len(json_str.encode('utf-8'))
+            # Start JSON array
+            f.write('[')
+            first_record = True
 
-        return len(records), size_bytes
+            while True:
+                batch_records, offset = await self.qdrant.scroll(
+                    collection_name=collection_name,
+                    limit=options.batch_size,
+                    offset=offset,
+                    with_vectors=options.vector_mode != VectorExportMode.NONE,
+                )
+
+                if not batch_records:
+                    break
+
+                for record in batch_records:
+                    # Check limit before writing
+                    if options.limit and total_exported >= options.limit:
+                        break
+
+                    data = self._serialize_record(record, options)
+
+                    # Write comma separator for non-first records
+                    if not first_record:
+                        f.write(',')
+                        size_bytes += 1
+
+                    # Write record
+                    json_str = dumps(
+                        data,
+                        indent=2 if options.pretty_print else None,
+                    )
+                    f.write(json_str)
+                    size_bytes += len(json_str.encode('utf-8'))
+                    total_exported += 1
+                    first_record = False
+
+                # Report progress
+                batch_num += 1
+                if progress_callback:
+                    progress = ExportProgress(
+                        total_records=total_records,
+                        exported_records=total_exported,
+                        current_batch=batch_num,
+                        percent_complete=(total_exported / total_records * 100) if total_records > 0 else 0,
+                    )
+                    progress_callback(progress)
+
+                # Check if limit reached or no more data
+                if (options.limit and total_exported >= options.limit) or offset is None:
+                    break
+
+            # Close JSON array
+            f.write(']')
+            size_bytes += 1  # For the closing bracket
+
+        return total_exported, size_bytes
 
     async def _export_jsonl(
         self,
@@ -356,8 +380,8 @@ class MemoryExporter:
                     )
                     progress_callback(progress)
 
-                # Check if limit reached
-                if options.limit and total_exported >= options.limit:
+                # Check if limit reached or no more data
+                if (options.limit and total_exported >= options.limit) or offset is None:
                     break
 
         return total_exported, size_bytes
@@ -706,8 +730,8 @@ class MemoryExporter:
                 f"{result.records_exported} records to {file_path}"
             )
 
-            # Stop if limit reached
-            if opts.limit and total_exported >= opts.limit:
+            # Stop if limit reached or no more data
+            if (opts.limit and total_exported >= opts.limit) or offset is None:
                 break
 
         logger.info(

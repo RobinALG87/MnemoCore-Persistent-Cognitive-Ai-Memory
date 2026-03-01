@@ -139,7 +139,7 @@ class PulseLoop:
         if not wm:
             return
 
-        wm.prune_all()
+        await wm.prune_all()
         logger.debug(f"Pulse: [{PulseTick.WM_MAINTENANCE.value}] Executed.")
 
     # ──────────────────────────────────────────────────────────────────────

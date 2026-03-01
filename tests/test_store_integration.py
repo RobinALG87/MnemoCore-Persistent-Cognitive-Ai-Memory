@@ -171,13 +171,14 @@ class TestEpisodicToSemanticConsolidation:
 class TestEpisodicToProcedural:
     """Episodic outcomes update procedural reliability — the basal ganglia loop."""
 
-    def test_successful_episode_boosts_procedure(self):
+    @pytest.mark.asyncio
+    async def test_successful_episode_boosts_procedure(self):
         """A successful episode referencing a procedure should boost its reliability."""
         episodic = _make_episodic()
         procedural = _make_procedural()
 
         # Create a procedure
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Deploy safely",
             description="Safe deployment procedure",
             steps=[{"order": 1, "instruction": "Run tests first", "code_snippet": None, "tool_call": None}],
@@ -198,18 +199,19 @@ class TestEpisodicToProcedural:
         for event in ep.events:
             proc_id = (event.metadata or {}).get("procedure_id")
             if proc_id:
-                procedural.record_procedure_outcome(proc_id, success=True)
+                await procedural.record_procedure_outcome(proc_id, success=True)
 
-        updated = procedural.get_procedure(proc.id)
+        updated = await procedural.get_procedure(proc.id)
         assert updated.success_count == 1
         assert updated.reliability >= initial_reliability
 
-    def test_failed_episode_penalizes_procedure(self):
+    @pytest.mark.asyncio
+    async def test_failed_episode_penalizes_procedure(self):
         """A failed episode should decrease procedure reliability."""
         episodic = _make_episodic()
         procedural = _make_procedural()
 
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Quick deploy",
             description="Fast but risky deployment",
             steps=[{"order": 1, "instruction": "Push directly", "code_snippet": None, "tool_call": None}],
@@ -227,18 +229,19 @@ class TestEpisodicToProcedural:
         for event in ep.events:
             proc_id = (event.metadata or {}).get("procedure_id")
             if proc_id:
-                procedural.record_procedure_outcome(proc_id, success=False)
+                await procedural.record_procedure_outcome(proc_id, success=False)
 
-        updated = procedural.get_procedure(proc.id)
+        updated = await procedural.get_procedure(proc.id)
         assert updated.failure_count == 1
         assert updated.reliability <= initial_reliability
 
-    def test_mixed_outcomes_converge(self):
+    @pytest.mark.asyncio
+    async def test_mixed_outcomes_converge(self):
         """Multiple success + failure outcomes converge reliability correctly."""
         episodic = _make_episodic()
         procedural = _make_procedural()
 
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Test procedure",
             description="Mixed results procedure",
             steps=[{"order": 1, "instruction": "Try it", "code_snippet": None, "tool_call": None}],
@@ -254,9 +257,9 @@ class TestEpisodicToProcedural:
                 [("action", "did thing", {"procedure_id": proc.id})],
                 outcome="success" if success else "failure",
             )
-            procedural.record_procedure_outcome(proc.id, success)
+            await procedural.record_procedure_outcome(proc.id, success)
 
-        updated = procedural.get_procedure(proc.id)
+        updated = await procedural.get_procedure(proc.id)
         assert updated.success_count == 3
         assert updated.failure_count == 2
 
@@ -268,7 +271,8 @@ class TestEpisodicToProcedural:
 class TestFullPipeline:
     """End-to-end: episode lifecycle → concept extraction → procedure creation."""
 
-    def test_episode_to_concept_to_procedure(self):
+    @pytest.mark.asyncio
+    async def test_episode_to_concept_to_procedure(self):
         """The full cognitive pipeline where experience becomes skill."""
         episodic = _make_episodic()
         semantic = _make_semantic()
@@ -300,7 +304,7 @@ class TestFullPipeline:
         assert concept is not None
 
         # Step 3: From the episode, extract a procedure
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Write unit tests",
             description="Procedure for writing pytest unit tests",
             steps=[
@@ -321,7 +325,7 @@ class TestFullPipeline:
         assert len(proc.steps) == 3
 
         # Step 4: Procedure is findable by query
-        found = procedural.find_applicable_procedures("write tests")
+        found = await procedural.find_applicable_procedures("write tests")
         assert any(p.id == proc.id for p in found)
 
     def test_pipeline_with_concept_nearby_search(self):
@@ -377,10 +381,11 @@ class TestMultiAgentConsistency:
         assert a_history[0].agent_id == "agent_A"
         assert b_history[0].agent_id == "agent_B"
 
-    def test_procedural_multi_agent_isolation(self):
+    @pytest.mark.asyncio
+    async def test_procedural_multi_agent_isolation(self):
         procedural = _make_procedural()
 
-        proc_a = procedural.create_procedure_from_episode(
+        proc_a = await procedural.create_procedure_from_episode(
             name="Agent A method",
             description="Method A",
             steps=[{"order": 1, "instruction": "do A", "code_snippet": None, "tool_call": None}],
@@ -388,7 +393,7 @@ class TestMultiAgentConsistency:
             tags=[],
             agent_id="agent_A",
         )
-        proc_b = procedural.create_procedure_from_episode(
+        proc_b = await procedural.create_procedure_from_episode(
             name="Agent B method",
             description="Method B",
             steps=[{"order": 1, "instruction": "do B", "code_snippet": None, "tool_call": None}],
@@ -397,8 +402,8 @@ class TestMultiAgentConsistency:
             agent_id="agent_B",
         )
 
-        found_a = procedural.find_applicable_procedures("method A", agent_id="agent_A")
-        found_b = procedural.find_applicable_procedures("method B", agent_id="agent_B")
+        found_a = await procedural.find_applicable_procedures("method A", agent_id="agent_A")
+        found_b = await procedural.find_applicable_procedures("method B", agent_id="agent_B")
 
         assert any(p.id == proc_a.id for p in found_a)
         assert any(p.id == proc_b.id for p in found_b)
@@ -459,18 +464,19 @@ class TestStoreStatsCoherence:
         stats = semantic.get_stats()
         assert stats["concept_count"] >= 1
 
-    def test_procedural_stats_after_operations(self):
+    @pytest.mark.asyncio
+    async def test_procedural_stats_after_operations(self):
         procedural = _make_procedural()
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Test proc",
             description="A test procedure",
             steps=[{"order": 1, "instruction": "do", "code_snippet": None, "tool_call": None}],
             trigger_pattern="test",
             tags=[],
         )
-        procedural.record_procedure_outcome(proc.id, True)
-        procedural.record_procedure_outcome(proc.id, False)
-        stats = procedural.get_stats()
+        await procedural.record_procedure_outcome(proc.id, True)
+        await procedural.record_procedure_outcome(proc.id, False)
+        stats = await procedural.get_stats()
         assert stats["total_procedures"] >= 1
 
 
@@ -495,9 +501,10 @@ class TestDecayCoherence:
         updated = semantic.get_concept(concept.id)
         assert updated.reliability < initial_reliability
 
-    def test_procedural_decay_reduces_reliability(self):
+    @pytest.mark.asyncio
+    async def test_procedural_decay_reduces_reliability(self):
         procedural = _make_procedural()
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Decay test",
             description="Test decay",
             steps=[{"order": 1, "instruction": "do", "code_snippet": None, "tool_call": None}],
@@ -505,12 +512,13 @@ class TestDecayCoherence:
             tags=[],
         )
         initial_reliability = proc.reliability
-        decayed = procedural.decay_all_reliability(decay_rate=0.1)
+        decayed = await procedural.decay_all_reliability(decay_rate=0.1)
         assert decayed >= 1
-        updated = procedural.get_procedure(proc.id)
+        updated = await procedural.get_procedure(proc.id)
         assert updated.reliability < initial_reliability
 
-    def test_both_stores_decay_symmetrically(self):
+    @pytest.mark.asyncio
+    async def test_both_stores_decay_symmetrically(self):
         """Both stores should decay using the same formula at similar rates."""
         semantic = _make_semantic()
         procedural = _make_procedural()
@@ -521,7 +529,7 @@ class TestDecayCoherence:
             hdv=hdv, episode_ids=["ep1"],
         )
 
-        proc = procedural.create_procedure_from_episode(
+        proc = await procedural.create_procedure_from_episode(
             name="Decay sym test",
             description="Decay symmetry",
             steps=[{"order": 1, "instruction": "do", "code_snippet": None, "tool_call": None}],
@@ -535,10 +543,10 @@ class TestDecayCoherence:
 
         # Apply same decay rate
         semantic.decay_all_reliability(decay_rate=0.05)
-        procedural.decay_all_reliability(decay_rate=0.05)
+        await procedural.decay_all_reliability(decay_rate=0.05)
 
         concept_after = semantic.get_concept(concept.id)
-        proc_after = procedural.get_procedure(proc.id)
+        proc_after = await procedural.get_procedure(proc.id)
 
         # Both should have decayed from their initial reliability
         assert concept_after.reliability < concept_reliability_before

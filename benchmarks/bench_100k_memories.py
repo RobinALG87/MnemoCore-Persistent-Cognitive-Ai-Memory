@@ -21,8 +21,10 @@ from typing import Dict, List
 
 import numpy as np
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src to path so 'mnemocore' is importable
+_src = str(Path(__file__).resolve().parent.parent / "src")
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 from mnemocore.core.binary_hdv import BinaryHDV
 from mnemocore.core.engine import HAIMEngine

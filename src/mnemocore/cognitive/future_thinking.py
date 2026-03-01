@@ -266,11 +266,25 @@ class ScenarioStore:
     async def store(self, scenario: ScenarioNode) -> str:
         """Store a new scenario."""
         async with self._lock:
+            # Add to local index
             self._scenarios[scenario.id] = scenario
 
-            # Enforce storage limit
+            # HARD LIMIT: strictly enforce max_stored_scenarios
+            # First try gentle cleanup of low confidence
             if len(self._scenarios) > self.config.max_stored_scenarios:
                 await self._cleanup_low_confidence()
+            
+            # If still over limit, remove oldest scenarios (FIFO logic)
+            if len(self._scenarios) > self.config.max_stored_scenarios:
+                sorted_scenarios = sorted(
+                    self._scenarios.items(),
+                    key=lambda x: (x[1].last_accessed or "", x[1].confidence)
+                )
+                
+                overflow = len(self._scenarios) - self.config.max_stored_scenarios
+                for i in range(overflow):
+                    sid, _ = sorted_scenarios[i]
+                    del self._scenarios[sid]
 
             if self.config.persist_scenarios:
                 await self._persist_scenario(scenario)
@@ -382,10 +396,49 @@ class ScenarioStore:
     # Statistics
     # --------------------------------------------------------------
 
+    async def _list_active_unlocked(
+        self,
+        min_confidence: float = 0.1,
+        scenario_type: Optional[ScenarioType] = None
+    ) -> List[ScenarioNode]:
+        """
+        Internal unlocked version of list_active.
+
+        Must be called with self._lock already held.
+        """
+        active = []
+        for scenario in self._scenarios.values():
+            # Skip verified scenarios
+            if scenario.verified:
+                continue
+
+            # Apply decay
+            current_conf = scenario.apply_decay(
+                self.config.scenario_decay_lambda,
+                self.config.scenario_half_life_hours
+            )
+
+            if current_conf >= min_confidence:
+                if scenario_type is None or scenario.type == scenario_type:
+                    active.append(scenario)
+
+        # Sort by confidence descending
+        active.sort(key=lambda s: s.current_confidence(), reverse=True)
+        return active
+
+    async def list_active(
+        self,
+        min_confidence: float = 0.1,
+        scenario_type: Optional[ScenarioType] = None
+    ) -> List[ScenarioNode]:
+        """List all active scenarios above confidence threshold."""
+        async with self._lock:
+            return await self._list_active_unlocked(min_confidence, scenario_type)
+
     async def stats(self) -> Dict[str, Any]:
         """Get store statistics."""
         async with self._lock:
-            active = await self.list_active()
+            active = await self._list_active_unlocked()
             verified = [s for s in self._scenarios.values() if s.verified]
 
             by_type = {}
@@ -723,7 +776,7 @@ class EpisodeFutureSimulator:
 
         for memory_id, base_similarity in similar_memories[:3]:
             # Get multi-hop neighbors
-            neighbors = self.synapse_index.get_multi_hop_neighbors(
+            neighbors = await self.synapse_index.get_multi_hop_neighbors(
                 memory_id, depth=self.config.branching_factor
             )
 

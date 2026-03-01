@@ -66,6 +66,9 @@ def _hamming_matrix(vecs: np.ndarray) -> np.ndarray:
     """
     Vectorised pairwise Hamming distance matrix for packed uint8 arrays.
 
+    Uses scipy.spatial.distance.cdist with Hamming metric for optimal performance,
+    or falls back to fully vectorized numpy broadcasting for large arrays.
+
     Args:
         vecs: shape (N, D/8) uint8
 
@@ -74,12 +77,39 @@ def _hamming_matrix(vecs: np.ndarray) -> np.ndarray:
     """
     n = vecs.shape[0]
     dim_bits = vecs.shape[1] * 8
+
+    if n < 2:
+        return np.zeros((n, n), dtype=np.float32)
+
+    # For smaller arrays, use scipy if available (highly optimized C implementation)
+    try:
+        from scipy.spatial.distance import cdist
+        # Unpack bits for scipy (it needs the full binary representation)
+        unpacked = np.unpackbits(vecs, axis=1)
+        # cdist with 'hamming' returns normalized Hamming distance directly
+        dist = cdist(unpacked, unpacked, metric='hamming').astype(np.float32)
+        return dist
+    except ImportError:
+        pass
+
+    # Fallback: fully vectorized numpy implementation using batched processing
+    # to avoid memory explosion with very large N x N x D arrays
+    batch_size = min(64, n)  # Process in batches to manage memory
     dist = np.zeros((n, n), dtype=np.float32)
 
-    for i in range(n):
-        xor = np.bitwise_xor(vecs[i : i + 1], vecs)  # broadcast (1, D) XOR (N, D)
-        popcount = np.unpackbits(xor, axis=1).sum(axis=1).astype(np.float32)
-        dist[i] = popcount / dim_bits
+    for batch_start in range(0, n, batch_size):
+        batch_end = min(batch_start + batch_size, n)
+        batch_vecs = vecs[batch_start:batch_end]
+
+        # XOR between batch and all vectors: (batch_size, N, D/8)
+        xor_result = np.bitwise_xor(
+            batch_vecs[:, np.newaxis, :],
+            vecs[np.newaxis, :, :]
+        )
+
+        # Popcount via unpackbits and sum
+        hamming_batch = np.unpackbits(xor_result, axis=2).sum(axis=2).astype(np.float32)
+        dist[batch_start:batch_end] = hamming_batch / dim_bits
 
     return dist
 
@@ -167,6 +197,7 @@ class SemanticConsolidationWorker:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        self._task = None
         logger.info("SemanticConsolidationWorker stopped.")
 
     # ---- Scheduler ----------------------------------------------- #
@@ -228,7 +259,9 @@ class SemanticConsolidationWorker:
             nodes = [n for n in nodes if await self._node_exists(n.id)]
             if len(nodes) < self.cfg.min_cluster_size:
                 logger.info("Too few nodes after duplicate pruning.")
-                return {}
+                return {"duplicates_pruned": duplicates_pruned, "nodes_processed": 0,
+                        "clusters_formed": 0, "proto_memories_updated": 0,
+                        "elapsed_seconds": 0.0}
             vecs = np.stack([n.hdv.data for n in nodes])
 
         # 4. Semantic clustering (k-medoids)
@@ -299,7 +332,9 @@ class SemanticConsolidationWorker:
         # 6. Fire optional hook
         if self.hook:
             try:
-                await asyncio.coroutine(self.hook)(self.stats) if asyncio.iscoroutinefunction(self.hook) else self.hook(self.stats)
+                result = self.hook(self.stats)
+                if asyncio.iscoroutine(result):
+                    await result
             except Exception as e:
                 logger.warning(f"post_consolidation_hook error: {e}")
 

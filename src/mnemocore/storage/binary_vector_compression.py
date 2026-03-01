@@ -41,8 +41,10 @@ Example Usage:
 """
 
 import asyncio
-import pickle
+import json
+import aiosqlite
 import sqlite3
+import struct
 import threading
 import time
 from dataclasses import dataclass, field
@@ -126,10 +128,10 @@ class CompressedBinaryVector:
     compressed_data: bytes
     metadata: BinaryCompressionMetadata
 
-    def decompress(self, compressor: 'BinaryVectorCompressor') -> Optional[BinaryHDV]:
-        """Decompress using the provided compressor."""
+    async def decompress(self, compressor: 'BinaryVectorCompressor') -> Optional[BinaryHDV]:
+        """Decompress using the provided compressor asynchronously."""
         try:
-            return compressor.decompress(self)
+            return await compressor.decompress(self)
         except Exception as e:
             logger.error(f"Failed to decompress {self.vector_id}: {e}")
             return None
@@ -305,32 +307,43 @@ class BinaryScalarQuantizer:
         self.dimension = dimension
 
     def encode(self, vector: BinaryHDV) -> np.ndarray:
-        """Encode BinaryHDV to INT8 array."""
-        bits = np.unpackbits(vector.data)
+        """
+        Encode BinaryHDV to INT8 array using vectorized operations.
 
-        # Convert to bipolar: 0->-1, 1->+1, then pack
-        bipolar = bits.astype(np.int8) * 2 - 1
+        Packs 4 binary bits into 1 INT8 value for 2x compression.
+        Each bit is encoded as 2 bits to preserve bipolar information.
+        """
+        bits = np.unpackbits(vector.data)[:self.dimension]
 
-        packed = np.zeros(self.dimension // 4, dtype=np.int8)
-        for i in range(self.dimension // 4):
-            b0 = (bipolar[i * 4] + 1) // 2
-            b1 = (bipolar[i * 4 + 1] + 1) // 2
-            b2 = (bipolar[i * 4 + 2] + 1) // 2
-            b3 = (bipolar[i * 4 + 3] + 1) // 2
-            packed[i] = (b3 << 6) | (b2 << 4) | (b1 << 2) | b0
+        # Reshape to groups of 4 for vectorized packing
+        n_groups = self.dimension // 4
+        bits_grouped = bits[:n_groups * 4].reshape(n_groups, 4)
+
+        # Pack 4 bits per byte using bit shifts (vectorized)
+        # b0 at position 0, b1 at position 2, b2 at position 4, b3 at position 6
+        packed = (
+            (bits_grouped[:, 0].astype(np.int8) << 0) |
+            (bits_grouped[:, 1].astype(np.int8) << 2) |
+            (bits_grouped[:, 2].astype(np.int8) << 4) |
+            (bits_grouped[:, 3].astype(np.int8) << 6)
+        )
 
         return packed
 
     def decode(self, encoded: np.ndarray) -> BinaryHDV:
-        """Decode INT8 array to BinaryHDV."""
-        bits = np.zeros(self.dimension, dtype=np.uint8)
+        """
+        Decode INT8 array to BinaryHDV using vectorized operations.
 
-        for i in range(self.dimension // 4):
-            byte_val = encoded[i]
-            bits[i * 4] = (byte_val >> 0) & 0x01
-            bits[i * 4 + 1] = (byte_val >> 2) & 0x01
-            bits[i * 4 + 2] = (byte_val >> 4) & 0x01
-            bits[i * 4 + 3] = (byte_val >> 6) & 0x01
+        Extracts 4 bits from each INT8 value.
+        """
+        n_groups = len(encoded)
+
+        # Extract each bit position using bitwise AND and shifts (vectorized)
+        bits = np.zeros(n_groups * 4, dtype=np.uint8)
+        bits[0::4] = (encoded >> 0) & 0x01
+        bits[1::4] = (encoded >> 2) & 0x01
+        bits[2::4] = (encoded >> 4) & 0x01
+        bits[3::4] = (encoded >> 6) & 0x01
 
         packed = np.packbits(bits)
         return BinaryHDV(data=packed, dimension=self.dimension)
@@ -389,61 +402,69 @@ class BinaryVectorCompressor:
 
         # Storage
         self._db_path = Path(self.config.storage_path)
-        self._db_lock = threading.Lock()
-        self._init_db()
+        self._db_lock = asyncio.Lock()
+        self._conn: Optional[aiosqlite.Connection] = None
+        self._db_initialized = False
 
         # Background task
         self._compression_task: Optional[asyncio.Task] = None
         self._running = False
 
-    def _init_db(self) -> None:
-        """Initialize SQLite database."""
+    async def _init_db(self) -> None:
+        """Initialize SQLite database asynchronously."""
+        if self._db_initialized:
+            return
+
         try:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with sqlite3.connect(self._db_path, timeout=30.0) as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS compressed_vectors (
-                        vector_id TEXT PRIMARY KEY,
-                        method TEXT NOT NULL,
-                        compressed_data BLOB NOT NULL,
-                        original_dimension INTEGER NOT NULL,
-                        compressed_size_bytes INTEGER NOT NULL,
-                        compressed_at REAL NOT NULL,
-                        confidence REAL NOT NULL,
-                        tier TEXT NOT NULL,
-                        pq_codebook_id TEXT,
-                        decompression_priority INTEGER DEFAULT 0
-                    )
-                """)
+            self._conn = await aiosqlite.connect(self._db_path, timeout=30.0)
 
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS pq_codebooks (
-                        codebook_id TEXT PRIMARY KEY,
-                        created_at REAL NOT NULL,
-                        dimension INTEGER NOT NULL,
-                        n_subvectors INTEGER NOT NULL,
-                        n_bits INTEGER NOT NULL,
-                        codebook_data BLOB NOT NULL,
-                        training_vectors_count INTEGER
-                    )
-                """)
+            await self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS compressed_vectors (
+                    vector_id TEXT PRIMARY KEY,
+                    method TEXT NOT NULL,
+                    compressed_data BLOB NOT NULL,
+                    original_dimension INTEGER NOT NULL,
+                    compressed_size_bytes INTEGER NOT NULL,
+                    compressed_at REAL NOT NULL,
+                    confidence REAL NOT NULL,
+                    tier TEXT NOT NULL,
+                    pq_codebook_id TEXT,
+                    decompression_priority INTEGER DEFAULT 0
+                )
+            """)
 
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS compression_queue (
-                        vector_id TEXT PRIMARY KEY,
-                        added_at REAL NOT NULL,
-                        priority REAL DEFAULT 0.0,
-                        attempts INTEGER DEFAULT 0
-                    )
-                """)
+            await self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS pq_codebooks (
+                    codebook_id TEXT PRIMARY KEY,
+                    created_at REAL NOT NULL,
+                    dimension INTEGER NOT NULL,
+                    n_subvectors INTEGER NOT NULL,
+                    n_bits INTEGER NOT NULL,
+                    codebook_data BLOB NOT NULL,
+                    training_vectors_count INTEGER
+                )
+            """)
 
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_cv_tier ON compressed_vectors(tier)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_cv_at ON compressed_vectors(compressed_at)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_cq_prio ON compression_queue(priority, added_at)")
+            await self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS compression_queue (
+                    vector_id TEXT PRIMARY KEY,
+                    added_at REAL NOT NULL,
+                    priority REAL DEFAULT 0.0,
+                    attempts INTEGER DEFAULT 0
+                )
+            """)
 
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
+            await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_cv_tier ON compressed_vectors(tier)")
+            await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_cv_at ON compressed_vectors(compressed_at)")
+            await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_cq_prio ON compression_queue(priority, added_at)")
+
+            await self._conn.execute("PRAGMA journal_mode=WAL")
+            await self._conn.execute("PRAGMA synchronous=NORMAL")
+
+            await self._conn.commit()
+            self._db_initialized = True
 
         except Exception as e:
             logger.error(f"Failed to initialize compression DB: {e}")
@@ -452,7 +473,7 @@ class BinaryVectorCompressor:
     # Compression API
     # ======================================================================
 
-    def compress(
+    async def compress(
         self,
         vector_id: str,
         vector: BinaryHDV,
@@ -531,11 +552,11 @@ class BinaryVectorCompressor:
             metadata=metadata,
         )
 
-        self._store_compressed(compressed)
+        await self._store_compressed(compressed)
         return compressed
 
-    def decompress(self, compressed: CompressedBinaryVector) -> BinaryHDV:
-        """Decompress a compressed vector."""
+    async def decompress(self, compressed: CompressedBinaryVector) -> BinaryHDV:
+        """Decompress a compressed vector asynchronously."""
         if compressed.method == BinaryCompressionMethod.NONE:
             return BinaryHDV.from_bytes(
                 compressed.compressed_data,
@@ -549,7 +570,7 @@ class BinaryVectorCompressor:
         if compressed.method == BinaryCompressionMethod.PRODUCT_PQ:
             if self.pq.codebooks is None:
                 if compressed.metadata.pq_codebook_id:
-                    self._load_pq_codebook(compressed.metadata.pq_codebook_id)
+                    await self._load_pq_codebook(compressed.metadata.pq_codebook_id)
                 else:
                     raise RuntimeError("Cannot decompress PQ: no codebook")
 
@@ -558,11 +579,17 @@ class BinaryVectorCompressor:
 
         raise ValueError(f"Unknown method: {compressed.method}")
 
-    def get_compressed(self, vector_id: str) -> Optional[CompressedBinaryVector]:
-        """Retrieve compressed vector from storage."""
-        try:
-            with sqlite3.connect(self._db_path, timeout=5.0) as conn:
-                row = conn.execute(
+    async def get_compressed(self, vector_id: str) -> Optional[CompressedBinaryVector]:
+        """Retrieve compressed vector from storage asynchronously."""
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return None
+
+            try:
+                cursor = await self._conn.execute(
                     """
                     SELECT vector_id, method, compressed_data, original_dimension,
                            compressed_size_bytes, compressed_at, confidence, tier,
@@ -570,14 +597,15 @@ class BinaryVectorCompressor:
                     FROM compressed_vectors WHERE vector_id = ?
                     """,
                     (vector_id,)
-                ).fetchone()
+                )
+                row = await cursor.fetchone()
 
                 if row:
                     return self._row_to_compressed(row)
-        except Exception as e:
-            logger.error(f"Failed to get compressed {vector_id}: {e}")
+            except Exception as e:
+                logger.error(f"Failed to get compressed {vector_id}: {e}")
 
-        return None
+            return None
 
     # ======================================================================
     # Method Selection
@@ -603,27 +631,49 @@ class BinaryVectorCompressor:
     # PQ Codebook Management
     # ======================================================================
 
-    def train_pq(self, vectors: List[BinaryHDV]) -> str:
+    async def train_pq(self, vectors: List[BinaryHDV]) -> str:
         """Train PQ codebook on vectors."""
         logger.info(f"Training PQ on {len(vectors)} vectors")
         codebook_id = self.pq.train(vectors)
         self._pq_codebook_id = codebook_id
         self._pq_trained_at = datetime.now()
-        self._save_pq_codebook(codebook_id)
+        await self._save_pq_codebook(codebook_id)
         return codebook_id
 
-    def _save_pq_codebook(self, codebook_id: str) -> None:
-        """Save PQ codebook to database."""
-        try:
-            codebook_data = pickle.dumps({
-                "codebooks": self.pq.codebooks,
-                "dimension": self.pq.dimension,
-                "n_subvectors": self.pq.n_subvectors,
-                "n_bits": self.pq.n_bits,
-            })
+    async def _save_pq_codebook(self, codebook_id: str) -> None:
+        """
+        Save PQ codebook to database using safe serialization.
 
-            with sqlite3.connect(self._db_path, timeout=10.0) as conn:
-                conn.execute(
+        Uses numpy tobytes() and JSON metadata instead of pickle.
+        """
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                logger.error("Database connection not initialized")
+                return
+
+            try:
+                if self.pq.codebooks is None:
+                    raise ValueError("No codebooks to save")
+
+                # Store metadata as JSON
+                metadata = {
+                    "dimension": self.pq.dimension,
+                    "n_subvectors": self.pq.n_subvectors,
+                    "n_bits": self.pq.n_bits,
+                    "n_centroids": self.pq.n_centroids,
+                    "subvector_dim": self.pq.subvector_dim,
+                    "codebooks_shape": list(self.pq.codebooks.shape),
+                    "codebooks_dtype": str(self.pq.codebooks.dtype),
+                }
+                metadata_json = json.dumps(metadata)
+
+                # Store codebooks as raw bytes
+                codebook_data = self.pq.codebooks.tobytes()
+
+                await self._conn.execute(
                     """
                     INSERT INTO pq_codebooks
                     (codebook_id, created_at, dimension, n_subvectors, n_bits, codebook_data)
@@ -633,73 +683,132 @@ class BinaryVectorCompressor:
                      self.pq.n_subvectors, self.pq.n_bits, codebook_data)
                 )
 
-            logger.info(f"Saved PQ codebook {codebook_id}")
+                # Store metadata in a separate column or table
+                # Check if metadata column exists, if not add it
+                try:
+                    await self._conn.execute(
+                        "ALTER TABLE pq_codebooks ADD COLUMN metadata TEXT"
+                    )
+                except aiosqlite.OperationalError:
+                    pass  # Column already exists
 
-        except Exception as e:
-            logger.error(f"Failed to save codebook: {e}")
+                await self._conn.execute(
+                    "UPDATE pq_codebooks SET metadata = ? WHERE codebook_id = ?",
+                    (metadata_json, codebook_id)
+                )
 
-    def _load_pq_codebook(self, codebook_id: str) -> bool:
-        """Load PQ codebook from database."""
-        try:
-            with sqlite3.connect(self._db_path, timeout=10.0) as conn:
-                row = conn.execute(
-                    "SELECT codebook_data FROM pq_codebooks WHERE codebook_id = ?",
+                await self._conn.commit()
+
+                logger.info(f"Saved PQ codebook {codebook_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to save codebook: {e}")
+
+    async def _load_pq_codebook(self, codebook_id: str) -> bool:
+        """
+        Load PQ codebook from database using safe deserialization.
+
+        Uses numpy frombuffer() and JSON metadata instead of pickle.
+        """
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return False
+
+            try:
+                cursor = await self._conn.execute(
+                    "SELECT codebook_data, metadata FROM pq_codebooks WHERE codebook_id = ?",
                     (codebook_id,)
-                ).fetchone()
+                )
+                row = await cursor.fetchone()
 
                 if row:
-                    data = pickle.loads(row[0])
-                    self.pq.codebooks = data["codebooks"]
-                    self.pq.dimension = data["dimension"]
-                    self.pq.n_subvectors = data["n_subvectors"]
-                    self.pq.n_bits = data["n_bits"]
-                    self.pq.subvector_dim = self.pq.dimension // self.pq.n_subvectors
+                    codebook_data = row[0]
+                    metadata_json = row[1] if len(row) > 1 else None
+
+                    if metadata_json:
+                        # Safe path: use JSON metadata
+                        metadata = json.loads(metadata_json)
+                        shape = tuple(metadata["codebooks_shape"])
+                        dtype = np.dtype(metadata["codebooks_dtype"])
+
+                        self.pq.codebooks = np.frombuffer(codebook_data, dtype=dtype).reshape(shape).copy()
+                        self.pq.dimension = metadata["dimension"]
+                        self.pq.n_subvectors = metadata["n_subvectors"]
+                        self.pq.n_bits = metadata["n_bits"]
+                        self.pq.n_centroids = metadata.get("n_centroids", 2 ** metadata["n_bits"])
+                        self.pq.subvector_dim = metadata.get("subvector_dim", metadata["dimension"] // metadata["n_subvectors"])
+                    else:
+                        # SECURITY: Legacy pickle-based codebooks are rejected (RCE risk).
+                        # Retrain PQ codebooks to generate safe JSON-based metadata.
+                        logger.error(
+                            f"Codebook {codebook_id} has no JSON metadata. "
+                            "Legacy pickle-based codebooks are no longer supported "
+                            "due to remote code execution risk. Please retrain."
+                        )
+                        return False
 
                     self._pq_codebook_id = codebook_id
                     logger.info(f"Loaded PQ codebook {codebook_id}")
                     return True
 
-        except Exception as e:
-            logger.error(f"Failed to load codebook {codebook_id}: {e}")
+            except Exception as e:
+                logger.error(f"Failed to load codebook {codebook_id}: {e}")
 
-        return False
+            return False
 
-    def get_latest_codebook_id(self) -> Optional[str]:
+    async def get_latest_codebook_id(self) -> Optional[str]:
         """Get most recent PQ codebook ID."""
-        try:
-            with sqlite3.connect(self._db_path, timeout=5.0) as conn:
-                row = conn.execute(
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return None
+
+            try:
+                cursor = await self._conn.execute(
                     "SELECT codebook_id FROM pq_codebooks ORDER BY created_at DESC LIMIT 1"
-                ).fetchone()
+                )
+                row = await cursor.fetchone()
                 if row:
                     return row[0]
-        except Exception as e:
-            logger.error(f"Failed to get codebook: {e}")
+            except Exception as e:
+                logger.error(f"Failed to get codebook: {e}")
 
-        return None
+            return None
 
     # ======================================================================
     # Auto-Compression Queue
     # ======================================================================
 
-    def queue_for_compression(self, vector_id: str, priority: float = 0.0) -> None:
-        """Add vector to compression queue."""
-        try:
-            with sqlite3.connect(self._db_path, timeout=5.0) as conn:
-                conn.execute(
+    async def queue_for_compression(self, vector_id: str, priority: float = 0.0) -> None:
+        """Add vector to compression queue asynchronously."""
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return
+
+            try:
+                await self._conn.execute(
                     "INSERT OR REPLACE INTO compression_queue (vector_id, added_at, priority) VALUES (?, ?, ?)",
                     (vector_id, datetime.now().timestamp(), priority)
                 )
-        except Exception as e:
-            logger.error(f"Failed to queue {vector_id}: {e}")
+                await self._conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to queue {vector_id}: {e}")
 
-    def process_compression_queue(
+    async def process_compression_queue(
         self,
         get_vector_func: Callable[[str], Optional[Tuple[BinaryHDV, float, str]]],
         max_batch: int = None,
     ) -> Dict[str, int]:
         """
-        Process vectors in compression queue.
+        Process vectors in compression queue asynchronously.
 
         Args:
             get_vector_func: Callback returning (vector, confidence, tier) or None
@@ -713,15 +822,22 @@ class BinaryVectorCompressor:
         stats["failed"] = 0
         stats["skipped"] = 0
 
-        try:
-            with sqlite3.connect(self._db_path, timeout=30.0) as conn:
-                rows = conn.execute(
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return stats
+
+            try:
+                cursor = await self._conn.execute(
                     """
                     SELECT vector_id FROM compression_queue
                     ORDER BY priority DESC, added_at ASC LIMIT ?
                     """,
                     (max_batch,)
-                ).fetchall()
+                )
+                rows = await cursor.fetchall()
 
                 for (vector_id,) in rows:
                     try:
@@ -731,10 +847,10 @@ class BinaryVectorCompressor:
                             continue
 
                         vector, confidence, tier = result
-                        compressed = self.compress(vector_id, vector, confidence, tier)
+                        compressed = await self.compress(vector_id, vector, confidence, tier)
                         stats[compressed.method.value] += 1
 
-                        conn.execute(
+                        await self._conn.execute(
                             "DELETE FROM compression_queue WHERE vector_id = ?",
                             (vector_id,)
                         )
@@ -742,13 +858,15 @@ class BinaryVectorCompressor:
                     except Exception as e:
                         logger.error(f"Failed to compress {vector_id}: {e}")
                         stats["failed"] += 1
-                        conn.execute(
+                        await self._conn.execute(
                             "UPDATE compression_queue SET attempts = attempts + 1 WHERE vector_id = ?",
                             (vector_id,)
                         )
 
-        except Exception as e:
-            logger.error(f"Failed to process queue: {e}")
+                await self._conn.commit()
+
+            except Exception as e:
+                logger.error(f"Failed to process queue: {e}")
 
         return stats
 
@@ -756,11 +874,18 @@ class BinaryVectorCompressor:
     # Storage Helpers
     # ======================================================================
 
-    def _store_compressed(self, compressed: CompressedBinaryVector) -> None:
-        """Store compressed vector."""
-        try:
-            with sqlite3.connect(self._db_path, timeout=10.0) as conn:
-                conn.execute(
+    async def _store_compressed(self, compressed: CompressedBinaryVector) -> None:
+        """Store compressed vector asynchronously."""
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                logger.error("Database connection not initialized")
+                return
+
+            try:
+                await self._conn.execute(
                     """
                     INSERT OR REPLACE INTO compressed_vectors
                     (vector_id, method, compressed_data, original_dimension,
@@ -774,8 +899,9 @@ class BinaryVectorCompressor:
                      compressed.metadata.tier, compressed.metadata.pq_codebook_id,
                      compressed.metadata.decompression_priority)
                 )
-        except Exception as e:
-            logger.error(f"Failed to store compressed: {e}")
+                await self._conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to store compressed: {e}")
 
     def _row_to_compressed(self, row) -> CompressedBinaryVector:
         """Convert DB row to CompressedBinaryVector."""
@@ -806,8 +932,8 @@ class BinaryVectorCompressor:
     # Statistics
     # ======================================================================
 
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get compression statistics."""
+    async def get_statistics(self) -> Dict[str, Any]:
+        """Get compression statistics asynchronously."""
         stats = {
             "enabled": self.config.enabled,
             "dimension": self.dimension,
@@ -817,53 +943,83 @@ class BinaryVectorCompressor:
             "scalar_compression_ratio": self.scalar_q.get_compression_ratio(),
         }
 
-        try:
-            with sqlite3.connect(self._db_path, timeout=5.0) as conn:
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return stats
+
+            try:
                 for method in BinaryCompressionMethod:
-                    row = conn.execute(
+                    cursor = await self._conn.execute(
                         "SELECT COUNT(*), SUM(compressed_size_bytes) FROM compressed_vectors WHERE method = ?",
                         (method.value,)
-                    ).fetchone()
+                    )
+                    row = await cursor.fetchone()
                     stats[f"{method.value}_count"] = row[0] or 0
                     stats[f"{method.value}_total_bytes"] = row[1] or 0
 
-                row = conn.execute("SELECT COUNT(*) FROM compression_queue").fetchone()
+                cursor = await self._conn.execute("SELECT COUNT(*) FROM compression_queue")
+                row = await cursor.fetchone()
                 stats["queue_size"] = row[0]
 
-                row = conn.execute("SELECT COUNT(*) FROM pq_codebooks").fetchone()
+                cursor = await self._conn.execute("SELECT COUNT(*) FROM pq_codebooks")
+                row = await cursor.fetchone()
                 stats["codebook_count"] = row[0]
 
-        except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
+            except Exception as e:
+                logger.error(f"Failed to get stats: {e}")
 
         return stats
 
-    def cleanup_old_codebooks(self, keep_latest: int = 3) -> int:
-        """Remove old PQ codebooks."""
+    async def cleanup_old_codebooks(self, keep_latest: int = 3) -> int:
+        """
+        Remove old PQ codebooks asynchronously.
+
+        BUG FIX: Changed fetchone() to fetchall() - the original code used fetchone()
+        which returns a single row, but then tried to iterate over it as if it were
+        a list of rows. This would cause the cleanup to silently fail.
+
+        Args:
+            keep_latest: Number of most recent codebooks to keep
+
+        Returns:
+            Number of codebooks deleted
+        """
         deleted = 0
-        try:
-            with sqlite3.connect(self._db_path, timeout=10.0) as conn:
-                rows = conn.execute(
+        async with self._db_lock:
+            if not self._db_initialized:
+                await self._init_db()
+
+            if not self._conn:
+                return deleted
+
+            try:
+                cursor = await self._conn.execute(
                     """
                     SELECT codebook_id FROM pq_codebooks
                     ORDER BY created_at DESC LIMIT -1 OFFSET ?
                     """,
                     (keep_latest,)
-                ).fetchone()
+                )
+                rows = await cursor.fetchall()  # FIXED: was fetchone()
 
-                if rows:
-                    for (codebook_id,) in rows:
-                        row = conn.execute(
-                            "SELECT COUNT(*) FROM compressed_vectors WHERE pq_codebook_id = ?",
-                            (codebook_id,)
-                        ).fetchone()
+                for (codebook_id,) in rows:
+                    cursor = await self._conn.execute(
+                        "SELECT COUNT(*) FROM compressed_vectors WHERE pq_codebook_id = ?",
+                        (codebook_id,)
+                    )
+                    row = await cursor.fetchone()
 
-                        if row[0] == 0:
-                            conn.execute("DELETE FROM pq_codebooks WHERE codebook_id = ?", (codebook_id,))
-                            deleted += 1
+                    if row[0] == 0:
+                        await self._conn.execute("DELETE FROM pq_codebooks WHERE codebook_id = ?", (codebook_id,))
+                        deleted += 1
 
-        except Exception as e:
-            logger.error(f"Failed to cleanup: {e}")
+                await self._conn.commit()
+
+            except Exception as e:
+                logger.error(f"Failed to cleanup: {e}")
 
         return deleted
 

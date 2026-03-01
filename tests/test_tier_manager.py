@@ -136,9 +136,7 @@ class TestTierManager:
         if victim:
             save_ok = await tier_manager._warm_storage.save(victim)
             if save_ok:
-                async with tier_manager.lock:
-                    if victim.id in tier_manager.hot:
-                        del tier_manager.hot[victim.id]
+                await tier_manager._hot_storage.delete(victim.id)
 
         assert "n1" not in tier_manager.hot
         assert "n2" in tier_manager.hot

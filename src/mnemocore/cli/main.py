@@ -14,14 +14,149 @@ Usage:
 import asyncio
 import json
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, Any
 
 import click
 
 from loguru import logger
 
+
+# ============================================================================
+# Engine Lifecycle Decorator / Context Manager
+# ============================================================================
+
+@asynccontextmanager
+async def engine_context(config_path: Optional[Path] = None):
+    """
+    Async context manager for HAIMEngine lifecycle.
+
+    Handles:
+    - Loading config
+    - Creating engine
+    - Initializing
+    - Cleanup on exit
+
+    Usage:
+        async with engine_context(config_path) as engine:
+            result = await engine.query("test")
+    """
+    from mnemocore.core.engine import HAIMEngine
+    from mnemocore.core.config import load_config
+
+    # Load config
+    config = load_config(config_path) if config_path and config_path.exists() else None
+
+    # Create engine
+    engine = HAIMEngine(config=config)
+
+    try:
+        # Initialize
+        await engine.initialize()
+        yield engine
+    finally:
+        # Cleanup
+        await engine.close()
+
+
+def with_engine(func: Callable) -> Callable:
+    """
+    Decorator that handles the complete engine lifecycle for CLI commands.
+
+    This decorator:
+    1. Extracts config_path from click context
+    2. Creates and initializes the engine
+    3. Passes the engine to the wrapped function
+    4. Handles cleanup on exit
+    5. Runs the async function via asyncio.run()
+
+    The wrapped function should be async and accept 'engine' as first argument after ctx.
+
+    Usage:
+        @cli.command()
+        @click.pass_context
+        @with_engine
+        async def my_command(ctx, engine, ...other_args...):
+            result = await engine.query("test")
+            # No need to close engine - decorator handles it
+
+    Args:
+        func: Async function to wrap. Should accept (ctx, engine, ...) or (engine, ...)
+
+    Returns:
+        Wrapped function that handles engine lifecycle
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Find click context in args
+        ctx = None
+        for arg in args:
+            if isinstance(arg, click.Context):
+                ctx = arg
+                break
+
+        if ctx is None:
+            ctx = click.get_current_context()
+
+        # Get config path from context
+        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
+
+        async def run_with_engine():
+            async with engine_context(config_path) as engine:
+                # Check if function expects ctx as first arg
+                import inspect
+                sig = inspect.signature(func)
+                params = list(sig.parameters.keys())
+
+                if params and params[0] in ('ctx', 'context'):
+                    return await func(*args, engine=engine, **kwargs)
+                else:
+                    # Inject engine as first arg after ctx
+                    new_args = list(args)
+                    # Find position to insert engine
+                    if 'engine' in kwargs:
+                        return await func(*args, **kwargs)
+                    else:
+                        return await func(engine, *args[1:] if len(args) > 1 and isinstance(args[0], click.Context) else args, **kwargs)
+
+        return asyncio.run(run_with_engine())
+
+    return wrapper
+
+
+def with_engine_simple(func: Callable) -> Callable:
+    """
+    Simplified decorator for commands that only need the engine.
+
+    Usage:
+        @cli.command()
+        @click.pass_context
+        @with_engine_simple
+        async def my_command(ctx, engine):
+            result = await engine.query("test")
+            click.echo(str(result))
+
+    The decorated function must be async and accept (ctx, engine, ...).
+    """
+    @wraps(func)
+    def wrapper(ctx, *args, **kwargs):
+        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
+
+        async def run():
+            async with engine_context(config_path) as engine:
+                return await func(ctx, engine, *args, **kwargs)
+
+        return asyncio.run(run())
+
+    return wrapper
+
+
+# ============================================================================
+# CLI Group and Main Entry
+# ============================================================================
 
 @click.group()
 @click.option(
@@ -67,6 +202,10 @@ def cli(ctx, config: Optional[str], verbose: bool, data_dir: str):
         logger.add(sys.stderr, level="INFO")
 
 
+# ============================================================================
+# CLI Commands
+# ============================================================================
+
 @cli.command()
 @click.argument("content", required=True)
 @click.option(
@@ -106,20 +245,8 @@ def store(ctx, content: str, metadata: Optional[str], tags: tuple, importance: f
     Example:
         mnemocore store "Robin gillar Python programmering"
     """
-    async def _store():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config, HAIMConfig
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _store(ctx, engine):
         # Build metadata
         meta = {}
         if metadata:
@@ -138,13 +265,8 @@ def store(ctx, content: str, metadata: Optional[str], tags: tuple, importance: f
         meta["cli_stored"] = True
         meta["stored_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Store memory
         try:
-            memory_id = await asyncio.to_thread(
-                engine.store,
-                content,
-                metadata=meta if meta else None,
-            )
+            memory_id = await engine.store(content, metadata=meta if meta else None)
 
             if output_json:
                 result = {
@@ -167,10 +289,8 @@ def store(ctx, content: str, metadata: Optional[str], tags: tuple, importance: f
                 click.echo(json.dumps(error_result, indent=2))
             else:
                 click.echo(f"Error storing memory: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_store())
+    return _store(ctx)
 
 
 @cli.command()
@@ -210,27 +330,11 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
         mnemocore recall "vad gillar Robin?"
         mnemocore recall "Python" -k 10 --json
     """
-    async def _recall():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _recall(ctx, engine):
         try:
             # Query memories
-            results = await asyncio.to_thread(
-                engine.query,
-                query,
-                top_k=top_k,
-            )
+            results = await engine.query(query, top_k=top_k)
 
             # Filter by score
             filtered = [(mid, score) for mid, score in results if score >= min_score]
@@ -239,7 +343,7 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
                 # Get full memory details
                 memories = []
                 for memory_id, score in filtered:
-                    node = await engine.tier_manager.get_memory(memory_id)
+                    node = await engine.get_memory(memory_id)
                     if node:
                         memories.append({
                             "id": memory_id,
@@ -266,7 +370,7 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
                 click.echo()
 
                 for i, (memory_id, score) in enumerate(filtered[:top_k], 1):
-                    node = await engine.tier_manager.get_memory(memory_id)
+                    node = await engine.get_memory(memory_id)
                     if node:
                         content_preview = node.content[:80] + "..." if len(node.content) > 80 else node.content
                         click.echo(f"{i}. [{memory_id}] (score: {score:.2f}) [{node.tier.upper()}]")
@@ -285,10 +389,8 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
                 click.echo(json.dumps(error_result, indent=2))
             else:
                 click.echo(f"Error recalling memories: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_recall())
+    return _recall(ctx)
 
 
 @cli.command()
@@ -325,25 +427,14 @@ def dream(ctx, now: bool, report_path: Optional[str], output_json: bool):
         mnemocore dream --now
         mnemocore dream --now --report-path dream_report.json
     """
-    async def _dream():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
+    if not now:
+        click.echo("Use --now flag to trigger dream session immediately.")
+        click.echo("Example: mnemocore dream --now")
+        return
+
+    @with_engine_simple
+    async def _dream(ctx, engine):
         from mnemocore.subconscious.dream_pipeline import DreamPipeline, DreamPipelineConfig
-
-        if not now:
-            click.echo("Use --now flag to trigger dream session immediately.")
-            click.echo("Example: mnemocore dream --now")
-            return
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
 
         try:
             click.echo("Starting dream session...", err=True)
@@ -401,10 +492,8 @@ def dream(ctx, now: bool, report_path: Optional[str], output_json: bool):
                 click.echo(json.dumps(error_result, indent=2))
             else:
                 click.echo(f"Error running dream session: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_dream())
+    return _dream(ctx)
 
 
 @cli.command()
@@ -431,26 +520,14 @@ def stats(ctx, output_json: bool, tier: str):
         mnemocore stats --json
         mnemocore stats -t hot
     """
-    async def _stats():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _stats(ctx, engine):
         try:
             # Get stats
-            stats = await engine.get_stats()
+            stats_data = await engine.get_stats()
 
             if output_json:
-                click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+                click.echo(json.dumps(stats_data, indent=2, ensure_ascii=False))
             else:
                 # Format stats for display
                 click.echo("=" * 50)
@@ -458,13 +535,13 @@ def stats(ctx, output_json: bool, tier: str):
                 click.echo("=" * 50)
                 click.echo()
 
-                click.echo(f"Engine Version: {stats.get('engine_version', 'unknown')}")
-                click.echo(f"Dimension: {stats.get('dimension', 'unknown')}")
-                click.echo(f"Encoding: {stats.get('encoding', 'unknown')}")
+                click.echo(f"Engine Version: {stats_data.get('engine_version', 'unknown')}")
+                click.echo(f"Dimension: {stats_data.get('dimension', 'unknown')}")
+                click.echo(f"Encoding: {stats_data.get('encoding', 'unknown')}")
                 click.echo()
 
                 # Tier stats
-                tiers = stats.get("tiers", {})
+                tiers = stats_data.get("tiers", {})
                 click.echo("Memory Tiers:")
                 if tiers:
                     if tier in ("hot", "all"):
@@ -479,22 +556,22 @@ def stats(ctx, output_json: bool, tier: str):
                 click.echo()
 
                 # Concept stats
-                click.echo(f"Concepts:    {stats.get('concepts_count', 0):>6}")
-                click.echo(f"Symbols:     {stats.get('symbols_count', 0):>6}")
-                click.echo(f"Synapses:    {stats.get('synapses_count', 0):>6}")
+                click.echo(f"Concepts:    {stats_data.get('concepts_count', 0):>6}")
+                click.echo(f"Symbols:     {stats_data.get('symbols_count', 0):>6}")
+                click.echo(f"Synapses:    {stats_data.get('synapses_count', 0):>6}")
                 click.echo()
 
                 # Background workers
-                workers = stats.get("background_workers", {})
+                workers = stats_data.get("background_workers", {})
                 if workers:
                     click.echo("Background Workers:")
                     for name, worker in workers.items():
-                        status = "running" if worker.get("running") else "stopped"
-                        click.echo(f"  {name}: {status}")
+                        status_str = "running" if worker.get("running") else "stopped"
+                        click.echo(f"  {name}: {status_str}")
                     click.echo()
 
                 # Gap detector
-                gap = stats.get("gap_detector", {})
+                gap = stats_data.get("gap_detector", {})
                 if gap:
                     click.echo("Gap Detection:")
                     click.echo(f"  Gaps detected: {gap.get('gaps_detected', 0)}")
@@ -502,9 +579,9 @@ def stats(ctx, output_json: bool, tier: str):
                     click.echo()
 
                 # Subconscious queue
-                backlog = stats.get("subconscious_backlog", 0)
+                backlog = stats_data.get("subconscious_backlog", 0)
                 if backlog > 0:
-                    click.echo(f"Subconscious Queue: {backbacklog} pending")
+                    click.echo(f"Subconscious Queue: {backlog} pending")
 
                 click.echo("=" * 50)
 
@@ -514,10 +591,8 @@ def stats(ctx, output_json: bool, tier: str):
                 click.echo(json.dumps(error_result, indent=2))
             else:
                 click.echo(f"Error getting stats: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_stats())
+    return _stats(ctx)
 
 
 @cli.command()
@@ -562,20 +637,8 @@ def export(ctx, format: str, output: str, collection: str, limit: Optional[int],
         mnemocore export --format json -o backup.json
         mnemocore export -f jsonl -o backup.jsonl -c hot --limit 1000
     """
-    async def _export():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _export(ctx, engine):
         try:
             output_path = Path(output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -631,10 +694,8 @@ def export(ctx, format: str, output: str, collection: str, limit: Optional[int],
 
         except Exception as e:
             click.echo(f"Error exporting memories: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_export())
+    return _export(ctx)
 
 
 @cli.command()
@@ -654,23 +715,11 @@ def delete(ctx, memory_id: str, force: bool):
         mnemocore delete mem_abc123
         mnemocore delete mem_abc123 --force
     """
-    async def _delete():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _delete(ctx, engine):
         try:
             # Get memory info first
-            node = await engine.tier_manager.get_memory(memory_id)
+            node = await engine.get_memory(memory_id)
 
             if not node:
                 click.echo(f"Memory not found: {memory_id}", err=True)
@@ -682,19 +731,13 @@ def delete(ctx, memory_id: str, force: bool):
                 click.confirm("Do you want to delete this memory?", abort=True)
 
             # Delete memory
-            success = await asyncio.to_thread(engine.delete_memory, memory_id)
-
-            if success:
-                click.echo(f"Deleted memory: {memory_id}")
-            else:
-                click.echo(f"Failed to delete memory: {memory_id}", err=True)
+            await engine.delete_memory(memory_id)
+            click.echo(f"Deleted memory: {memory_id}")
 
         except Exception as e:
             click.echo(f"Error deleting memory: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_delete())
+    return _delete(ctx)
 
 
 @cli.command()
@@ -714,22 +757,10 @@ def get(ctx, memory_id: str, output_json: bool):
         mnemocore get mem_abc123
         mnemocore get mem_abc123 --json
     """
-    async def _get():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _get(ctx, engine):
         try:
-            node = await engine.tier_manager.get_memory(memory_id)
+            node = await engine.get_memory(memory_id)
 
             if not node:
                 click.echo(f"Memory not found: {memory_id}", err=True)
@@ -762,10 +793,8 @@ def get(ctx, memory_id: str, output_json: bool):
 
         except Exception as e:
             click.echo(f"Error getting memory: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_get())
+    return _get(ctx)
 
 
 @cli.command()
@@ -777,37 +806,23 @@ def health(ctx):
     Example:
         mnemocore health
     """
-    async def _health():
-        from mnemocore.core.engine import HAIMEngine
-        from mnemocore.core.config import load_config
-
-        # Load config
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
-        config = load_config(config_path) if config_path and config_path.exists() else None
-
-        # Create engine
-        engine = HAIMEngine(config=config)
-
-        # Initialize
-        await engine.initialize()
-
+    @with_engine_simple
+    async def _health(ctx, engine):
         try:
-            health = await engine.health_check()
+            health_data = await engine.health_check()
 
             click.echo("MnemoCore Health Status")
             click.echo("=" * 40)
             click.echo()
 
-            status = health.get("status", "unknown")
-            status_color = "green" if status == "healthy" else "yellow" if status == "degraded" else "red"
-
+            status = health_data.get("status", "unknown")
             click.echo(f"Status: {status}")
-            click.echo(f"Initialized: {health.get('initialized', False)}")
-            click.echo(f"Timestamp: {health.get('timestamp', 'N/A')}")
+            click.echo(f"Initialized: {health_data.get('initialized', False)}")
+            click.echo(f"Timestamp: {health_data.get('timestamp', 'N/A')}")
             click.echo()
 
             # Tier stats
-            tiers = health.get("tiers", {})
+            tiers = health_data.get("tiers", {})
             if tiers:
                 click.echo("Tiers:")
                 total_memories = 0
@@ -820,7 +835,7 @@ def health(ctx):
                 click.echo()
 
             # Background workers
-            workers = health.get("background_workers", {})
+            workers = health_data.get("background_workers", {})
             if workers:
                 click.echo("Background Workers:")
                 for name, worker in workers.items():
@@ -830,7 +845,7 @@ def health(ctx):
                 click.echo()
 
             # Qdrant
-            qdrant = health.get("qdrant")
+            qdrant = health_data.get("qdrant")
             if qdrant:
                 if "error" in qdrant:
                     click.echo(f"Qdrant: Error - {qdrant['error']}")
@@ -839,10 +854,8 @@ def health(ctx):
 
         except Exception as e:
             click.echo(f"Error checking health: {e}", err=True)
-        finally:
-            await engine.close()
 
-    asyncio.run(_health())
+    return _health(ctx)
 
 
 # Import and register additional commands

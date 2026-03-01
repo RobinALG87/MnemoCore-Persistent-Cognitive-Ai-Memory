@@ -55,7 +55,7 @@ async def test_auto_bind_on_store(test_engine):
     
     # Check if a synapse was automatically formed
     async with test_engine.synapse_lock:
-        syn = test_engine._synapse_index.get(mid1, mid2)
+        syn = await test_engine._synapse_index.get(mid1, mid2)
         assert syn is not None, "Synapse should be auto-created between similar concepts"
         assert syn.fire_count >= 1
 

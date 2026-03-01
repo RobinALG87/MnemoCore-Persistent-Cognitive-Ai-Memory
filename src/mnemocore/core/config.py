@@ -4,24 +4,25 @@ HAIM Configuration System
 Centralized, validated configuration with environment variable overrides.
 
 Organization:
-  §1 — Infrastructure  (TierConfig, LTPConfig, HysteresisConfig, RedisConfig,
+  Section 1 — Infrastructure  (TierConfig, LTPConfig, HysteresisConfig, RedisConfig,
                          QdrantConfig, GPUConfig, PathsConfig)
-  §2 — API & Security  (SecurityConfig, ObservabilityConfig, MCPConfig, SearchConfig)
-  §3 — Encoding & Core (EncodingConfig, AttentionMaskingConfig, ConsolidationConfig,
+  Section 2 — API & Security  (SecurityConfig, ObservabilityConfig, MCPConfig, SearchConfig)
+  Section 3 — Encoding & Core (EncodingConfig, AttentionMaskingConfig, ConsolidationConfig,
                          SynapseConfig, ContextConfig, PreferenceConfig, AnticipatoryConfig)
-  §4 — Subconscious    (DreamLoopConfig, SubconsciousAIConfig, DreamingConfig)
-  §5 — Performance     (PerformanceConfig, VectorCompressionConfig, BackupConfig)
-  §6 — Cognitive (Ph5) (WorkingMemoryConfig, EpisodicConfig, SemanticConfig,
+  Section 4 — Subconscious    (DreamLoopConfig, SubconsciousAIConfig, DreamingConfig)
+  Section 5 — Performance     (PerformanceConfig, VectorCompressionConfig, BackupConfig)
+  Section 6 — Cognitive (Ph5) (WorkingMemoryConfig, EpisodicConfig, SemanticConfig,
                          ProceduralConfig, MetaMemoryConfig, SelfImprovementConfig,
                          PulseConfig)
-  §7 — Extensions      (EmbeddingRegistryConfig, EFTConfig, WebhookConfig, EventsConfig)
-  §8 — Root            (HAIMConfig — composes all sections)
-  §9 — Loader          (load_config, get_config, reset_config)
+  Section 7 — Extensions      (EmbeddingRegistryConfig, EFTConfig, WebhookConfig, EventsConfig)
+  Section 8 — Root            (HAIMConfig — composes all sections)
+  Section 9 — Loader          (load_config, get_config, reset_config)
 """
 
 import os
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from dataclasses import dataclass, field
 
 import yaml
@@ -33,6 +34,11 @@ from mnemocore.core.exceptions import ConfigurationError
 # §1  Infrastructure
 # ═══════════════════════════════════════════════════════════════════════
 
+# Task 4.9: Valid eviction policies for TierConfig
+_VALID_EVICTION_POLICIES = frozenset({"lru", "lfu", "fifo", "random"})
+_VALID_STORAGE_BACKENDS = frozenset({"memory", "mmap", "filesystem", "qdrant", "redis"})
+
+
 @dataclass(frozen=True)
 class TierConfig:
     max_memories: int
@@ -43,6 +49,34 @@ class TierConfig:
     compression: str = "gzip"
     archive_threshold_days: int = 30
 
+    def __post_init__(self):
+        # Task 4.9: Validate TierConfig
+        if self.max_memories < 0:
+            raise ConfigurationError(
+                config_key="max_memories",
+                reason=f"max_memories must be non-negative, got {self.max_memories}"
+            )
+        if not 0.0 <= self.ltp_threshold_min <= 1.0:
+            raise ConfigurationError(
+                config_key="ltp_threshold_min",
+                reason=f"ltp_threshold_min must be between 0 and 1, got {self.ltp_threshold_min}"
+            )
+        if self.eviction_policy not in _VALID_EVICTION_POLICIES:
+            raise ConfigurationError(
+                config_key="eviction_policy",
+                reason=f"eviction_policy must be one of {sorted(_VALID_EVICTION_POLICIES)}, got '{self.eviction_policy}'"
+            )
+        if self.storage_backend not in _VALID_STORAGE_BACKENDS:
+            raise ConfigurationError(
+                config_key="storage_backend",
+                reason=f"storage_backend must be one of {sorted(_VALID_STORAGE_BACKENDS)}, got '{self.storage_backend}'"
+            )
+        if self.archive_threshold_days < 0:
+            raise ConfigurationError(
+                config_key="archive_threshold_days",
+                reason=f"archive_threshold_days must be non-negative, got {self.archive_threshold_days}"
+            )
+
 
 @dataclass(frozen=True)
 class LTPConfig:
@@ -51,11 +85,47 @@ class LTPConfig:
     permanence_threshold: float = 0.95
     half_life_days: float = 30.0
 
+    def __post_init__(self):
+        # Task 4.9: Validate LTPConfig
+        if not 0.0 <= self.initial_importance <= 1.0:
+            raise ConfigurationError(
+                config_key="initial_importance",
+                reason=f"initial_importance must be between 0 and 1, got {self.initial_importance}"
+            )
+        if self.decay_lambda < 0:
+            raise ConfigurationError(
+                config_key="decay_lambda",
+                reason=f"decay_lambda must be non-negative, got {self.decay_lambda}"
+            )
+        if not 0.0 <= self.permanence_threshold <= 1.0:
+            raise ConfigurationError(
+                config_key="permanence_threshold",
+                reason=f"permanence_threshold must be between 0 and 1, got {self.permanence_threshold}"
+            )
+        if self.half_life_days <= 0:
+            raise ConfigurationError(
+                config_key="half_life_days",
+                reason=f"half_life_days must be positive, got {self.half_life_days}"
+            )
+
 
 @dataclass(frozen=True)
 class HysteresisConfig:
     promote_delta: float = 0.15
     demote_delta: float = 0.10
+
+    def __post_init__(self):
+        # Task 4.9: Validate HysteresisConfig
+        if self.promote_delta < 0:
+            raise ConfigurationError(
+                config_key="promote_delta",
+                reason=f"promote_delta must be non-negative, got {self.promote_delta}"
+            )
+        if self.demote_delta < 0:
+            raise ConfigurationError(
+                config_key="demote_delta",
+                reason=f"demote_delta must be non-negative, got {self.demote_delta}"
+            )
 
 
 @dataclass(frozen=True)
@@ -105,11 +175,22 @@ class SearchConfig:
 
 @dataclass(frozen=True)
 class SecurityConfig:
+    # SECURITY: API key must be set via environment variable HAIM_API_KEY
+    # Setting via YAML config is DEPRECATED and will be ignored with a warning
     api_key: Optional[str] = None
-    cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    # SECURITY: Default CORS origins are localhost-only for development.
+    # Production deployments MUST set explicit origins via HAIM_CORS_ORIGINS env var
+    # or cors_origins in config.yaml.
+    cors_origins: list[str] = field(default_factory=lambda: ["http://localhost:3000", "http://localhost:8100"])
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 100
     rate_limit_window: int = 60
+    # Trusted proxies for X-Forwarded-For header (for rate limiting)
+    # Only trust X-Forwarded-For from these IPs
+    trusted_proxies: list[str] = field(default_factory=list)
+    # HSTS (HTTP Strict Transport Security)
+    # Enable in production with SSL. Disable in development to avoid browser caching issues.
+    hsts_enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -620,6 +701,17 @@ class WebhookConfig:
 
 
 @dataclass(frozen=True)
+class AssociationsConfig:
+    """
+    Configuration for Phase 6.0 Association Network.
+
+    Task 4.7: Added to HAIMConfig to replace getattr fallbacks.
+    """
+    auto_save: bool = True
+    decay_enabled: bool = True
+
+
+@dataclass(frozen=True)
 class EventsConfig:
     """
     Configuration for the internal event system.
@@ -691,6 +783,8 @@ class HAIMConfig:
     eft: EFTConfig = field(default_factory=EFTConfig)
     webhook: WebhookConfig = field(default_factory=WebhookConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
+    # Task 4.7: Associations config (was using getattr fallback)
+    associations: AssociationsConfig = field(default_factory=AssociationsConfig)
     # Phase 5 Cognitive Services
     working_memory: WorkingMemoryConfig = field(default_factory=WorkingMemoryConfig)
     episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
@@ -703,6 +797,19 @@ class HAIMConfig:
     knowledge_graph: KnowledgeGraphConfig = field(default_factory=KnowledgeGraphConfig)
     memory_scheduler: MemorySchedulerConfig = field(default_factory=MemorySchedulerConfig)
     memory_exchange: MemoryExchangeConfig = field(default_factory=MemoryExchangeConfig)
+
+    def __post_init__(self):
+        # Task 4.9: Validate HAIMConfig
+        if self.dimensionality <= 0:
+            raise ConfigurationError(
+                config_key="dimensionality",
+                reason=f"dimensionality must be positive, got {self.dimensionality}"
+            )
+        if self.dimensionality % 64 != 0:
+            raise ConfigurationError(
+                config_key="dimensionality",
+                reason=f"dimensionality must be a multiple of 64 for efficient bit packing, got {self.dimensionality}"
+            )
 
 
 def _env_override(key: str, default):
@@ -749,6 +856,67 @@ def _parse_optional_positive_int(value: Optional[object]) -> Optional[int]:
 # §9  Loader (YAML + env-override)
 # ═══════════════════════════════════════════════════════════════════════
 
+def _load_section(
+    raw: dict,
+    section_key: str,
+    config_cls: type,
+    env_prefix: Optional[str] = None,
+) -> Any:
+    """
+    Generic section loader for config dataclasses (Task 4.8).
+
+    This helper reduces repetitive code in load_config() by providing a
+    standardized way to load config sections with environment variable overrides.
+
+    Args:
+        raw: The raw YAML dictionary.
+        section_key: The key to look up in the raw dict (e.g., "encoding").
+        config_cls: The dataclass to instantiate (e.g., EncodingConfig).
+        env_prefix: Optional env prefix for overrides (e.g., "ENCODING").
+                   If None, defaults to section_key.upper().
+
+    Returns:
+        An instance of config_cls with values from YAML/ENV/defaults.
+
+    Example:
+        encoding = _load_section(raw, "encoding", EncodingConfig, "ENCODING")
+    """
+    import dataclasses
+    from typing import get_type_hints
+
+    section_raw = raw.get(section_key) or {}
+    prefix = (env_prefix or section_key).upper()
+
+    # Get field info from the dataclass
+    fields = dataclasses.fields(config_cls)
+    kwargs = {}
+
+    for f in fields:
+        field_name = f.name
+        env_key = f"{prefix}_{field_name.upper()}"
+        yaml_val = section_raw.get(field_name)
+
+        # Check for env override first
+        env_val = os.environ.get(f"HAIM_{env_key}")
+        if env_val is not None:
+            # Type coercion based on field type
+            field_type = f.type
+            if hasattr(field_type, '__origin__'):
+                field_type = field_type.__origin__
+            if field_type == bool or (isinstance(f.default, bool)):
+                kwargs[field_name] = env_val.lower() in ("true", "1", "yes")
+            elif field_type == int or (isinstance(f.default, int)):
+                kwargs[field_name] = int(env_val)
+            elif field_type == float or (isinstance(f.default, float)):
+                kwargs[field_name] = float(env_val)
+            else:
+                kwargs[field_name] = env_val
+        elif yaml_val is not None:
+            kwargs[field_name] = yaml_val
+        # If neither env nor yaml, use the default (don't add to kwargs)
+
+    return config_cls(**kwargs)
+
 
 def load_config(path: Optional[Path] = None) -> HAIMConfig:
     """
@@ -779,7 +947,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
 
     raw = {}
     if path is not None and path.exists():
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
             raw = loaded.get("haim") or {}
 
@@ -880,19 +1048,52 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     # Build security config
     sec_raw = raw.get("security") or {}
 
+    # SECURITY: API key must be set via environment variable
+    # YAML-based API keys are DEPRECATED and will be ignored with a warning
+    yaml_api_key = sec_raw.get("api_key")
+    env_api_key = os.environ.get("HAIM_API_KEY")
+
+    if yaml_api_key and not env_api_key:
+        import warnings
+        warnings.warn(
+            DeprecationWarning(
+                "Setting api_key in config.yaml is DEPRECATED and will be ignored. "
+                "Use the HAIM_API_KEY environment variable instead. "
+                "This prevents accidental exposure of secrets in version control."
+            ),
+            stacklevel=2
+        )
+        from loguru import logger
+        logger.warning(
+            "SECURITY WARNING: api_key in config.yaml is ignored. "
+            "Set the HAIM_API_KEY environment variable instead."
+        )
+
+    # Only use environment variable for API key
+    effective_api_key = env_api_key
+
     # Parse CORS origins from env (comma-separated) or config
     cors_env = os.environ.get("HAIM_CORS_ORIGINS")
     if cors_env:
         cors_origins = [o.strip() for o in cors_env.split(",")]
     else:
-        cors_origins = sec_raw.get("cors_origins", ["*"])
+        # Default to localhost-only origins (not ["*"])
+        cors_origins = sec_raw.get("cors_origins", ["http://localhost:3000", "http://localhost:8100"])
+
+    # Parse trusted proxies from env (comma-separated) or config
+    trusted_proxies_env = os.environ.get("HAIM_TRUSTED_PROXIES")
+    if trusted_proxies_env:
+        trusted_proxies = [p.strip() for p in trusted_proxies_env.split(",")]
+    else:
+        trusted_proxies = sec_raw.get("trusted_proxies", [])
 
     security = SecurityConfig(
-        api_key=_env_override("API_KEY", sec_raw.get("api_key")),
+        api_key=effective_api_key,
         cors_origins=cors_origins,
         rate_limit_enabled=_env_override("RATE_LIMIT_ENABLED", sec_raw.get("rate_limit_enabled", True)),
         rate_limit_requests=_env_override("RATE_LIMIT_REQUESTS", sec_raw.get("rate_limit_requests", 100)),
         rate_limit_window=_env_override("RATE_LIMIT_WINDOW", sec_raw.get("rate_limit_window", 60)),
+        trusted_proxies=trusted_proxies,
     )
 
     # Build MCP config
@@ -1267,6 +1468,13 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         auto_persist=me_raw.get("auto_persist", True),
     )
 
+    # Task 4.7: Build associations config (replaces getattr fallbacks)
+    assoc_raw = raw.get("associations") or {}
+    associations_cfg = AssociationsConfig(
+        auto_save=_env_override("ASSOCIATIONS_AUTO_SAVE", assoc_raw.get("auto_save", True)),
+        decay_enabled=_env_override("ASSOCIATIONS_DECAY_ENABLED", assoc_raw.get("decay_enabled", True)),
+    )
+
     return HAIMConfig(
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
@@ -1299,6 +1507,8 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         vector_compression=vector_compression,
         backup=backup,
         eft=eft,
+        # Task 4.7: associations config (replaces getattr fallbacks)
+        associations=associations_cfg,
         working_memory=working_memory_cfg,
         episodic=episodic_cfg,
         semantic=semantic_cfg,
@@ -1312,19 +1522,31 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
 
-# Module-level singleton (lazy-loaded)
+# Module-level singleton (lazy-loaded) with thread-safe access
 _CONFIG: Optional[HAIMConfig] = None
+_CONFIG_LOCK = threading.Lock()
 
 
 def get_config() -> HAIMConfig:
-    """Get or initialize the global config singleton."""
+    """
+    Get or initialize the global config singleton.
+
+    Thread-safe: Uses threading.Lock to prevent race conditions
+    during concurrent first access.
+    """
     global _CONFIG
-    if _CONFIG is None:
-        _CONFIG = load_config()
-    return _CONFIG
+    with _CONFIG_LOCK:
+        if _CONFIG is None:
+            _CONFIG = load_config()
+        return _CONFIG
 
 
 def reset_config():
-    """Reset the global config singleton (useful for testing)."""
+    """
+    Reset the global config singleton (useful for testing).
+
+    Thread-safe: Uses threading.Lock to prevent race conditions.
+    """
     global _CONFIG
-    _CONFIG = None
+    with _CONFIG_LOCK:
+        _CONFIG = None

@@ -15,15 +15,16 @@ services:
     image: mnemocore:latest
     container_name: mnemocore-api
     ports:
-      - "8100:8100"
-      - "9090:9090"  # Prometheus metrics
+      - "127.0.0.1:8100:8100"
+      - "127.0.0.1:9090:9090"  # Prometheus metrics
     volumes:
       - mnemocore_data:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
       - HAIM_API_KEY=${HAIM_API_KEY}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
       - QDRANT_URL=http://qdrant:6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-changeme}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - HOST=0.0.0.0
       - PORT=8100
@@ -67,8 +68,10 @@ services:
   redis:
     image: redis:7.2-alpine
     container_name: mnemocore-redis
-    ports:
-      - "6379:6379"
+    # Port binding removed for security - only accessible within Docker network
+    # If external access is needed, bind to 127.0.0.1 only:
+    # ports:
+    #   - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: >
@@ -77,8 +80,9 @@ services:
       --loglevel warning
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-changeme}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -95,16 +99,19 @@ services:
   # Qdrant - Vector Database
   # ===========================================
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.12.1
     container_name: mnemocore-qdrant
-    ports:
-      - "6333:6333"  # HTTP API
-      - "6334:6334"  # gRPC API
+    # Port binding removed for security - only accessible within Docker network
+    # If external access is needed, bind to 127.0.0.1 only:
+    # ports:
+    #   - "127.0.0.1:6333:6333"  # HTTP API
+    #   - "127.0.0.1:6334:6334"  # gRPC API
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
       - QDRANT__LOG_LEVEL=INFO
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-changeme}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
       interval: 10s

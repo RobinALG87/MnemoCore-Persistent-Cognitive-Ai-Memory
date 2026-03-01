@@ -25,6 +25,7 @@ This directory contains utility scripts organized by purpose.
 | Script | Description | Usage |
 |--------|-------------|-------|
 | `healthcheck.py` | Docker healthcheck script for /health endpoint | `python scripts/ops/healthcheck.py` |
+| `push_v2_safe.ps1` | Push-safe preflight + optional push to pinned v2 private remote | `./scripts/ops/push_v2_safe.ps1` |
 | `verify_id.py` | Verify UUID format and memory retrieval functionality | `python scripts/ops/verify_id.py` |
 
 ## Usage Notes

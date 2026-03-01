@@ -115,7 +115,7 @@ class TestPulseInit:
 
 class TestWMMaintenance:
     async def test_prune_called(self):
-        wm = MagicMock()
+        wm = AsyncMock()
         pulse = _make_pulse(working_memory=wm)
         await pulse._wm_maintenance()
         wm.prune_all.assert_called_once()

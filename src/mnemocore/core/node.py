@@ -69,8 +69,7 @@ class MemoryNode:
 
             # Phase 5.0: update per-memory stability on each successful access
             # S_i grows logarithmically so older frequently-accessed memories are more stable
-            import math as _math
-            self.stability = max(1.0, 1.0 + _math.log1p(self.access_count) * 0.5)
+            self.stability = max(1.0, 1.0 + math.log1p(self.access_count) * 0.5)
 
             # Legacy updates
             self.epistemic_value *= 1.01

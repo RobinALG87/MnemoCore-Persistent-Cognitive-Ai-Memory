@@ -65,6 +65,8 @@ class ImmunologyConfig:
     re_encode_drifted: bool = True          # re-encode drifted nodes from content
     quarantine_corrupted: bool = True       # move corrupted nodes to COLD
     enabled: bool = True
+    batch_size: int = 100                   # process nodes in batches to reduce memory pressure
+    subsample_threshold: int = 1000         # subsample when HOT tier exceeds this size
 
 
 # ------------------------------------------------------------------ #
@@ -154,6 +156,9 @@ class ImmunologyLoop:
         """
         Run a single immunology sweep over the HOT tier.
 
+        Uses batch processing to reduce memory pressure when the HOT tier is large.
+        For very large HOT tiers (>1000 nodes), subsamples for drift detection.
+
         Returns:
             Stats dict for this sweep.
         """
@@ -163,25 +168,57 @@ class ImmunologyLoop:
         if not nodes:
             return {}
 
-        # Build reference matrix (all HOT node vectors)
-        vecs = np.stack([n.hdv.data for n in nodes])  # (N, D/8)
-
         drifted_corrected = 0
         corrupted_quarantined = 0
+        n_nodes = len(nodes)
 
-        for i, node in enumerate(nodes):
-            action = await self._assess_node(node, i, nodes, vecs)
-            if action == "corrected":
-                drifted_corrected += 1
-            elif action == "quarantined":
-                corrupted_quarantined += 1
+        # Build reference matrix for drift detection
+        # For large HOT tiers, subsample to reduce memory pressure
+        if n_nodes > self.cfg.subsample_threshold:
+            # Subsample for reference matrix, but still process all nodes
+            sample_indices = np.random.choice(
+                n_nodes,
+                size=self.cfg.subsample_threshold,
+                replace=False
+            )
+            reference_nodes = [nodes[i] for i in sample_indices]
+            reference_vecs = np.stack([n.hdv.data for n in reference_nodes])
+            logger.debug(
+                f"Immunology: Using subsampled reference matrix "
+                f"({self.cfg.subsample_threshold}/{n_nodes} nodes)"
+            )
+        else:
+            reference_nodes = nodes
+            reference_vecs = np.stack([n.hdv.data for n in nodes]) if nodes else None
+
+        if reference_vecs is None:
+            return {}
+
+        # Process nodes in batches to reduce memory pressure
+        batch_size = self.cfg.batch_size
+        for batch_start in range(0, n_nodes, batch_size):
+            batch_end = min(batch_start + batch_size, n_nodes)
+            batch_nodes = nodes[batch_start:batch_end]
+
+            # Build batch vector matrix
+            batch_vecs = np.stack([n.hdv.data for n in batch_nodes])
+
+            for local_idx, node in enumerate(batch_nodes):
+                global_idx = batch_start + local_idx
+                action = await self._assess_node_with_reference(
+                    node, local_idx, batch_vecs, reference_vecs
+                )
+                if action == "corrected":
+                    drifted_corrected += 1
+                elif action == "quarantined":
+                    corrupted_quarantined += 1
 
         # Delegate stale synapse cleanup to the engine's own method
         await self.engine.cleanup_decay(threshold=0.05)
 
         elapsed = time.monotonic() - t0
         sweep_stats = {
-            "nodes_scanned": len(nodes),
+            "nodes_scanned": n_nodes,
             "drifted_corrected": drifted_corrected,
             "corrupted_quarantined": corrupted_quarantined,
             "elapsed_seconds": round(elapsed, 3),
@@ -195,24 +232,25 @@ class ImmunologyLoop:
 
         if drifted_corrected or corrupted_quarantined:
             logger.info(
-                f"Immunology sweep — nodes={len(nodes)} "
+                f"Immunology sweep — nodes={n_nodes} "
                 f"corrected={drifted_corrected} quarantined={corrupted_quarantined} "
                 f"({elapsed*1000:.0f}ms)"
             )
 
         return sweep_stats
 
-    # ---- Per-node assessment ------------------------------------- #
-
-    async def _assess_node(
+    async def _assess_node_with_reference(
         self,
         node: MemoryNode,
-        idx: int,
-        all_nodes: List[MemoryNode],
-        vecs: np.ndarray,
+        local_idx: int,
+        batch_vecs: np.ndarray,
+        reference_vecs: np.ndarray,
     ) -> str:
         """
-        Assess a single node and take corrective action if needed.
+        Assess a single node against a reference matrix.
+
+        This is a memory-efficient version that uses a pre-built reference matrix
+        instead of stacking all vectors at once.
 
         Returns:
             "ok" | "corrected" | "quarantined"
@@ -233,20 +271,20 @@ class ImmunologyLoop:
 
         # --- 2. Drift detection (proximity to nearest cluster) ---
         if self.cfg.re_encode_drifted or self.cfg.attractor_enabled:
-            # Compute distances to all other nodes (vectorised XOR popcount)
-            xor_all = np.bitwise_xor(vecs[idx : idx + 1], vecs)  # (1, D/8) vs (N, D/8)
+            # Compute distances to reference vectors (vectorised XOR popcount)
+            xor_all = np.bitwise_xor(
+                batch_vecs[local_idx : local_idx + 1], reference_vecs
+            )  # (1, D/8) vs (N, D/8)
             hamming_all = np.unpackbits(xor_all, axis=1).sum(axis=1).astype(np.float32)
-            hamming_all /= vecs.shape[1] * 8
-            hamming_all[idx] = 1.0  # exclude self
+            hamming_all /= reference_vecs.shape[1] * 8
 
             # k nearest neighbours
-            k = min(self.cfg.attractor_k, len(all_nodes) - 1)
+            k = min(self.cfg.attractor_k, len(reference_vecs) - 1)
             if k < 1:
                 return "ok"
 
             nn_indices = np.argpartition(hamming_all, k)[:k]
             nn_min_dist = float(hamming_all[nn_indices].min())
-            nn_mean_dist = float(hamming_all[nn_indices].mean())
 
             is_drifted = nn_min_dist > self.cfg.drift_threshold
 
@@ -257,19 +295,22 @@ class ImmunologyLoop:
                         None, self.engine.encode_content, node.content
                     )
                     node.hdv = new_hdv
-                    # Update the packed vector in our local array
-                    vecs[idx] = new_hdv.data
                     node.metadata["immune_re_encoded_at"] = datetime.now(timezone.utc).isoformat()
                     logger.debug(f"Re-encoded drifted node {node.id[:8]} (nn_min={nn_min_dist:.3f})")
                     return "corrected"
 
                 elif self.cfg.attractor_enabled:
-                    # Hopfield attractor: new_v = sign(bundle(neighbours))
-                    nn_vecs = [all_nodes[i].hdv for i in nn_indices]
-                    proto = majority_bundle(nn_vecs)
-                    # Soft convergence: XOR blend – bits that agree with proto are kept
+                    # Hopfield attractor: create proto-vector from nearest neighbors' data
+                    # Use the reference vectors directly to build the attractor
+                    neighbor_packed = reference_vecs[nn_indices]
+                    # Compute majority bundle from packed vectors
+                    neighbor_bits = np.unpackbits(neighbor_packed, axis=1)
+                    bit_sums = neighbor_bits.sum(axis=0)
+                    threshold = len(nn_indices) / 2.0
+                    proto_bits = (bit_sums > threshold).astype(np.uint8)
+                    proto_packed = np.packbits(proto_bits)
+                    proto = BinaryHDV(data=proto_packed)
                     node.hdv = proto
-                    vecs[idx] = proto.data
                     node.metadata["immune_attractor_at"] = datetime.now(timezone.utc).isoformat()
                     logger.debug(f"Attractor-converged drifted node {node.id[:8]}")
                     return "corrected"

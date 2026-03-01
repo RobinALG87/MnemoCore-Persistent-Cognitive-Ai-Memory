@@ -20,7 +20,7 @@
   - **Procedural / Skill Memory**
   - **Meta‑Memory & Self‑Model**
 - Maintain:
-  - `pip install mnemocore` **zero‑infra dev mode** (SQLite / in‑process vector store).
+  - `pip install git+https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git@main` **zero‑infra dev mode** (SQLite / in‑process vector store).
   - Full infra path (Redis, Qdrant, k8s, MCP, OpenClaw live memory integration).[cite:436][cite:437]
 - Provide **clean public APIs** (Python + HTTP + MCP) that:
   - Give agents a minimal but powerful surface: `observe / recall / reflect / propose_change`.

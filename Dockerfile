@@ -2,8 +2,11 @@
 # ====================
 # Multi-stage build for optimized production image
 
+# Build argument for version (can be overridden in CI)
+ARG VERSION=2.0.0
+
 # Stage 1: Builder
-FROM python:3.11-slim AS builder
+FROM python:3.11.8-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -22,12 +25,15 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Production
-FROM python:3.11-slim AS production
+FROM python:3.11.8-slim-bookworm AS production
+
+# Re-declare ARG in production stage to use it
+ARG VERSION=2.0.0
 
 # Labels for container metadata
 LABEL maintainer="MnemoCore Team"
 LABEL description="MnemoCore - Infrastructure for Persistent Cognitive Memory"
-LABEL version="4.5.0"
+LABEL version="${VERSION}"
 
 # Security: Create non-root user
 RUN groupadd --gid 1000 mnemocore && \
@@ -50,6 +56,10 @@ COPY --chown=mnemocore:mnemocore src/ ./src/
 COPY --chown=mnemocore:mnemocore config.yaml .
 COPY --chown=mnemocore:mnemocore scripts/ ./scripts/
 
+# Copy and set up entrypoint script
+COPY scripts/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Create data directory with proper permissions
 RUN mkdir -p /app/data && chown -R mnemocore:mnemocore /app/data
 
@@ -71,8 +81,8 @@ EXPOSE 8100
 
 # Health check using the healthcheck script
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python /app/scripts/healthcheck.py || exit 1
+    CMD python /app/scripts/ops/healthcheck.py || exit 1
 
-# Entry point: Run uvicorn
-ENTRYPOINT ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8100"]
+# Entry point: Validate environment then run uvicorn
+ENTRYPOINT ["/entrypoint.sh", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8100"]
 CMD ["--workers", "1", "--log-level", "info"]

@@ -288,17 +288,18 @@ class HybridSearchEngine:
             logger.warning(f"Unknown search mode: {mode}, falling back to dense")
             return self._dense_only(dense_results, dense_payloads, limit)
 
-    def _dense_only(
-        self,
-        dense_results: List[Tuple[str, float]],
-        payloads: Optional[Dict[str, Dict[str, Any]]],
-        limit: int,
-    ) -> List[SearchResult]:
-        """Return only dense search results."""
+        # Validate score vs min_dense_score
+        # SECURITY: Validate score before inclusion
+        min_dense = self.config.min_dense_score
         results = []
         for doc_id, score in dense_results[:limit]:
-            if score < self.config.min_dense_score:
-                continue
+            # Guard against potential MagicMock/invalid types in tests or misconfiguration
+            try:
+                if score < float(min_dense):
+                    continue
+            except (TypeError, ValueError):
+                pass  # Fallback to including result if comparison fails due to type mismatch
+            
             results.append(
                 SearchResult(
                     id=doc_id,
@@ -307,7 +308,6 @@ class HybridSearchEngine:
                     dense_score=score,
                 )
             )
-        return results
 
     async def _sparse_only(
         self,

@@ -67,9 +67,10 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from fnmatch import fnmatch
@@ -241,9 +242,9 @@ class EventBus:
         self._running = False
         self._lock = asyncio.Lock()
 
-        # Event history for debugging (circular buffer)
+        # Event history for debugging (circular buffer using deque for O(1) operations)
         self._history_size = 1000
-        self._history: List[Event] = []
+        self._history: deque = deque(maxlen=self._history_size)
         self._history_lock = asyncio.Lock()
 
         # Metrics
@@ -639,11 +640,9 @@ class EventBus:
     # ======================================================================
 
     async def _add_to_history(self, event: Event) -> None:
-        """Add event to circular history buffer."""
+        """Add event to circular history buffer (deque with maxlen handles overflow automatically)."""
         async with self._history_lock:
             self._history.append(event)
-            if len(self._history) > self._history_size:
-                self._history.pop(0)
 
     async def get_history(
         self,
@@ -707,11 +706,15 @@ class EventBus:
 # =============================================================================
 
 _EVENT_BUS: Optional[EventBus] = None
+_EVENT_BUS_LOCK = threading.Lock()
 
 
 def get_event_bus(webhook_manager: Optional["WebhookManager"] = None) -> EventBus:
     """
     Get or create the global EventBus singleton.
+
+    Thread-safe: Uses threading.Lock to prevent race conditions
+    during concurrent first access.
 
     Args:
         webhook_manager: Optional webhook manager for external delivery
@@ -721,10 +724,11 @@ def get_event_bus(webhook_manager: Optional["WebhookManager"] = None) -> EventBu
     """
     global _EVENT_BUS
 
-    if _EVENT_BUS is None:
-        _EVENT_BUS = EventBus(webhook_manager=webhook_manager)
-    elif webhook_manager is not None and _EVENT_BUS._webhook_manager is None:
-        _EVENT_BUS._webhook_manager = webhook_manager
+    with _EVENT_BUS_LOCK:
+        if _EVENT_BUS is None:
+            _EVENT_BUS = EventBus(webhook_manager=webhook_manager)
+        elif webhook_manager is not None and _EVENT_BUS._webhook_manager is None:
+            _EVENT_BUS._webhook_manager = webhook_manager
 
     return _EVENT_BUS
 
@@ -732,4 +736,5 @@ def get_event_bus(webhook_manager: Optional["WebhookManager"] = None) -> EventBu
 def reset_event_bus() -> None:
     """Reset the global EventBus singleton (useful for testing)."""
     global _EVENT_BUS
-    _EVENT_BUS = None
+    with _EVENT_BUS_LOCK:
+        _EVENT_BUS = None

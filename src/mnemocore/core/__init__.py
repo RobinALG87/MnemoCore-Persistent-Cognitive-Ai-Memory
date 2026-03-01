@@ -1,7 +1,61 @@
+"""
+MnemoCore Core Module
+=====================
+The central cognitive processing engine and HDV operations.
+
+This module provides the foundational components for MnemoCore's memory system:
+
+Vector Operations (Binary HDV):
+    - BinaryHDV: 16,384-dimensional binary vectors with XOR binding
+    - TextEncoder: Convert text to HDV representations
+    - Batch operations: Vectorized distance computations
+
+Memory Storage:
+    - MemoryNode: Individual memory unit with HDV, content, metadata
+    - SynapticConnection: Weighted links between memories
+    - HAIMEngine: Central coordinator for all memory operations
+
+Tier Management:
+    - TierManager: Orchestrates HOT/WARM/COLD tier transitions
+    - HotTierStorage: In-memory fast access layer
+    - WarmTierStorage: Redis or memory-mapped storage
+    - ColdTierStorage: Qdrant or filesystem archive
+
+Cognitive Services (Phase 5):
+    - WorkingMemory: Active slot buffer (7+/-2 items)
+    - EpisodicStore: Temporal episode chains
+    - SemanticStore: Concept persistence
+    - ProceduralStore: Skill library
+    - MetaMemory: Anomaly detection
+
+Advanced Features (Phase 4+):
+    - BayesianLTPUpdater: Bayesian reliability model for memory strength
+    - SemanticConsolidationWorker: Nightly clustering and pruning
+    - ImmunologyLoop: Corruption detection and attractor convergence
+    - GapDetector/GapFiller: Knowledge gap identification and filling
+    - HNSWIndexManager: Approximate nearest neighbor search
+
+Research Services (Phase 6):
+    - StrategyBank: 5-phase strategy distillation loop
+    - KnowledgeGraph: Spreading activation, community detection
+    - MemoryScheduler: Priority job queue with interrupts
+    - SAMEP: Multi-agent memory exchange protocol
+
+Configuration:
+    All settings are loaded from config.yaml via the config module.
+    See docs/CONFIGURATION.md for complete reference.
+
+Example:
+    from mnemocore.core import HAIMEngine, BinaryHDV, TierManager
+
+    engine = HAIMEngine()
+    node_id = await engine.store("Hello world", metadata={"source": "user"})
+    results = await engine.query("hello", k=5)
+"""
+
 from .binary_hdv import BinaryHDV
 # Backward-compatibility re-export – import HDV lazily to avoid triggering
 # the module-level DeprecationWarning at package import time.
-from .binary_hdv import BinaryHDV
 
 def __getattr__(name):
     if name == 'HDV':

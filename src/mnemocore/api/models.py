@@ -4,7 +4,7 @@ API Request/Response Models
 Pydantic models with comprehensive input validation and Field validators.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 import re
 
@@ -352,3 +352,127 @@ class ReinforceAssociationResponse(BaseModel):
     ok: bool = True
     edge: Optional[AssociationEdgeModel] = None
     message: str
+
+
+# ======================================================================
+# Phase 5: Cognitive Client Models (moved from main.py)
+# ======================================================================
+
+class ObserveRequest(BaseModel):
+    """Request model for working memory observation."""
+    agent_id: str
+    content: str
+    kind: str = "observation"
+    importance: float = 0.5
+    tags: Optional[List[str]] = None
+
+
+class EpisodeStartRequest(BaseModel):
+    """Request model for starting an episode."""
+    agent_id: str
+    goal: str
+    context: Optional[str] = None
+
+
+class ProcedureFeedbackRequest(BaseModel):
+    """Request model for procedure feedback."""
+    success: bool
+
+
+class ProposalStatusUpdate(BaseModel):
+    """Request model for updating proposal status."""
+    status: Literal["accepted", "rejected", "implemented"]
+
+
+# ======================================================================
+# Phase 4.5: Recursive Synthesis Models (moved from main.py)
+# ======================================================================
+
+class RLMQueryRequest(BaseModel):
+    """Request model for Phase 4.5 recursive memory query."""
+    query: str = Field(..., min_length=1, max_length=4096, description="The query to synthesize (can be complex/multi-topic)")
+    context_text: Optional[str] = Field(None, max_length=500000, description="Optional large external text (Ripple environment)")
+    project_id: Optional[str] = Field(None, max_length=128, description="Optional project scope for isolation masking")
+    max_depth: Optional[int] = Field(None, ge=0, le=5, description="Max recursion depth (0-5, default 3)")
+    max_sub_queries: Optional[int] = Field(None, ge=1, le=10, description="Max sub-queries to decompose into (1-10, default 5)")
+    top_k: Optional[int] = Field(None, ge=1, le=50, description="Final results to return (default 10)")
+
+
+class RLMQueryResponse(BaseModel):
+    """Response model for Phase 4.5 recursive memory query."""
+    ok: bool
+    query: str
+    sub_queries: List[str]
+    results: List[Dict[str, Any]]
+    synthesis: str
+    max_depth_hit: int
+    elapsed_ms: float
+    ripple_snippets: List[str]
+    stats: Dict[str, Any]
+
+
+# ======================================================================
+# Phase 5.0: Contradiction & Emotional Tag Models (moved from main.py)
+# ======================================================================
+
+class ResolveContradictionRequest(BaseModel):
+    """Request model for resolving a contradiction."""
+    note: Optional[str] = None
+
+
+class EmotionalTagPatchRequest(BaseModel):
+    """Request model for patching emotional tag."""
+    valence: float
+    arousal: float
+
+
+# ======================================================================
+# Phase 5.0: Prediction Models (moved from main.py)
+# ======================================================================
+
+class CreatePredictionRequest(BaseModel):
+    """Request model for creating a prediction."""
+    content: str
+    confidence: float = 0.5
+    deadline_days: Optional[float] = None
+    related_memory_ids: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+
+
+class VerifyPredictionRequest(BaseModel):
+    """Request model for verifying a prediction."""
+    success: bool
+    notes: Optional[str] = None
+
+
+# ======================================================================
+# Phase 5.0: Dream Loop Models (moved from main.py)
+# ======================================================================
+
+class DreamRequest(BaseModel):
+    """Request model for triggering a dream session."""
+    max_cycles: int = Field(default=1, ge=1, le=10, description="Number of dream cycles to run")
+    force_insight: bool = Field(default=False, description="Force generation of a meta-insight")
+
+
+class DreamResponse(BaseModel):
+    """Response model for dream session."""
+    ok: bool
+    cycles_completed: int
+    insights_generated: int
+    concepts_extracted: int
+    parallels_found: int
+    memories_processed: int
+    message: str
+
+
+# ======================================================================
+# Export Models (moved from main.py)
+# ======================================================================
+
+class ExportResponse(BaseModel):
+    """Response model for memory export."""
+    ok: bool
+    count: int
+    format: str
+    memories: List[Dict[str, Any]]

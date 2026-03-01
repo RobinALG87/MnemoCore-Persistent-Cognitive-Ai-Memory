@@ -6,10 +6,12 @@ Hierarchical goal decomposition with autonomous sub-goal generation.
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+from loguru import logger
 
 GOALS_PATH = "./data/goals.json"
 
@@ -19,6 +21,9 @@ class GoalStatus(str, Enum):
     COMPLETED = "completed"
     BLOCKED = "blocked"
     ABANDONED = "abandoned"
+
+    def __str__(self):
+        return self.value
 
 
 @dataclass
@@ -51,10 +56,17 @@ class GoalTree:
     
     def _load(self):
         if os.path.exists(self.path):
-            with open(self.path, "r") as f:
-                data = json.load(f)
-                for gid, goal_data in data.items():
-                    self.goals[gid] = Goal(**goal_data)
+            try:
+                with open(self.path, "r") as f:
+                    data = json.load(f)
+                    for gid, goal_data in data.items():
+                        self.goals[gid] = Goal(**goal_data)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse goals JSON from {self.path}: {e}")
+                self.goals = {}
+            except Exception as e:
+                logger.warning(f"Failed to load goals from {self.path}: {e}")
+                self.goals = {}
     
     def _save(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -71,7 +83,7 @@ class GoalTree:
         tags: List[str] = None
     ) -> str:
         """Add a new goal."""
-        goal_id = f"goal_{len(self.goals)}"
+        goal_id = f"goal_{uuid.uuid4().hex[:12]}"
         goal = Goal(
             id=goal_id,
             title=title,
@@ -157,6 +169,9 @@ class GoalTree:
         result = []
         for goal in roots:
             children = [g for g in self.goals.values() if g.parent_id == goal.id]
+            child_nodes = []
+            for child in children:
+                child_nodes.extend(self.get_tree(child.id, depth + 1))
             node = {
                 "id": goal.id,
                 "title": goal.title,
@@ -164,7 +179,7 @@ class GoalTree:
                 "progress": goal.progress,
                 "priority": goal.priority,
                 "depth": depth,
-                "children": self.get_tree(goal.id, depth + 1) if children else []
+                "children": child_nodes
             }
             result.append(node)
         

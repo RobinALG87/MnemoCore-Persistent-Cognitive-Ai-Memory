@@ -1,0 +1,16 @@
+# Optional visualization dependencies
+# Install with: pip install -r requirements-optional.txt
+
+# Visualization
+plotly>=5.0.0
+pandas>=2.0.0
+tabulate>=0.9.0
+
+# Backup/Export (optional)
+pyarrow>=14.0.0
+fastparquet>=2024.0.0
+
+# LLM providers (optional - for advanced features)
+tiktoken>=0.5.0
+openai>=1.0.0
+anthropic>=0.18.0

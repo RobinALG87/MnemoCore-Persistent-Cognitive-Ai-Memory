@@ -1,0 +1,89 @@
+"""
+RLM Integrator – Phase 4.5: Recursive Language Models
+======================================================
+Bridges HAIMLLMIntegrator with the RecursiveSynthesizer to provide
+LLM-powered recursive memory queries.
+"""
+
+from typing import Any, Dict, Optional
+
+from loguru import logger
+
+from .config import LLMConfig
+from .integrator import HAIMLLMIntegrator
+
+
+class RLMIntegrator:
+    """
+    Phase 4.5: RLM (Recursive Language Models) Integrator.
+
+    Bridges HAIMLLMIntegrator with the RecursiveSynthesizer to provide
+    LLM-powered recursive memory queries.
+
+    Usage::
+
+        integrator = RLMIntegrator(llm_integrator)
+        result = await integrator.rlm_query(
+            "What do we know about X and how does it relate to Y?"
+        )
+        print(result["synthesis"])
+
+    Without an LLM configured, falls back to heuristic decomposition
+    and score-based synthesis.
+    """
+
+    def __init__(self, llm_integrator, config=None):
+        from ..core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+        self.llm_integrator = llm_integrator
+        self.haim = llm_integrator.haim
+        llm_call = None
+        if llm_integrator.llm_client is not None:
+            llm_call = llm_integrator._call_llm
+        synth_config = config or SynthesizerConfig()
+        self.synthesizer = RecursiveSynthesizer(
+            engine=self.haim,
+            config=synth_config,
+            llm_call=llm_call,
+        )
+
+    async def rlm_query(self, query, context_text=None, project_id=None):
+        """
+        Execute a Phase 4.5 recursive memory query.
+
+        Args:
+            query:        The user question (can be complex/multi-topic).
+            context_text: Optional large external text (Ripple environment).
+            project_id:   Optional project scope for isolation masking.
+
+        Returns:
+            Dict: query, sub_queries, results, synthesis,
+                  max_depth_hit, elapsed_ms, ripple_snippets, stats
+        """
+        from ..core.ripple_context import RippleContext
+        ripple_ctx = None
+        if context_text and context_text.strip():
+            ripple_ctx = RippleContext(text=context_text, source_label="api_context")
+        result = await self.synthesizer.synthesize(
+            query=query,
+            ripple_context=ripple_ctx,
+            project_id=project_id,
+        )
+        return {
+            "query": result.query,
+            "sub_queries": result.sub_queries,
+            "results": result.results,
+            "synthesis": result.synthesis,
+            "max_depth_hit": result.max_depth_hit,
+            "elapsed_ms": result.total_elapsed_ms,
+            "ripple_snippets": result.ripple_snippets,
+            "stats": result.stats,
+        }
+
+    @classmethod
+    def from_config(cls, haim_engine, llm_config, synth_config=None):
+        """Create an RLMIntegrator directly from an LLMConfig."""
+        llm_integrator = HAIMLLMIntegrator.from_config(haim_engine, llm_config)
+        return cls(llm_integrator=llm_integrator, config=synth_config)
+
+
+__all__ = ["RLMIntegrator"]

@@ -365,6 +365,19 @@ class ProviderError(MnemoCoreError):
     category = ErrorCategory.PROVIDER
 
 
+class LLMError(RecoverableError, ProviderError):
+    """Raised when an LLM call fails."""
+    error_code = "LLM_ERROR"
+
+    def __init__(self, provider: str, reason: str, context: Optional[dict] = None):
+        ctx = {"provider": provider}
+        if context:
+            ctx.update(context)
+        super().__init__(f"[{provider}] LLM call failed: {reason}", ctx)
+        self.provider = provider
+        self.reason = reason
+
+
 class UnsupportedProviderError(IrrecoverableError, ProviderError):
     """Raised when an unsupported provider is requested."""
     error_code = "UNSUPPORTED_PROVIDER_ERROR"
@@ -461,7 +474,7 @@ class SnapshotCorruptionError(IrrecoverableError, StorageError):
         self.snapshot_id = snapshot_id
 
 
-class ImportError(IrrecoverableError):
+class MnemoCoreImportError(IrrecoverableError):
     """Raised when memory import fails."""
     error_code = "IMPORT_ERROR"
     category = ErrorCategory.STORAGE
@@ -487,7 +500,7 @@ class ExportError(StorageError):
         self.collection = collection
 
 
-class DeduplicationError(ImportError):
+class DeduplicationError(MnemoCoreImportError):
     """Raised when deduplication fails during import."""
     error_code = "DEDUPLICATION_ERROR"
 
@@ -573,6 +586,7 @@ __all__ = [
     "MemoryNotFoundError",
     # Provider
     "ProviderError",
+    "LLMError",
     "UnsupportedProviderError",
     "UnsupportedTransportError",
     "DependencyMissingError",
@@ -580,7 +594,7 @@ __all__ = [
     "BackupError",
     "SnapshotError",
     "SnapshotCorruptionError",
-    "ImportError",
+    "MnemoCoreImportError",
     "ExportError",
     "DeduplicationError",
     # Utilities

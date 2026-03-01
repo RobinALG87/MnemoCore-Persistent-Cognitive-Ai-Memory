@@ -87,7 +87,12 @@ error_log.txt
 failed_*.txt
 test_failures.txt
 test_out.txt
+test_output*.txt
+test_results*.txt
+test_p*.txt
+test_audit_output*.txt
 coverage.json
+requirements.lock
 
 # Leaked test temp directories
 .tmp_phase*/
@@ -96,5 +101,19 @@ pytest_base_temp/
 MagicMock/
 test_data_perf/
 
+# Runtime data artifacts
+data/import_log.db
+data/vector_cache.sqlite*
+data/subconscious.log
+data/test_eviction/
+data/dream_reports/
+
 # Phase planning scratchpads
 phase*.md.md
+
+# Misc debug scripts
+demo_wow.py
+mnemocore_verify.py
+sync_qdrant.py
+test_qdrant_scores.py
+upload_hf.py

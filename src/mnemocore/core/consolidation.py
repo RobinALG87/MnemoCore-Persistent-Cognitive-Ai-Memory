@@ -71,6 +71,8 @@ class SemanticConsolidator:
         Uses Union-Find algorithm to build connected components where
         each component contains memories with similarity >= threshold.
 
+        Optimized with vectorized batch XOR operations instead of O(N²) Python loops.
+
         Args:
             nodes: List of MemoryNode objects to cluster.
             threshold: Similarity threshold (0.0-1.0). Default 0.85.
@@ -110,20 +112,33 @@ class SemanticConsolidator:
             if rank[px] == rank[py]:
                 rank[px] += 1
 
-        # Compute pairwise Hamming distances (vectorized)
-        # For memory efficiency, process in batches if N is large
-        batch_size = min(100, n)
+        # Compute pairwise Hamming distances using vectorized batch operations
+        # Process in batches to balance memory usage and performance
+        batch_size = min(100, n)  # Process 100 rows at a time
 
-        for i in range(n):
-            # Compare node i with nodes i+1 to n-1
-            for j in range(i + 1, n):
-                # Compute Hamming distance using XOR and popcount
-                xor = np.bitwise_xor(vecs[i], vecs[j])
-                hamming_dist = int(np.unpackbits(xor).sum())
-                similarity = 1.0 - (hamming_dist / dim_bits)
+        for batch_start in range(0, n, batch_size):
+            batch_end = min(batch_start + batch_size, n)
+            batch_vecs = vecs[batch_start:batch_end]  # (batch_size, D/8)
 
-                if similarity >= threshold:
-                    union(i, j)
+            # Compute XOR between all batch vectors and all vectors
+            # Shape: (batch_size, N, D/8)
+            xor_result = np.bitwise_xor(
+                batch_vecs[:, np.newaxis, :],
+                vecs[np.newaxis, :, :]
+            )
+
+            # Compute popcount (sum of set bits) for each XOR result
+            # np.unpackbits converts uint8 to bits, then sum gives Hamming distance
+            hamming_matrix = np.unpackbits(xor_result, axis=2).sum(axis=2).astype(np.float32)
+
+            # Convert to similarity
+            similarity_matrix = 1.0 - (hamming_matrix / dim_bits)
+
+            # Find pairs meeting threshold (only upper triangle to avoid duplicates)
+            for local_i, global_i in enumerate(range(batch_start, batch_end)):
+                for j in range(global_i + 1, n):
+                    if similarity_matrix[local_i, j] >= threshold:
+                        union(global_i, j)
 
         # Group nodes by their root
         cluster_map: Dict[int, List[MemoryNode]] = {}

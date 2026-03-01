@@ -9,9 +9,11 @@ procedure generation from episodic patterns, and configurable thresholds.
 """
 
 from typing import Dict, List, Optional, Any
-import threading
+import asyncio
 import logging
 import json
+import os
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -26,6 +28,9 @@ class ProceduralStoreService:
 
     Stores learned skills and action sequences. Tracks reliability per procedure,
     supports trigger-pattern matching, and provides JSON persistence.
+
+    Thread-safety: Uses asyncio.Lock for async-safe operations.
+    Persistence: Uses debounced writes with dirty flag and atomic file writes.
     """
 
     def __init__(self, config=None):
@@ -35,35 +40,38 @@ class ProceduralStoreService:
         """
         self._config = config
         self._procedures: Dict[str, Procedure] = {}
-        self._lock = threading.RLock()
+        self._lock = asyncio.Lock()
 
         # Stats
         self._store_count: int = 0
         self._lookup_count: int = 0
         self._outcome_count: int = 0
 
-        # Load persisted procedures if path configured
+        # Debounced persistence
+        self._dirty = False
         self._persistence_path = None
         if config and getattr(config, "persistence_path", None):
             self._persistence_path = Path(config.persistence_path)
             self._load_from_disk()
 
-    def store_procedure(self, proc: Procedure) -> None:
+    async def store_procedure(self, proc: Procedure) -> None:
         """Save a new or refined procedure into memory."""
-        with self._lock:
+        async with self._lock:
             proc.updated_at = datetime.now(timezone.utc)
             self._procedures[proc.id] = proc
             self._store_count += 1
+            self._dirty = True
+            if self._persistence_path:
+                await self._persist_to_disk_async()
             logger.info(f"Stored procedure {proc.id} ('{proc.name}')")
-            self._persist_to_disk()
 
-    def get_procedure(self, proc_id: str) -> Optional[Procedure]:
+    async def get_procedure(self, proc_id: str) -> Optional[Procedure]:
         """Retrieve a procedure by exact ID."""
-        with self._lock:
+        async with self._lock:
             self._lookup_count += 1
             return self._procedures.get(proc_id)
 
-    def find_applicable_procedures(
+    async def find_applicable_procedures(
         self, query: str, agent_id: Optional[str] = None, top_k: int = 5
     ) -> List[Procedure]:
         """
@@ -72,7 +80,7 @@ class ProceduralStoreService:
         Uses text-based matching with optional semantic HDV matching.
         Filters out low-reliability procedures.
         """
-        with self._lock:
+        async with self._lock:
             q_lower = query.lower()
             results = []
 
@@ -115,9 +123,9 @@ class ProceduralStoreService:
             results.sort(key=lambda p: (p[0] * p[1].reliability, p[1].success_count), reverse=True)
             return [proc for _, proc in results[:top_k]]
 
-    def record_procedure_outcome(self, proc_id: str, success: bool) -> None:
+    async def record_procedure_outcome(self, proc_id: str, success: bool) -> None:
         """Update procedure success metrics, affecting overall reliability."""
-        with self._lock:
+        async with self._lock:
             proc = self._procedures.get(proc_id)
             if not proc:
                 return
@@ -138,13 +146,13 @@ class ProceduralStoreService:
                 proc.reliability = max(0.0, proc.reliability - penalty)
 
             self._outcome_count += 1
+            self._dirty = True
             logger.debug(
                 f"Procedure {proc_id} outcome: success={success}, "
                 f"rel={proc.reliability:.2f} ({proc.success_count}W/{proc.failure_count}L)"
             )
-            self._persist_to_disk()
 
-    def create_procedure_from_episode(
+    async def create_procedure_from_episode(
         self,
         name: str,
         description: str,
@@ -185,27 +193,29 @@ class ProceduralStoreService:
             tags=tags,
         )
 
-        self.store_procedure(proc)
+        await self.store_procedure(proc)
         return proc
 
-    def decay_all_reliability(self, decay_rate: float = 0.005) -> int:
+    async def decay_all_reliability(self, decay_rate: float = 0.005) -> int:
         """Apply reliability decay to all unused procedures. Returns count decayed."""
-        decayed = 0
-        with self._lock:
+        async with self._lock:
+            decayed = 0
             for proc in self._procedures.values():
                 if proc.reliability > 0.0:
                     proc.reliability = max(0.0, proc.reliability - decay_rate)
                     decayed += 1
+            if decayed > 0:
+                self._dirty = True
         return decayed
 
-    def get_all_procedures(self) -> List[Procedure]:
+    async def get_all_procedures(self) -> List[Procedure]:
         """Return all procedures (snapshot)."""
-        with self._lock:
+        async with self._lock:
             return list(self._procedures.values())
 
-    def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> Dict[str, Any]:
         """Return operational statistics."""
-        with self._lock:
+        async with self._lock:
             total_procs = len(self._procedures)
             total_success = sum(p.success_count for p in self._procedures.values())
             total_failure = sum(p.failure_count for p in self._procedures.values())
@@ -222,39 +232,72 @@ class ProceduralStoreService:
                 "lookup_count": self._lookup_count,
                 "outcome_count": self._outcome_count,
                 "persistence_enabled": self._persistence_path is not None,
+                "dirty": self._dirty,
             }
 
-    def _persist_to_disk(self) -> None:
-        """Save procedures to JSON file if persistence is configured."""
+    async def flush(self) -> None:
+        """Flush dirty state to disk if persistence is configured."""
+        if not self._persistence_path or not self._dirty:
+            return
+
+        async with self._lock:
+            await self._persist_to_disk_async()
+
+    async def close(self) -> None:
+        """Flush pending changes."""
+        await self.flush()
+
+    def _atomic_write_json(self, path: Path, data: Any) -> None:
+        """
+        Atomically write JSON data to a file.
+        Writes to a temporary file first, then renames to target path.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = None
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix='.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, str(path))
+        except Exception as e:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise e
+
+    async def _persist_to_disk_async(self) -> None:
+        """Save procedures to JSON file using async file I/O. Must be called with lock held."""
         if not self._persistence_path:
             return
 
+        data = []
+        for proc in self._procedures.values():
+            data.append({
+                "id": proc.id,
+                "name": proc.name,
+                "description": proc.description,
+                "created_by_agent": proc.created_by_agent,
+                "created_at": proc.created_at.isoformat(),
+                "updated_at": proc.updated_at.isoformat(),
+                "steps": [
+                    {"order": s.order, "instruction": s.instruction,
+                     "code_snippet": s.code_snippet, "tool_call": s.tool_call}
+                    for s in proc.steps
+                ],
+                "trigger_pattern": proc.trigger_pattern,
+                "success_count": proc.success_count,
+                "failure_count": proc.failure_count,
+                "reliability": proc.reliability,
+                "tags": proc.tags,
+            })
+
         try:
-            self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
-            data = []
-            for proc in self._procedures.values():
-                data.append({
-                    "id": proc.id,
-                    "name": proc.name,
-                    "description": proc.description,
-                    "created_by_agent": proc.created_by_agent,
-                    "created_at": proc.created_at.isoformat(),
-                    "updated_at": proc.updated_at.isoformat(),
-                    "steps": [
-                        {"order": s.order, "instruction": s.instruction,
-                         "code_snippet": s.code_snippet, "tool_call": s.tool_call}
-                        for s in proc.steps
-                    ],
-                    "trigger_pattern": proc.trigger_pattern,
-                    "success_count": proc.success_count,
-                    "failure_count": proc.failure_count,
-                    "reliability": proc.reliability,
-                    "tags": proc.tags,
-                })
-
-            with open(self._persistence_path, 'w') as f:
-                json.dump(data, f, indent=2)
-
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._atomic_write_json, self._persistence_path, data)
+            self._dirty = False
         except Exception as e:
             logger.warning(f"Failed to persist procedures: {e}")
 
@@ -298,4 +341,5 @@ class ProceduralStoreService:
 
         except Exception as e:
             logger.warning(f"Failed to load procedures from disk: {e}")
+
 

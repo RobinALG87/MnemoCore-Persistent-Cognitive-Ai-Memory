@@ -6,9 +6,11 @@ Tracks what works and what doesn't. Meta-learning layer for HAIM.
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field, asdict
+from loguru import logger
 
 JOURNAL_PATH = "./data/learning_journal.json"
 
@@ -37,10 +39,17 @@ class LearningJournal:
     
     def _load(self):
         if os.path.exists(self.path):
-            with open(self.path, "r") as f:
-                data = json.load(f)
-                for eid, entry_data in data.items():
-                    self.entries[eid] = LearningEntry(**entry_data)
+            try:
+                with open(self.path, "r") as f:
+                    data = json.load(f)
+                    for eid, entry_data in data.items():
+                        self.entries[eid] = LearningEntry(**entry_data)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse learning journal JSON from {self.path}: {e}")
+                self.entries = {}
+            except Exception as e:
+                logger.warning(f"Failed to load learning journal from {self.path}: {e}")
+                self.entries = {}
     
     def _save(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -57,7 +66,7 @@ class LearningJournal:
         surprise: float = 0.0
     ) -> str:
         """Record a new learning."""
-        entry_id = f"learn_{len(self.entries)}"
+        entry_id = f"learn_{uuid.uuid4().hex[:12]}"
         # Boost confidence if high surprise (flashbulb learning)
         if surprise > 0.5:
             confidence = min(1.0, confidence * (1.0 + surprise))

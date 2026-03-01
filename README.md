@@ -24,7 +24,7 @@ tags:
 > *"Memory is not a container. It is a living process — a holographic continuum where every fragment contains the whole."*
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Release%205.0.0-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Release%202.0.0-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/FastAPI-Async%20Ready-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" />
@@ -36,10 +36,10 @@ tags:
 
 ## Quick Install
 
-**Option A — install from PyPI (recommended):**
+**Option A — install from this private GitHub repository (recommended):**
 
 ```bash
-pip install mnemocore
+pip install git+https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git@main
 ```
 
 **Option B — install from source (for development):**
@@ -375,7 +375,7 @@ Promotion is automatic: accessing a WARM or COLD memory re-promotes it to HOT ba
 
 ## Phase 4.0 Cognitive Enhancements
 
-MnemoCore Phase 4.0 introduces five architectural enhancements that elevate the system from **data retrieval** to **cognitive reasoning**. Full implementation specifications are in [`COGNITIVE_ENHANCEMENTS.md`](COGNITIVE_ENHANCEMENTS.md).
+MnemoCore Phase 4.0 introduces five architectural enhancements that elevate the system from **data retrieval** to **cognitive reasoning**.
 
 ---
 
@@ -1112,7 +1112,7 @@ pytest tests/test_e2e_flow.py -v
 
 ## Roadmap
 
-### Current Release (v5.0.0)
+### Current Release (v2.0.0)
 
 - [x] Binary HDV core (XOR bind / bundle / permute / Hamming)
 - [x] Three-tier HOT/WARM/COLD memory lifecycle
@@ -1166,6 +1166,27 @@ git commit -m "feat(consolidation): add LLM-powered prototype labeling"
 ```
 
 Please follow the implementation patterns established in `docs/ARCHITECTURE.md` and `docs/ROADMAP.md` for architectural guidance, and review `CHANGELOG.md` to understand what has already landed.
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture with Mermaid diagrams |
+| [docs/API.md](docs/API.md) | Complete REST API reference (41 endpoints) |
+| [docs/CLI.md](docs/CLI.md) | Command-line interface reference |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All configuration options (41 dataclasses) |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker, Compose, and Kubernetes deployment |
+| [docs/EVENTS.md](docs/EVENTS.md) | Event system and webhook delivery |
+| [docs/FORGETTING.md](docs/FORGETTING.md) | SM-2 spaced repetition and decay system |
+| [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) | Multi-provider LLM integration |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Terms and abbreviations |
+| [docs/SUBCONSCIOUS_AI.md](docs/SUBCONSCIOUS_AI.md) | Subconscious worker and dream pipeline |
+| [docs/RECONSTRUCTIVE_MEMORY.md](docs/RECONSTRUCTIVE_MEMORY.md) | Reconstructive recall module |
+| [docs/EMBEDDING_REGISTRY.md](docs/EMBEDDING_REGISTRY.md) | Embedding model versioning |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 
 ---
 

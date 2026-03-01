@@ -19,8 +19,10 @@ from typing import Any, Dict, List, Optional, Type
 import click
 from loguru import logger
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src to path so 'mnemocore' is importable
+_src = str(Path(__file__).resolve().parent.parent / "src")
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 from .base import BenchmarkConfig, BenchmarkResult, save_result
 from .latency import LatencyBenchmark, benchmark_latency_quick

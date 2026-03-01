@@ -5,7 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.0.0] — 2026-03-01
+## [2.0.0] — 2026-02-28
+
+### Fixed
+
+#### llm_integration.py (6 fixes)
+- **Import paths**: Fixed incorrect import paths from `haim.src.core.engine` to `src.core.engine` and `haim.src.core.node` to `src.core.node`
+- **Missing import**: Added `from datetime import datetime` for dynamic timestamps
+- **Memory access API**: Changed `self.haim.memory_nodes.get()` to `self.haim.tier_manager.get_memory()` - using the correct API for memory access
+- **Superposition query**: Replaced non-existent `superposition_query()` call with combined hypotheses retrieval path
+- **Concept binding**: Replaced non-existent `bind_concepts()` with placeholder - engine has `bind_memories()` available
+- **OR orchestration**: Integrated `orchestrate_orch_or()` from engine and removed workaround sorting path
+
+#### api/main.py (1 fix)
+- **Delete endpoint**: Fixed attribute reference from `engine.memory_nodes` to `engine.tier_manager.hot` - correct attribute for hot memory tier
+
+#### engine.py (1 fix)
+- **Synapse persistence**: Implemented `_save_synapses()` method that was previously an empty stub
+  - Creates parent directory if it doesn't exist
+  - Writes all synapses to disk in JSONL format
+  - Includes all synapse attributes: `neuron_a_id`, `neuron_b_id`, `strength`, `fire_count`, `success_count`, `last_fired`
+  - Handles errors gracefully with logging
+
+### Security
+
+#### Hardening improvements
+- **Thread safety**: Added proper locking in MemoryScheduler `_execute_job()`, SAMEP `discover()`, and StrategyBank `distill_from_episode()`
+- **Interrupted jobs list**: Capped at 100 entries to prevent unbounded growth
+- **Docker security**: Non-root user execution, read-only root filesystem, dropped capabilities
+- **Network security**: Docker compose ports bound to 127.0.0.1 only, network policies in Helm chart
+
+### Changed
+
+#### Phase 4.3 hardening
+- **Chrono-weighting**: Uses batched node lookup instead of per-node await chain
+- **include_neighbors**: Now preserves `top_k` result contract
+- **Private access**: `_dream_sem._value` replaced by public `locked()` API
+- **Episodic chaining**: Race reduced with serialized store path (`_store_lock`, `_last_stored_id`)
+- **engine_version**: Updated to `4.3.0` in stats
+- **HOT-tier time_range**: Filtering enforced in `TierManager.search()`
+- **orchestrate_orch_or()**: Made async and lock-guarded
+
+#### Config system improvements
+- **Dynamic timestamps**: LLM integration now uses `datetime.now().isoformat()` instead of hardcoded timestamp
+- **Config-service alignment**: All cognitive service config fields aligned to match service `getattr()` reads
+
+### Added
+
+#### Subconscious AI Worker (Phase 4.4+)
+- **Multi-provider support**: Ollama, LM Studio, OpenAI, Anthropic integration
+- **Resource guard**: CPU usage monitoring with configurable limits
+- **Pulse integration**: Background cognitive processing with configurable intervals
+- **aiohttp dependency**: Added for async HTTP requests to AI providers
+- **psutil dependency**: Added for CPU monitoring in ResourceGuard
+
+#### Testing improvements
+- **136+ dedicated tests**: Added for Phase 4.3 regressions and new features
+- **Comprehensive coverage**: Tests for all cognitive services, edge cases, and integration flows
+
+#### Documentation
+- **Ollama integration docs**: Complete setup guide for local AI model integration
+- **Docker docs**: Environment variable configuration for subconscious AI
+
+## [2.0.0] — 2026-03-01
 
 ### Added
 

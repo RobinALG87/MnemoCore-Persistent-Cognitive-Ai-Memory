@@ -25,6 +25,9 @@ from .node import MemoryNode
 from .synapse import SynapticConnection
 from .tier_manager import TierManager
 
+# Shared utilities (Task 4.4: centralized helpers)
+from ._utils import run_in_thread, get_token_vector, safe_ensure_future, log_task_exception
+
 # Observability imports
 from .metrics import (
     timer, traced, STORE_DURATION_SECONDS, QUERY_DURATION_SECONDS,
@@ -161,22 +164,24 @@ class EngineCoreOperations:
         self.anticipatory_engine = anticipatory_engine
 
     # ==========================================================================
-    # Helper Methods
+    # Helper Methods (imported from _utils.py for deduplication)
     # ==========================================================================
 
-    @staticmethod
-    @functools.lru_cache(maxsize=10000)
-    def _get_token_vector(token: str, dimension: int) -> np.ndarray:
-        """Cached generation of deterministic token vectors (legacy compatibility)."""
-        import hashlib
-        seed_bytes = hashlib.shake_256(token.encode()).digest(4)
-        seed = int.from_bytes(seed_bytes, 'little')
-        return np.random.RandomState(seed).choice([-1, 1], size=dimension)
-
+    # Use run_in_thread from _utils module (Task 4.4)
     async def _run_in_thread(self, func, *args, **kwargs):
-        """Run blocking function in thread pool."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+        """Run blocking function in thread pool. Delegates to shared utility."""
+        return await run_in_thread(func, *args, **kwargs)
+
+    # Use get_token_vector from _utils module (Task 4.4)
+    # Cached at instance level to avoid memory leaks from unbounded static cache
+    _token_vector_cache: Dict[Tuple[str, int], np.ndarray] = {}
+
+    def _get_token_vector(self, token: str, dimension: int) -> np.ndarray:
+        """Cached generation of deterministic token vectors (legacy compatibility)."""
+        cache_key = (token, dimension)
+        if cache_key not in self._token_vector_cache:
+            self._token_vector_cache[cache_key] = get_token_vector(token, dimension)
+        return self._token_vector_cache[cache_key]
 
     # ==========================================================================
     # Event System Integration
@@ -252,8 +257,155 @@ class EngineCoreOperations:
         return majority_bundle(vectors)
 
     # ==========================================================================
-    # Store Operations
+    # Store Operations - Pipeline Stages (Task 4.1 refactoring)
     # ==========================================================================
+
+    def _validate_content(self, content: str) -> str:
+        """
+        Validate memory content before storage.
+
+        Stage 1 of the store pipeline.
+
+        Args:
+            content: The text content to validate.
+
+        Returns:
+            The validated and stripped content.
+
+        Raises:
+            ValueError: If content is empty or exceeds maximum length.
+            RuntimeError: If engine is not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError(
+                "HAIMEngine.initialize() must be awaited before calling store()."
+            )
+        if not content or not content.strip():
+            raise ValueError("Memory content cannot be empty or whitespace-only.")
+        if len(content) > self._MAX_CONTENT_LENGTH:
+            raise ValueError(
+                f"Memory content is too long ({len(content):,} chars). "
+                f"Maximum: {self._MAX_CONTENT_LENGTH:,}."
+            )
+        return content.strip()
+
+    async def _encode_content(self, content: str) -> BinaryHDV:
+        """
+        Encode text content to BinaryHDV.
+
+        Stage 2 of the store pipeline.
+
+        Args:
+            content: The validated text content.
+
+        Returns:
+            BinaryHDV representation of the content.
+        """
+        return await self._run_in_thread(self.binary_encoder.encode, content)
+
+    async def _post_store_hooks(
+        self,
+        node: MemoryNode,
+        content: str,
+        encoded_vec: BinaryHDV,
+        metadata: Dict[str, Any],
+    ) -> None:
+        """
+        Execute all post-store hooks: WM push, episodic logging, semantic consolidation,
+        event emission, association update, and meta-memory recording.
+
+        Stage 5 of the store pipeline - runs after persistence.
+
+        Args:
+            node: The stored MemoryNode.
+            content: Original text content.
+            encoded_vec: The encoded BinaryHDV.
+            metadata: The metadata dictionary.
+        """
+        # Phase 5.1: Working Memory and Episodic Store integration
+        agent_id = metadata.get("agent_id")
+        if agent_id:
+            if self.working_memory:
+                from .memory_model import WorkingMemoryItem
+                await self.working_memory.push_item(
+                    agent_id,
+                    WorkingMemoryItem(
+                        id=f"wm_{node.id[:8]}",
+                        agent_id=agent_id,
+                        created_at=datetime.now(timezone.utc),
+                        ttl_seconds=3600,
+                        content=content,
+                        kind="observation",
+                        importance=node.epistemic_value or 0.5,
+                        tags=metadata.get("tags", []),
+                        hdv=encoded_vec
+                    )
+                )
+
+            episode_id = metadata.get("episode_id")
+            if episode_id and self.episodic_store:
+                self.episodic_store.append_event(
+                    episode_id=episode_id,
+                    kind="observation",
+                    content=content,
+                    metadata=metadata
+                )
+
+        # Emit memory.created event
+        if EVENTS_AVAILABLE and event_integration:
+            await event_integration.emit_memory_created(
+                event_bus=self.event_bus,
+                memory_id=node.id,
+                content=content,
+                tier=node.tier or "hot",
+                ltp_strength=node.ltp_strength,
+                eig=metadata.get("eig"),
+                tags=metadata.get("tags"),
+                category=metadata.get("category"),
+                agent_id=metadata.get("agent_id"),
+                episode_id=metadata.get("episode_id"),
+                previous_id=node.previous_id,
+            )
+
+        # Phase 6.0: Association network integration
+        if hasattr(self, 'associations_integrator'):
+            try:
+                context_nodes = []
+                if self._last_stored_id:
+                    last_mem = await self.tier_manager.get_memory(self._last_stored_id)
+                    if last_mem:
+                        context_nodes.append(last_mem)
+                self.associations_integrator.on_store(node, context_nodes)
+                logger.debug(f"Added memory {node.id} to association network")
+            except Exception as e:
+                logger.warning(f"Failed to add to association network: {e}")
+
+        # Phase 5.1: Auto-consolidate into semantic store
+        if hasattr(self, 'semantic_store') and self.semantic_store and content:
+            try:
+                episode_ids = []
+                episode_id = metadata.get("episode_id")
+                if episode_id:
+                    episode_ids.append(episode_id)
+                self.semantic_store.consolidate_from_content(
+                    content=content,
+                    hdv=encoded_vec,
+                    episode_ids=episode_ids,
+                    tags=metadata.get("tags", []),
+                    agent_id=metadata.get("agent_id"),
+                )
+            except Exception as e:
+                logger.warning(f"Semantic consolidation on store skipped: {e}")
+
+        # Phase 5.1: Record store metric for meta-memory
+        if hasattr(self, 'meta_memory') and self.meta_memory:
+            try:
+                self.meta_memory.record_metric("store_count", 1.0, "per_call")
+            except Exception as e:
+                logger.warning(f"Failed to record meta-memory metric: {e}")
+
+        # Update queue length metric
+        update_queue_length(len(self.subconscious_queue))
 
     async def _encode_input(
         self,
@@ -421,12 +573,12 @@ class EngineCoreOperations:
         """
         Store new memory with holographic encoding.
 
-        This method orchestrates the memory storage pipeline:
-        1. Validate input
-        2. Encode input content
-        3. Evaluate tier placement via EIG
-        4. Persist to storage
-        5. Trigger post-store processing
+        This method orchestrates the memory storage pipeline (Task 4.1 refactored):
+        1. _validate_content: Validate input
+        2. _encode_content: Encode input to BinaryHDV
+        3. _evaluate_tier: Calculate EIG for tier placement
+        4. _persist_memory: Create and persist MemoryNode
+        5. _trigger_post_store + _post_store_hooks: Post-processing
 
         Args:
             content: The text content to store. Must be non-empty and <=100 000 chars.
@@ -441,128 +593,325 @@ class EngineCoreOperations:
             ValueError: If content is empty or exceeds the maximum allowed length.
             RuntimeError: If the engine has not been initialized via initialize().
         """
-        # Input validation
-        if not content or not content.strip():
-            raise ValueError("Memory content cannot be empty or whitespace-only.")
-        if len(content) > self._MAX_CONTENT_LENGTH:
-            raise ValueError(
-                f"Memory content is too long ({len(content):,} chars). "
-                f"Maximum: {self._MAX_CONTENT_LENGTH:,}."
-            )
-        if not self._initialized:
-            raise RuntimeError(
-                "HAIMEngine.initialize() must be awaited before calling store()."
-            )
+        # Stage 1: Validate content
+        content = self._validate_content(content)
 
-        # 1. Encode input and bind goal context
+        # Stage 2: Encode input and bind goal context
         encoded_vec, updated_metadata = await self._encode_input(content, metadata, goal_id)
 
-        # 1b. Apply project isolation mask (Phase 4.1)
+        # Stage 2b: Apply project isolation mask (Phase 4.1)
         if project_id:
             encoded_vec = self.isolation_masker.apply_mask(encoded_vec, project_id)
             updated_metadata['project_id'] = project_id
 
-        # 2. Calculate EIG and evaluate tier placement
+        # Stage 3: Calculate EIG and evaluate tier placement
         updated_metadata = await self._evaluate_tier(encoded_vec, updated_metadata)
 
-        # 3. Create and persist memory node
+        # Stage 4: Create and persist memory node
         node = await self._persist_memory(content, encoded_vec, updated_metadata)
 
-        # Phase 5.1: If agent_id in metadata, push to Working Memory and log Episode event
-        agent_id = updated_metadata.get("agent_id")
-        if agent_id:
-            if self.working_memory:
-                from .memory_model import WorkingMemoryItem
-                self.working_memory.push_item(
-                    agent_id,
-                    WorkingMemoryItem(
-                        id=f"wm_{node.id[:8]}",
-                        agent_id=agent_id,
-                        created_at=datetime.now(timezone.utc),
-                        ttl_seconds=3600,
-                        content=content,
-                        kind="observation",
-                        importance=node.epistemic_value or 0.5,
-                        tags=updated_metadata.get("tags", []),
-                        hdv=encoded_vec
-                    )
-                )
-
-            episode_id = updated_metadata.get("episode_id")
-            if episode_id and self.episodic_store:
-                self.episodic_store.append_event(
-                    episode_id=episode_id,
-                    kind="observation",
-                    content=content,
-                    metadata=updated_metadata
-                )
-
-        # 4. Trigger post-store processing
+        # Stage 5a: Trigger post-store processing (subconscious queue, synapse binding)
         await self._trigger_post_store(node, updated_metadata)
 
-        # 5. Emit memory.created event
-        if EVENTS_AVAILABLE and event_integration:
-            await event_integration.emit_memory_created(
-                event_bus=self.event_bus,
-                memory_id=node.id,
-                content=content,
-                tier=node.tier or "hot",
-                ltp_strength=node.ltp_strength,
-                eig=updated_metadata.get("eig"),
-                tags=updated_metadata.get("tags"),
-                category=updated_metadata.get("category"),
-                agent_id=updated_metadata.get("agent_id"),
-                episode_id=updated_metadata.get("episode_id"),
-                previous_id=node.previous_id,
-            )
-
-        # Phase 6.0: Add to association network
-        if hasattr(self, 'associations_integrator'):
-            try:
-                # Find potential context nodes from recent memories
-                context_nodes = []
-                if self._last_stored_id:
-                    last_mem = await self.tier_manager.get_memory(self._last_stored_id)
-                    if last_mem:
-                        context_nodes.append(last_mem)
-
-                # Add the new node to the network
-                self.associations_integrator.on_store(node, context_nodes)
-                logger.debug(f"Added memory {node.id} to association network")
-            except Exception as e:
-                logger.debug(f"Failed to add to association network: {e}")
-
-        # Phase 5.1: Auto-consolidate into semantic store
-        if hasattr(self, 'semantic_store') and self.semantic_store and content:
-            try:
-                episode_ids = []
-                episode_id = updated_metadata.get("episode_id")
-                if episode_id:
-                    episode_ids.append(episode_id)
-                self.semantic_store.consolidate_from_content(
-                    content=content,
-                    hdv=encoded_vec,
-                    episode_ids=episode_ids,
-                    tags=updated_metadata.get("tags", []),
-                    agent_id=updated_metadata.get("agent_id"),
-                )
-            except Exception as e:
-                logger.debug(f"Semantic consolidation on store skipped: {e}")
-
-        # Phase 5.1: Record store metric for meta-memory
-        if hasattr(self, 'meta_memory') and self.meta_memory:
-            try:
-                self.meta_memory.record_metric(
-                    "store_count", 1.0, "per_call"
-                )
-            except Exception:
-                pass
-
-        # 5. Update queue length metric
-        update_queue_length(len(self.subconscious_queue))
+        # Stage 5b: Execute all post-store hooks (WM, episodic, events, associations, etc.)
+        await self._post_store_hooks(node, content, encoded_vec, updated_metadata)
 
         logger.info(f"Stored memory {node.id} (EIG: {updated_metadata.get('eig', 0.0):.4f})")
         return node.id
+
+    # ==========================================================================
+    # Query Operations - Pipeline Stages (Task 4.2 refactoring)
+    # ==========================================================================
+
+    async def _encode_query(
+        self,
+        query_text: str,
+        project_id: Optional[str] = None,
+    ) -> BinaryHDV:
+        """
+        Encode query text to BinaryHDV with optional project isolation.
+
+        Stage 1 of the query pipeline.
+
+        Args:
+            query_text: The query text to encode.
+            project_id: Optional project ID for isolation masking.
+
+        Returns:
+            Encoded BinaryHDV for the query.
+        """
+        query_vec = await self._run_in_thread(self.binary_encoder.encode, query_text)
+
+        # Phase 12.2: Context Tracking
+        is_shift, sim = self.topic_tracker.add_query(query_vec)
+        if is_shift:
+            logger.info(f"Context shifted during query. (sim {sim:.3f})")
+
+        # Phase 4.1: Apply project isolation mask
+        if project_id:
+            query_vec = self.isolation_masker.apply_mask(query_vec, project_id)
+
+        return query_vec
+
+    async def _search_tiers(
+        self,
+        query_vec: BinaryHDV,
+        top_k: int,
+        time_range: Optional[Tuple[datetime, datetime]] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        include_cold: bool = False,
+    ) -> List[Tuple[str, float]]:
+        """
+        Perform primary search across tiers.
+
+        Stage 2 of the query pipeline.
+
+        Args:
+            query_vec: The encoded query vector.
+            top_k: Number of results to return.
+            time_range: Optional time range filter.
+            metadata_filter: Optional metadata filter.
+            include_cold: Whether to include cold tier.
+
+        Returns:
+            List of (node_id, similarity) tuples.
+        """
+        return await self.tier_manager.search(
+            query_vec,
+            top_k=top_k * 2,
+            time_range=time_range,
+            metadata_filter=metadata_filter,
+            include_cold=include_cold,
+        )
+
+    async def _apply_temporal_weighting(
+        self,
+        scores: Dict[str, float],
+        search_results: List[Tuple[str, float]],
+        chrono_weight: bool,
+        chrono_lambda: float,
+    ) -> Dict[str, MemoryNode]:
+        """
+        Apply temporal decay weighting to scores.
+
+        Stage 3 of the query pipeline.
+
+        Args:
+            scores: Score dictionary to update.
+            search_results: Original search results.
+            chrono_weight: Whether to apply temporal weighting.
+            chrono_lambda: Decay rate.
+
+        Returns:
+            Dictionary of loaded MemoryNodes for reuse.
+        """
+        now_ts = datetime.now(timezone.utc).timestamp()
+        mem_map: Dict[str, MemoryNode] = {}
+
+        if chrono_weight and search_results:
+            mems = await self.tier_manager.get_memories_batch(
+                [nid for nid, _ in search_results]
+            )
+            mem_map = {m.id: m for m in mems if m}
+
+        for nid, base_sim in search_results:
+            # Boost by synaptic health
+            boost = await self._synapse_index.boost(nid)
+            score = base_sim * boost
+
+            # Chrono-weighting (temporal decay)
+            if chrono_weight and score > 0:
+                mem = mem_map.get(nid)
+                if mem:
+                    time_delta = max(0.0, now_ts - mem.created_at.timestamp())
+                    decay_factor = 1.0 / (1.0 + chrono_lambda * time_delta)
+                    score = score * decay_factor
+
+            scores[nid] = score
+
+        return mem_map
+
+    async def _apply_preference_bias(
+        self,
+        scores: Dict[str, float],
+        mem_map: Dict[str, MemoryNode],
+    ) -> None:
+        """
+        Apply preference learning bias to scores.
+
+        Stage 4 of the query pipeline.
+
+        Args:
+            scores: Score dictionary to update in-place.
+            mem_map: Memory node cache for lookup.
+        """
+        if not (self.preference_store.config.enabled and
+                self.preference_store.preference_vector is not None):
+            return
+
+        for nid in list(scores.keys()):
+            mem = mem_map.get(nid)
+            if not mem:
+                mem = await self.tier_manager.get_memory(nid)
+                if mem and mem.id not in mem_map:
+                    mem_map[mem.id] = mem
+            if mem:
+                scores[nid] = self.preference_store.bias_score(mem.hdv, scores[nid])
+
+    async def _apply_wm_boost(
+        self,
+        scores: Dict[str, float],
+        query_text: str,
+        metadata_filter: Optional[Dict[str, Any]],
+        mem_map: Dict[str, MemoryNode],
+    ) -> None:
+        """
+        Apply working memory context boost to scores.
+
+        Stage 5 of the query pipeline.
+
+        Args:
+            scores: Score dictionary to update in-place.
+            query_text: The original query text.
+            metadata_filter: Optional metadata filter containing agent_id.
+            mem_map: Memory node cache for lookup.
+        """
+        agent_id = metadata_filter.get("agent_id") if metadata_filter else None
+        if not (agent_id and self.working_memory):
+            return
+
+        wm_state = await self.working_memory.get_state(agent_id)
+        if not wm_state or not wm_state.items:
+            return
+
+        wm_texts = [item.content for item in wm_state.items]
+        if not wm_texts:
+            return
+
+        q_lower = query_text.lower()
+        for nid in scores:
+            mem = mem_map.get(nid)
+            if mem and mem.content:
+                if any(w_text.lower() in mem.content.lower() for w_text in wm_texts):
+                    scores[nid] *= 1.15  # 15% boost for WM overlap
+
+    async def _apply_attention_rerank(
+        self,
+        scores: Dict[str, float],
+        query_vec: BinaryHDV,
+        top_k: int,
+    ) -> Tuple[List[Tuple[str, float]], Optional[BinaryHDV]]:
+        """
+        Apply XOR attention re-ranking to results.
+
+        Stage 6 of the query pipeline.
+
+        Args:
+            scores: Score dictionary.
+            query_vec: The encoded query vector.
+            top_k: Number of results to return.
+
+        Returns:
+            Tuple of (sorted results, attention_mask or None).
+        """
+        attention_mask = None
+        top_results: List[Tuple[str, float]] = sorted(
+            scores.items(), key=lambda x: x[1], reverse=True
+        )[:top_k]
+
+        if not scores:
+            return top_results, None
+
+        # Build context key from recent HOT nodes
+        recent_nodes = await self.tier_manager.get_hot_recent(
+            self.attention_masker.config.context_sample_n
+        )
+        if not recent_nodes:
+            return top_results, None
+
+        ctx_vecs = [n.hdv for n in recent_nodes]
+        ctx_key = self.attention_masker.build_context_key(ctx_vecs)
+        attention_mask = self.attention_masker.build_attention_mask(query_vec, ctx_key)
+
+        # Collect HDVs for re-ranking
+        mem_vecs: Dict[str, BinaryHDV] = {}
+        async with self.tier_manager.lock:
+            for nid in list(scores.keys()):
+                node = self.tier_manager.hot.get(nid)
+                if node:
+                    mem_vecs[nid] = node.hdv
+
+        ranked = self.attention_masker.rerank(scores, mem_vecs, attention_mask)
+        top_results = self.attention_masker.extract_scores(ranked)[:top_k]
+
+        return top_results, attention_mask
+
+    async def _trigger_post_query(
+        self,
+        top_results: List[Tuple[str, float]],
+        query_text: str,
+        query_vec: BinaryHDV,
+        attention_mask: Optional[BinaryHDV],
+        track_gaps: bool,
+        metadata_filter: Optional[Dict[str, Any]],
+        scores: Dict[str, float],
+    ) -> List[Tuple[str, float]]:
+        """
+        Execute post-query triggers: gap detection, anticipatory preloading,
+        association strengthening, and meta-memory recording.
+
+        Stage 7 of the query pipeline (fire-and-forget async hooks).
+
+        Args:
+            top_results: The query results.
+            query_text: Original query text.
+            query_vec: Encoded query vector.
+            attention_mask: The attention mask used (or None).
+            track_gaps: Whether to track knowledge gaps.
+            metadata_filter: Optional metadata filter.
+            scores: The score dictionary.
+
+        Returns:
+            Final results (potentially with temporal neighbors added).
+        """
+        # Phase 4.0: Knowledge gap detection (Task 4.3: added exception callback)
+        if track_gaps:
+            safe_ensure_future(
+                self.gap_detector.assess_query(query_text, top_results, attention_mask),
+                name="gap_detection"
+            )
+
+        # Phase 4.3: Sequential Context Window (fetch temporal neighbors)
+        # Note: This is done synchronously as it modifies results
+        # The actual neighbor fetching could be moved to a separate method if needed
+
+        # Phase 13.2: Anticipatory preloading (Task 4.3: added exception callback)
+        if top_results and self._initialized and self.config.anticipatory.enabled:
+            safe_ensure_future(
+                self.anticipatory_engine.predict_and_preload(top_results[0][0]),
+                name="anticipatory_preload"
+            )
+
+        # Phase 6.0: Association network integration (Task 4.3: added exception callback)
+        if top_results and hasattr(self, 'associations_integrator'):
+            retrieved_ids = [nid for nid, _ in top_results]
+            safe_ensure_future(
+                self._strengthen_recall_associations(retrieved_ids, query_text),
+                name="association_strengthen"
+            )
+
+        # Phase 5.1: Record query metrics for meta-memory
+        if hasattr(self, 'meta_memory') and self.meta_memory:
+            try:
+                hit_rate = 1.0 if top_results else 0.0
+                best_score = top_results[0][1] if top_results else 0.0
+                self.meta_memory.record_metric("query_hit_rate", hit_rate, "per_call")
+                self.meta_memory.record_metric("query_best_score", best_score, "per_call")
+                self.meta_memory.record_metric("query_result_count", float(len(top_results)), "per_call")
+            except Exception as e:
+                logger.warning(f"Failed to record query metrics in meta-memory: {e}")
+
+        return top_results
 
     # ==========================================================================
     # Query Operations
@@ -640,7 +989,7 @@ class EngineCoreOperations:
 
         for nid, base_sim in search_results:
             # Boost by synaptic health (Phase 4.0: use SynapseIndex.boost for O(k))
-            boost = self._synapse_index.boost(nid)
+            boost = await self._synapse_index.boost(nid)
             score = base_sim * boost
 
             # Phase 4.3: Chrono-weighting (temporal decay)
@@ -666,7 +1015,7 @@ class EngineCoreOperations:
         # Phase 5.1: Boost context matching Working Memory
         agent_id = metadata_filter.get("agent_id") if metadata_filter else None
         if agent_id and self.working_memory:
-            wm_state = self.working_memory.get_state(agent_id)
+            wm_state = await self.working_memory.get_state(agent_id)
             if wm_state:
                 wm_texts = [item.content for item in wm_state.items]
                 if wm_texts:
@@ -678,7 +1027,7 @@ class EngineCoreOperations:
                                 scores[nid] *= 1.15  # 15% boost for WM overlap
 
         # 2. Associative Spreading (via SynapseIndex for O(1) adjacency lookup)
-        if associative_jump and self._synapse_index:
+        if associative_jump and self._synapse_index is not None:
             top_seeds = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
             augmented_scores = scores.copy()
 
@@ -686,7 +1035,7 @@ class EngineCoreOperations:
                 if seed_score <= 0:
                     continue
 
-                neighbour_synapses = self._synapse_index.neighbours(seed_id)
+                neighbour_synapses = await self._synapse_index.neighbours(seed_id)
 
                 for syn in neighbour_synapses:
                     neighbor = (
@@ -741,9 +1090,11 @@ class EngineCoreOperations:
 
         # Phase 4.0: Knowledge gap detection
         # Disabled during dream cycles to break the store->dream->gap->fill->store loop.
+        # Task 4.3: Use safe_ensure_future for exception logging
         if track_gaps:
-            asyncio.ensure_future(
-                self.gap_detector.assess_query(query_text, top_results, attention_mask)
+            safe_ensure_future(
+                self.gap_detector.assess_query(query_text, top_results, attention_mask),
+                name="gap_detection"
             )
 
         # Phase 4.3: Sequential Context Window
@@ -787,17 +1138,21 @@ class EngineCoreOperations:
 
         # Phase 13.2: Anticipatory preloading — fire-and-forget so it
         # never blocks the caller. Only activated when the engine is fully warm.
+        # Task 4.3: Use safe_ensure_future for exception logging
         if top_results and self._initialized and self.config.anticipatory.enabled:
-            asyncio.ensure_future(
-                self.anticipatory_engine.predict_and_preload(top_results[0][0])
+            safe_ensure_future(
+                self.anticipatory_engine.predict_and_preload(top_results[0][0]),
+                name="anticipatory_preload"
             )
 
         # Phase 6.0: Association network integration
         # Fire-and-forget: strengthen associations between co-retrieved memories
+        # Task 4.3: Use safe_ensure_future for exception logging
         if top_results and hasattr(self, 'associations_integrator'):
             retrieved_ids = [nid for nid, _ in top_results]
-            asyncio.ensure_future(
-                self._strengthen_recall_associations(retrieved_ids, query_text)
+            safe_ensure_future(
+                self._strengthen_recall_associations(retrieved_ids, query_text),
+                name="association_strengthen"
             )
 
         # Phase 5.1: Record query metrics for meta-memory
@@ -808,8 +1163,8 @@ class EngineCoreOperations:
                 self.meta_memory.record_metric("query_hit_rate", hit_rate, "per_call")
                 self.meta_memory.record_metric("query_best_score", best_score, "per_call")
                 self.meta_memory.record_metric("query_result_count", float(len(top_results)), "per_call")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to record query metrics in meta-memory: {e}")
 
         return top_results
 
@@ -850,7 +1205,7 @@ class EngineCoreOperations:
             logger.debug(f"Strengthened associations for {len(memories)} co-retrieved memories")
 
         except Exception as e:
-            logger.debug(f"Failed to strengthen associations: {e}")
+            logger.warning(f"Failed to strengthen associations: {e}")
 
     async def get_context_nodes(self, top_k: int = 3) -> List[Tuple[str, float]]:
         """
@@ -959,7 +1314,7 @@ class EngineCoreOperations:
 
         # 3. Phase 4.0: clean up via SynapseIndex (O(k)).
         async with self.synapse_lock:
-            removed_count = self._synapse_index.remove_node(node_id)
+            removed_count = await self._synapse_index.remove_node(node_id)
 
         if removed_count:
             await self._save_synapses()
@@ -970,7 +1325,7 @@ class EngineCoreOperations:
                 self.associations.remove_node(node_id)
                 logger.debug(f"Removed memory {node_id} from association network")
             except Exception as e:
-                logger.debug(f"Failed to remove from association network: {e}")
+                logger.warning(f"Failed to remove from association network: {e}")
 
         # 5. Emit memory.deleted event
         if deleted and EVENTS_AVAILABLE and event_integration:
@@ -1070,7 +1425,7 @@ class EngineCoreOperations:
                 mem_a = await self.tier_manager.get_memory(id_a)
                 mem_b = await self.tier_manager.get_memory(id_b)
                 if mem_a and mem_b:
-                    self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
+                    await self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
         await self._save_synapses()
 
     async def bind_memories(self, id_a: str, id_b: str, success: bool = True, weight: float = 1.0):
@@ -1088,7 +1443,7 @@ class EngineCoreOperations:
             return
 
         async with self.synapse_lock:
-            self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
+            await self._synapse_index.add_or_fire(id_a, id_b, success=success, weight=weight)
 
         await self._save_synapses()
 
@@ -1102,11 +1457,8 @@ class EngineCoreOperations:
         """
         path_snapshot = self.synapse_path
 
-        def _save():
-            self._synapse_index.save_to_file(path_snapshot)
-
         async with self._write_lock:
-            await self._run_in_thread(_save)
+            await self._synapse_index.save_to_file(path_snapshot)
 
     # ==========================================================================
     # Encoding Helper

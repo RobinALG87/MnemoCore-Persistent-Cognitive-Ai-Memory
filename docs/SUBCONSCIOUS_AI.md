@@ -1,6 +1,6 @@
 # Subconscious AI Worker — Comprehensive Setup & Reference Guide
 
-> **MnemoCore v5.0.0+ · Phase 4.4**
+> **MnemoCore v2.0.0+ · Phase 4.4**
 >
 > The Subconscious AI Worker (`SubconsciousAIWorker`) is an optional background service that connects
 > MnemoCore to a local or remote Large Language Model. It periodically wakes up ("pulses"), reads a
@@ -75,7 +75,7 @@ interfering with normal request processing.
 | `psutil>=5.9.0` | CPU-usage monitoring in `ResourceGuard` |
 | One of the supported providers running | Local (Ollama / LM Studio) or remote API |
 
-Both `aiohttp` and `psutil` are included in `requirements.txt` as of v5.0.0. Install all
+Both `aiohttp` and `psutil` are included in `requirements.txt` as of v2.0.0. Install all
 dependencies with:
 
 ```bash
@@ -720,4 +720,4 @@ To add a new provider:
 
 ---
 
-*Last updated: MnemoCore v5.0.0 — Phase 4.4 (Subconscious AI Worker)*
+*Last updated: MnemoCore v2.0.0 — Phase 4.4 (Subconscious AI Worker)*
