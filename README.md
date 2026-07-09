@@ -60,7 +60,7 @@ pip install -e ".[dev]"   # + pytest, mypy, black, etc.
 > # Linux / macOS
 > # export HAIM_API_KEY="your-secure-key"
 > ```
-> Then start the API: `uvicorn mnemocore.api.main:app --host 0.0.0.0 --port 8100`
+> Then start the API locally: `uvicorn mnemocore.api.main:app --host 127.0.0.1 --port 8100`
 
 Full setup including Redis, Qdrant, Docker and configuration details are in [Installation](#installation) below.
 
@@ -719,19 +719,37 @@ Response:
 Trigger manual semantic consolidation (normally runs automatically at 3 AM).
 
 #### `GET /stats`
-Engine statistics — tiers, synapse count, consolidation state.
+Engine statistics - tiers, synapse count, consolidation state. Requires `X-API-Key` by default.
 
 #### `GET /health`
-Health check — Redis connectivity, engine readiness, degraded mode status.
+Minimal public health check: `status` and `timestamp`. Detailed diagnostics stay private.
 
 #### `GET /metrics`
-Prometheus metrics endpoint.
+Prometheus metrics endpoint. Requires `X-API-Key` by default unless explicitly enabled for a trusted monitoring network.
 
 ---
 
 ## Python Library Usage
 
-### Basic Store and Query
+### Lightweight Quickstart (recommended - very light, no Redis/Qdrant)
+
+```python
+from mnemocore import Memory
+
+# Default is "lite" profile: minimal footprint, in-process only.
+# Heavy background (subconscious, pulse) disabled.
+m = Memory()
+
+m.add("User prefers concise answers")
+m.add("Project uses Binary HDV for efficient memory", user_id="demo")
+
+results = m.search("concise", top_k=3)
+print(results)
+```
+
+See Installation for `pip install -e .` (core only is enough for lite).
+
+### Advanced / Low-level (full engine)
 
 ```python
 from mnemocore.core.engine import HAIMEngine
@@ -830,45 +848,46 @@ print(f"Consolidated {stats['memories_consolidated']} episodic memories")
 ### Prerequisites
 
 - **Python 3.10+**
-- **Redis 6+** — Required for WARM tier and async event streaming
-- **Qdrant** *(optional)* — For COLD tier at billion-scale
-- **Docker** *(recommended)* — For Redis and Qdrant services
+- For full features: Redis 6+, Qdrant (optional for COLD)
+- **Lite / lightweight use** (default `Memory()`): only Python — no Redis/Qdrant/Docker required. See quickstart below.
 
-### Quick Start
+### Quick Start (Lite - primary path, zero external deps)
 
 ```bash
-# 1. Clone
-git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git
-cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
-
-# 2. Create virtual environment
-python -m venv .venv
-.\.venv\Scripts\activate          # Windows (PowerShell)
-# source .venv/bin/activate       # Linux / macOS
-
-# 3. Install (recommended — uses pyproject.toml as canonical source)
+# 1. Install (core only - no Redis/Qdrant needed)
 pip install -e .
+```
 
-# Or install runtime deps only (Docker / legacy):
-# pip install -r requirements.txt
+```python
+# 2. Use - default is lite: in-memory only, minimal footprint
+from mnemocore import Memory
+m = Memory()
+m.add("User prefers concise answers")
+print(m.search("concise"))
+```
+
+See "Full server setup (optional)" below for Redis/Docker/API server.
+
+### Full server setup (optional, for Redis-backed etc.)
 
 # To include dev tools (pytest, mypy, black, etc.):
 pip install -e ".[dev]"
 
-# 4. Start Redis
+# Start Redis
 docker run -d -p 6379:6379 redis:7.2-alpine
 
-# 5. Set API key (never hardcode — use env var or .env file)
+# Set API key (never hardcode — use env var or .env file)
 # Windows PowerShell:
 $env:HAIM_API_KEY = "your-secure-key-here"
 # Linux / macOS:
 # export HAIM_API_KEY="your-secure-key-here"
 
-# 6. Start the API
-uvicorn mnemocore.api.main:app --host 0.0.0.0 --port 8100
-```
+# Start the API locally
+uvicorn mnemocore.api.main:app --host 127.0.0.1 --port 8100
 
 The API is now live at `http://localhost:8100`. Visit `http://localhost:8100/docs` for the interactive Swagger UI.
+
+> Do not bind MnemoCore directly to a public IP unless it is behind a trusted reverse proxy, TLS, and a strong `HAIM_API_KEY`. Diagnostics (`/stats`, `/rate-limits`, `/metrics`) require `X-API-Key` by default.
 
 ### Using the .env file
 
@@ -876,7 +895,7 @@ Copy the provided template and fill in your values — the API and docker-compos
 
 ```bash
 cp .env.example .env
-# Edit .env and set HAIM_API_KEY, REDIS_URL, etc.
+# Edit .env and set HAIM_API_KEY, REDIS_PASSWORD, QDRANT_API_KEY, etc.
 ```
 
 > **Note:** `.env` is listed in `.gitignore` and must never be committed. Only `.env.example` (with placeholder values) belongs in version control.
@@ -957,6 +976,11 @@ haim:
   security:
     # api_key: set via HAIM_API_KEY env var — never hardcode here
     cors_origins: ["http://localhost:3000"]
+    public_health_enabled: true
+    public_stats_enabled: false
+    public_rate_limits_enabled: false
+    public_metrics_enabled: false
+    require_api_key_for_export: true
 
   subconscious_ai:
     enabled: false
@@ -1055,7 +1079,7 @@ MnemoCore ships with built-in Prometheus metrics and structured logging.
 
 ### Prometheus Metrics
 
-Available at `GET /metrics`:
+Available at `GET /metrics` with `X-API-Key` by default:
 
 | Metric | Description |
 |--------|-------------|

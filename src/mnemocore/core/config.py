@@ -23,7 +23,7 @@ import os
 import threading
 from pathlib import Path
 from typing import Any, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import yaml
 
@@ -191,6 +191,12 @@ class SecurityConfig:
     # HSTS (HTTP Strict Transport Security)
     # Enable in production with SSL. Disable in development to avoid browser caching issues.
     hsts_enabled: bool = True
+    # Public surface controls. Keep operational details private by default.
+    public_health_enabled: bool = True
+    public_stats_enabled: bool = False
+    public_rate_limits_enabled: bool = False
+    public_metrics_enabled: bool = False
+    require_api_key_for_export: bool = True
 
 
 @dataclass(frozen=True)
@@ -735,6 +741,7 @@ class EventsConfig:
 class HAIMConfig:
     """Root configuration for the HAIM system."""
 
+    profile: str = "lite"  # "lite" | "standard" | "scale"  (lite = very light, zero external by default)
     version: str = "4.5"
     dimensionality: int = 16384
     encoding: EncodingConfig = field(default_factory=EncodingConfig)
@@ -951,6 +958,11 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
             loaded = yaml.safe_load(f) or {}
             raw = loaded.get("haim") or {}
 
+    # Lightweight profile support (default "lite" per user priority)
+    profile = _env_override("HAIM_PROFILE", raw.get("profile", "lite")).lower()
+    if profile not in ("lite", "standard", "scale"):
+        profile = "lite"
+
     # Apply env overrides to top-level scalars
     dimensionality = _env_override(
         "DIMENSIONALITY", raw.get("dimensionality", 16384)
@@ -1094,6 +1106,18 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         rate_limit_requests=_env_override("RATE_LIMIT_REQUESTS", sec_raw.get("rate_limit_requests", 100)),
         rate_limit_window=_env_override("RATE_LIMIT_WINDOW", sec_raw.get("rate_limit_window", 60)),
         trusted_proxies=trusted_proxies,
+        hsts_enabled=_env_override("HSTS_ENABLED", sec_raw.get("hsts_enabled", True)),
+        public_health_enabled=_env_override("PUBLIC_HEALTH_ENABLED", sec_raw.get("public_health_enabled", True)),
+        public_stats_enabled=_env_override("PUBLIC_STATS_ENABLED", sec_raw.get("public_stats_enabled", False)),
+        public_rate_limits_enabled=_env_override(
+            "PUBLIC_RATE_LIMITS_ENABLED",
+            sec_raw.get("public_rate_limits_enabled", False),
+        ),
+        public_metrics_enabled=_env_override("PUBLIC_METRICS_ENABLED", sec_raw.get("public_metrics_enabled", False)),
+        require_api_key_for_export=_env_override(
+            "REQUIRE_API_KEY_FOR_EXPORT",
+            sec_raw.get("require_api_key_for_export", True),
+        ),
     )
 
     # Build MCP config
@@ -1232,6 +1256,12 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         max_episodes_per_tick=_env_override("PULSE_MAX_EPISODES_PER_TICK", pulse_raw.get("max_episodes_per_tick", 200)),
     )
 
+    # Lite profile forces disable of heavy background features (per plan for low token/light footprint)
+    if profile == "lite":
+        subconscious_ai = replace(subconscious_ai, enabled=False)
+        pulse = replace(pulse, enabled=False)
+        anticipatory = replace(anticipatory, enabled=False)
+
     # Build performance config
     perf_raw = raw.get("performance") or {}
     performance = PerformanceConfig(
@@ -1240,6 +1270,10 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         vector_cache_enabled=_env_override("PERFORMANCE_VECTOR_CACHE_ENABLED", perf_raw.get("vector_cache_enabled", True)),
         vector_cache_path=_env_override("PERFORMANCE_VECTOR_CACHE_PATH", perf_raw.get("vector_cache_path", "./data/vector_cache.sqlite")),
     )
+
+    # Lite profile: also disable vector cache (prevents INFO log + disk side-effect for pure lite usage)
+    if profile == "lite":
+        performance = replace(performance, vector_cache_enabled=False)
 
     # Build embedding registry config (Phase 6.0)
     embed_raw = raw.get("embedding_registry") or {}
@@ -1476,6 +1510,7 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
     )
 
     return HAIMConfig(
+        profile=profile,
         version=raw.get("version", "4.5"),
         dimensionality=dimensionality,
         encoding=encoding,
