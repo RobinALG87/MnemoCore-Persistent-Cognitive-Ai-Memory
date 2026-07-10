@@ -778,3 +778,236 @@ async def test_explain_hides_foreign_scope_ids_like_missing_ids(tmp_path, scope)
         "Memory 'random-missing-id' was not found in this scope",
     ]
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_historical_receipt_ignores_relation_created_after_known_at(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "timeline.db")
+    source = await _remember_fact(
+        store,
+        scope,
+        content="Launch timeline says July 20",
+    )
+    known_before_supersession = _canonical_timestamp(source.created_at)
+    valid_after_boundary = "2026-07-11T09:30:00.000002Z"
+    before = await store.explain(
+        scope,
+        source.id,
+        valid_at=valid_after_boundary,
+        known_at=known_before_supersession,
+    )
+
+    await store.supersede(
+        scope,
+        source.id,
+        "Launch timeline says July 27",
+        effective_at=EFFECTIVE_AT,
+    )
+    after = await store.explain(
+        scope,
+        source.id,
+        valid_at=valid_after_boundary,
+        known_at=known_before_supersession,
+    )
+
+    assert before == after
+    assert after.relations == ()
+    await store.close()
+
+
+async def _build_three_version_lineage(store, path, scope):
+    source = await _remember_fact(
+        store,
+        scope,
+        content="Launch lineage version A",
+    )
+    middle = await store.supersede(
+        scope,
+        source.id,
+        "Launch lineage version B",
+        effective_at="2026-07-05T00:00:00Z",
+        reason="first correction",
+        confidence=0.9,
+    )
+    final = await store.supersede(
+        scope,
+        middle.id,
+        "Launch lineage version C",
+        effective_at=EFFECTIVE_AT,
+        reason="second correction",
+        confidence=0.95,
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        events = connection.execute(
+            """
+            SELECT * FROM memory_events
+            WHERE scope_key = ?
+            ORDER BY occurred_at, created_at, id
+            """,
+            (scope.scope_key,),
+        ).fetchall()
+    known_after = _canonical_timestamp(
+        datetime.fromisoformat(events[-1]["occurred_at"].replace("Z", "+00:00"))
+        + timedelta(microseconds=1)
+    )
+    return source, middle, final, events, known_after
+
+
+@pytest.mark.asyncio
+async def test_recall_traverses_complete_upstream_evidence_dag(tmp_path, scope):
+    path = tmp_path / "timeline.db"
+    store = await SQLiteMemoryStore.open(path)
+    source, middle, final, events, known_after = await _build_three_version_lineage(
+        store,
+        path,
+        scope,
+    )
+
+    result = (
+        await store.recall(
+            scope,
+            "launch lineage",
+            valid_at="2026-07-11T09:30:00.000002Z",
+            known_at=known_after,
+        )
+    )[0]
+
+    assert result.memory.id == final.id
+    assert result.evidence_ids == tuple(event["id"] for event in events)
+    assert len(result.evidence_ids) == len(set(result.evidence_ids))
+    assert source.id not in {result.memory.id, middle.id}
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_explain_traverses_complete_upstream_evidence_dag(tmp_path, scope):
+    path = tmp_path / "timeline.db"
+    store = await SQLiteMemoryStore.open(path)
+    source, middle, final, events, known_after = await _build_three_version_lineage(
+        store,
+        path,
+        scope,
+    )
+
+    receipt = await store.explain(
+        scope,
+        final.id,
+        valid_at="2026-07-11T09:30:00.000002Z",
+        known_at=known_after,
+    )
+
+    assert receipt.memory == final
+    assert receipt.evidence_memory_ids == (source.id, middle.id)
+    assert receipt.evidence_event_ids == tuple(event["id"] for event in events)
+    assert [(relation.source_id, relation.target_id) for relation in receipt.relations] == [
+        (middle.id, source.id),
+        (final.id, middle.id),
+    ]
+    assert {
+        (entry.memory_id, entry.event_id)
+        for entry in receipt.history
+    } == {
+        (source.id, events[0]["id"]),
+        (source.id, events[1]["id"]),
+        (middle.id, events[1]["id"]),
+        (middle.id, events[2]["id"]),
+        (final.id, events[2]["id"]),
+    }
+    assert len(receipt.evidence_memory_ids) == len(set(receipt.evidence_memory_ids))
+    assert len(receipt.evidence_event_ids) == len(set(receipt.evidence_event_ids))
+    await store.close()
+
+
+def _corrupt_evidence_dag(path, scope, source, final, events, corruption):
+    with closing(sqlite3.connect(path)) as connection:
+        if corruption == "cycle":
+            connection.execute(
+                """
+                INSERT INTO memory_evidence (
+                    memory_id, source_memory_id, event_id, scope_key, relation, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source.id,
+                    final.id,
+                    events[-1]["id"],
+                    scope.scope_key,
+                    "cycle",
+                    events[-1]["created_at"],
+                ),
+            )
+        else:
+            connection.execute("DROP TRIGGER trg_memory_evidence_scope_insert")
+            source_memory_id = (
+                "missing-upstream-memory" if corruption == "missing" else corruption
+            )
+            connection.execute(
+                """
+                INSERT INTO memory_evidence (
+                    memory_id, source_memory_id, event_id, scope_key, relation, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    final.id,
+                    source_memory_id,
+                    events[-1]["id"],
+                    scope.scope_key,
+                    "malformed",
+                    events[-1]["created_at"],
+                ),
+            )
+        connection.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["recall", "explain"])
+@pytest.mark.parametrize("corruption", ["cycle", "foreign", "missing"])
+async def test_provenance_dag_corruption_raises_storage_error(
+    tmp_path,
+    scope,
+    operation,
+    corruption,
+):
+    path = tmp_path / f"{operation}-{corruption}.db"
+    store = await SQLiteMemoryStore.open(path)
+    source, _, final, events, known_after = await _build_three_version_lineage(
+        store,
+        path,
+        scope,
+    )
+    if corruption == "foreign":
+        foreign_scope = MemoryScope(
+            user_id="mallory",
+            agent_id="codex",
+            project_id="timeline",
+        )
+        foreign = await _remember_fact(store, foreign_scope)
+        corruption_value = foreign.id
+    else:
+        corruption_value = corruption
+    _corrupt_evidence_dag(
+        path,
+        scope,
+        source,
+        final,
+        events,
+        corruption_value,
+    )
+
+    with pytest.raises(StorageError, match="provenance|evidence"):
+        if operation == "recall":
+            await store.recall(
+                scope,
+                "launch lineage",
+                valid_at="2026-07-11T09:30:00.000002Z",
+                known_at=known_after,
+            )
+        else:
+            await store.explain(
+                scope,
+                final.id,
+                valid_at="2026-07-11T09:30:00.000002Z",
+                known_at=known_after,
+            )
+    await store.close()

@@ -9,7 +9,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, TypeVar
@@ -1447,6 +1447,12 @@ def _unique_recall_rows(rows: list[sqlite3.Row], limit: int) -> list[sqlite3.Row
     return selected
 
 
+@dataclass(frozen=True, slots=True)
+class _EvidenceLineage:
+    memory_ids: tuple[str, ...]
+    event_ids: tuple[str, ...]
+
+
 def _recall_evidence_ids(
     connection: sqlite3.Connection,
     path: Path,
@@ -1454,97 +1460,20 @@ def _recall_evidence_ids(
     rows: list[sqlite3.Row],
     known_at: str,
 ) -> dict[str, tuple[str, ...]]:
-    if not rows:
-        return {}
-
-    memory_ids = [row["id"] for row in rows]
-    direct_event_ids = {
-        row["id"]: {row["lifecycle_event_id"]}
-        for row in rows
+    lineages = _load_evidence_lineages(
+        connection,
+        path,
+        scope,
+        {
+            row["id"]: row["lifecycle_event_id"]
+            for row in rows
+        },
+        known_at,
+    )
+    return {
+        memory_id: lineage.event_ids
+        for memory_id, lineage in lineages.items()
     }
-    lineage_memory_ids = {row["id"]: {row["id"]} for row in rows}
-    placeholders = ", ".join("?" for _ in memory_ids)
-    event_time_sql = _legacy_compatible_timestamp_sql("event.occurred_at")
-    evidence_rows = connection.execute(
-        f"""
-        SELECT evidence.*, source.scope_key AS source_scope_key,
-               event.scope_key AS event_scope_key
-        FROM memory_evidence AS evidence
-        LEFT JOIN memories AS source ON source.id = evidence.source_memory_id
-        LEFT JOIN memory_events AS event ON event.id = evidence.event_id
-        WHERE evidence.scope_key = ?
-          AND evidence.memory_id IN ({placeholders})
-          AND {event_time_sql} <= ?
-        ORDER BY evidence.created_at ASC, evidence.event_id ASC,
-                 evidence.source_memory_id ASC
-        """,
-        [scope.scope_key, *memory_ids, known_at],
-    ).fetchall()
-    for evidence in evidence_rows:
-        if (
-            evidence["source_scope_key"] != scope.scope_key
-            or evidence["event_scope_key"] != scope.scope_key
-        ):
-            raise StorageError(f"Recall provenance in {path} crosses memory scope")
-        memory_id = evidence["memory_id"]
-        direct_event_ids[memory_id].add(evidence["event_id"])
-        lineage_memory_ids[memory_id].add(evidence["source_memory_id"])
-
-    all_direct_event_ids = sorted(
-        {event_id for values in direct_event_ids.values() for event_id in values}
-    )
-    all_lineage_memory_ids = sorted(
-        {memory_id for values in lineage_memory_ids.values() for memory_id in values}
-    )
-    event_placeholders = ", ".join("?" for _ in all_direct_event_ids)
-    lineage_placeholders = ", ".join("?" for _ in all_lineage_memory_ids)
-    event_rows = connection.execute(
-        f"""
-        SELECT *
-        FROM memory_events AS event
-        WHERE event.scope_key = ?
-          AND {_legacy_compatible_timestamp_sql('event.occurred_at')} <= ?
-          AND (
-              event.id IN ({event_placeholders})
-              OR (
-                  event.event_type = ?
-                  AND event.memory_id IN ({lineage_placeholders})
-              )
-          )
-        ORDER BY {_legacy_compatible_timestamp_sql('event.occurred_at')} ASC,
-                 {_legacy_compatible_timestamp_sql('event.created_at')} ASC,
-                 event.id ASC
-        """,
-        [
-            scope.scope_key,
-            known_at,
-            *all_direct_event_ids,
-            MemoryEventType.REMEMBERED.value,
-            *all_lineage_memory_ids,
-        ],
-    ).fetchall()
-    events = [_row_to_event(path, event_row) for event_row in event_rows]
-    if any(event.scope != scope for event in events):
-        raise StorageError(f"Recall provenance in {path} crosses event scope")
-    events_by_id = {event.id: event for event in events}
-    ordered_event_ids = [event.id for event in events]
-
-    result: dict[str, tuple[str, ...]] = {}
-    for memory_id in memory_ids:
-        missing = direct_event_ids[memory_id].difference(events_by_id)
-        if missing:
-            raise StorageError(f"Recall projection in {path} has missing immutable evidence")
-        wanted = set(direct_event_ids[memory_id])
-        wanted.update(
-            event.id
-            for event in events
-            if event.event_type is MemoryEventType.REMEMBERED
-            and event.memory_id in lineage_memory_ids[memory_id]
-        )
-        result[memory_id] = tuple(
-            event_id for event_id in ordered_event_ids if event_id in wanted
-        )
-    return result
 
 
 def _rows_to_recall_results(
@@ -1682,6 +1611,219 @@ def _require_receipt_event_scope(
     return event
 
 
+def _load_evidence_lineages(
+    connection: sqlite3.Connection,
+    path: Path,
+    scope: MemoryScope,
+    root_event_ids: Mapping[str, str],
+    known_at: str,
+) -> dict[str, _EvidenceLineage]:
+    """Hydrate complete upstream evidence DAGs for one bitemporal knowledge view."""
+    if not root_event_ids:
+        return {}
+    known_instant = _timestamp_from_storage(known_at, "known_at")
+    memory_cache: dict[str, MemoryRecord] = {}
+    event_cache: dict[str, MemoryEvent] = {}
+    edge_cache: dict[str, tuple[tuple[str, str], ...]] = {}
+
+    def require_memory(memory_id: str) -> MemoryRecord:
+        if memory_id not in memory_cache:
+            memory_cache[memory_id] = _require_receipt_memory_scope(
+                connection,
+                path,
+                scope,
+                memory_id,
+            )
+        return memory_cache[memory_id]
+
+    def require_event(event_id: str) -> MemoryEvent:
+        if event_id not in event_cache:
+            event_cache[event_id] = _require_receipt_event_scope(
+                connection,
+                path,
+                scope,
+                event_id,
+            )
+        return event_cache[event_id]
+
+    def load_edges(memory_id: str) -> tuple[tuple[str, str], ...]:
+        if memory_id in edge_cache:
+            return edge_cache[memory_id]
+        require_memory(memory_id)
+        evidence_rows = connection.execute(
+            """
+            SELECT *
+            FROM memory_evidence
+            WHERE memory_id = ?
+            ORDER BY created_at ASC, event_id ASC, source_memory_id ASC
+            """,
+            (memory_id,),
+        ).fetchall()
+        edges: list[tuple[str, str, datetime, datetime]] = []
+        seen_edges: set[tuple[str, str]] = set()
+        for evidence in evidence_rows:
+            if evidence["scope_key"] != scope.scope_key:
+                raise StorageError(f"Memory evidence provenance in {path} crosses scope")
+            event = require_event(evidence["event_id"])
+            if event.occurred_at > known_instant:
+                continue
+            source_memory_id = evidence["source_memory_id"]
+            require_memory(source_memory_id)
+            if event.event_type is not MemoryEventType.SUPERSEDED:
+                raise StorageError(
+                    f"Memory evidence provenance in {path} has unsupported immutable evidence"
+                )
+            replay = parse_superseded_payload(event, path=path)
+            if (
+                replay.evidence_memory_id != memory_id
+                or replay.evidence_source_memory_id != source_memory_id
+                or replay.relation_type != evidence["relation"]
+            ):
+                raise StorageError(
+                    f"Memory evidence provenance in {path} has a malformed evidence edge"
+                )
+            edge = (source_memory_id, event.id)
+            if edge in seen_edges:
+                continue
+            seen_edges.add(edge)
+            edges.append((source_memory_id, event.id, event.occurred_at, event.created_at))
+        edges.sort(key=lambda edge: (edge[2], edge[3], edge[1], edge[0]))
+        edge_cache[memory_id] = tuple((edge[0], edge[1]) for edge in edges)
+        return edge_cache[memory_id]
+
+    lineages: dict[str, _EvidenceLineage] = {}
+    for root_memory_id, root_event_id in root_event_ids.items():
+        require_memory(root_memory_id)
+        root_event = require_event(root_event_id)
+        if root_event.occurred_at > known_instant:
+            raise StorageError(
+                f"Memory evidence provenance in {path} contains future root evidence"
+            )
+        visited: set[str] = set()
+        active: set[str] = set()
+        upstream_memory_ids: set[str] = set()
+        edge_event_ids: set[str] = set()
+
+        def visit(memory_id: str) -> None:
+            if memory_id in active:
+                raise StorageError(f"Memory evidence provenance in {path} contains a cycle")
+            if memory_id in visited:
+                return
+            if len(active) >= 1000:
+                raise StorageError(f"Memory evidence provenance in {path} is too deep")
+            active.add(memory_id)
+            for source_memory_id, event_id in load_edges(memory_id):
+                if source_memory_id in active:
+                    raise StorageError(
+                        f"Memory evidence provenance in {path} contains a cycle"
+                    )
+                visit(source_memory_id)
+                upstream_memory_ids.add(source_memory_id)
+                edge_event_ids.add(event_id)
+            active.remove(memory_id)
+            visited.add(memory_id)
+
+        try:
+            visit(root_memory_id)
+        except RecursionError as error:
+            raise StorageError(
+                f"Memory evidence provenance in {path} is too deep"
+            ) from error
+
+        all_memory_ids = {root_memory_id, *upstream_memory_ids}
+        placeholders = ", ".join("?" for _ in all_memory_ids)
+        remembered_rows = connection.execute(
+            f"""
+            SELECT *
+            FROM memory_events AS event
+            WHERE event.scope_key = ?
+              AND event.event_type = ?
+              AND event.memory_id IN ({placeholders})
+              AND {_legacy_compatible_timestamp_sql('event.occurred_at')} <= ?
+            ORDER BY {_legacy_compatible_timestamp_sql('event.occurred_at')} ASC,
+                     {_legacy_compatible_timestamp_sql('event.created_at')} ASC,
+                     event.id ASC
+            """,
+            [
+                scope.scope_key,
+                MemoryEventType.REMEMBERED.value,
+                *sorted(all_memory_ids),
+                known_at,
+            ],
+        ).fetchall()
+        remembered_events = [_row_to_event(path, event_row) for event_row in remembered_rows]
+        for event in remembered_events:
+            if event.scope != scope:
+                raise StorageError(f"Memory evidence provenance in {path} crosses event scope")
+            event_cache[event.id] = event
+        remembered_memory_ids = {
+            event.memory_id for event in remembered_events if event.memory_id is not None
+        }
+        leaf_memory_ids = {
+            memory_id for memory_id in all_memory_ids if not load_edges(memory_id)
+        }
+        if not leaf_memory_ids.issubset(remembered_memory_ids):
+            raise StorageError(
+                f"Memory evidence provenance in {path} has missing remembered evidence"
+            )
+
+        wanted_event_ids = {
+            root_event_id,
+            *edge_event_ids,
+            *(event.id for event in remembered_events),
+        }
+        wanted_events = [require_event(event_id) for event_id in wanted_event_ids]
+        wanted_events.sort(
+            key=lambda event: (event.occurred_at, event.created_at, event.id)
+        )
+        upstream_records = [require_memory(memory_id) for memory_id in upstream_memory_ids]
+        upstream_records.sort(key=lambda record: (record.created_at, record.id))
+        lineages[root_memory_id] = _EvidenceLineage(
+            memory_ids=tuple(record.id for record in upstream_records),
+            event_ids=tuple(event.id for event in wanted_events),
+        )
+    return lineages
+
+
+def _receipt_memory_from_lifecycle_event(
+    connection: sqlite3.Connection,
+    path: Path,
+    scope: MemoryScope,
+    row: sqlite3.Row,
+) -> MemoryRecord:
+    timeline_record = _row_to_lifecycle_record(path, row)
+    event = _require_receipt_event_scope(
+        connection,
+        path,
+        scope,
+        row["lifecycle_event_id"],
+    )
+    if event.event_type is MemoryEventType.REMEMBERED:
+        snapshot = _record_from_remembered_event(path, event)
+    elif event.event_type is MemoryEventType.SUPERSEDED:
+        replay = parse_superseded_payload(event, path=path)
+        if replay.source.id == timeline_record.id:
+            snapshot = replay.source
+        elif replay.replacement.id == timeline_record.id:
+            snapshot = replay.replacement
+        else:
+            raise StorageError(
+                f"Receipt lifecycle in {path} does not match its immutable event"
+            )
+    else:
+        raise StorageError(
+            f"Receipt lifecycle in {path} has unsupported immutable evidence"
+        )
+    if snapshot.scope != scope or snapshot.id != timeline_record.id:
+        raise StorageError(f"Receipt lifecycle in {path} crosses memory scope")
+    return replace(
+        snapshot,
+        status=timeline_record.status,
+        valid_from=timeline_record.valid_from,
+        valid_to=timeline_record.valid_to,
+    )
+
+
 def _receipt_explanation(
     memory: MemoryRecord,
     relations: Sequence[MemoryRelation],
@@ -1770,53 +1912,25 @@ def _explain(
                     raise MemoryNotFoundError(
                         f"Memory {memory_id!r} was not found in this scope"
                     )
-                memory = _row_to_lifecycle_record(path, row)
+                memory = _receipt_memory_from_lifecycle_event(
+                    connection,
+                    path,
+                    scope,
+                    row,
+                )
 
-                evidence_rows = connection.execute(
-                    f"""
-                    SELECT evidence.*
-                    FROM memory_evidence AS evidence
-                    JOIN memory_events AS event ON event.id = evidence.event_id
-                    WHERE evidence.scope_key = ?
-                      AND evidence.memory_id = ?
-                      AND {_legacy_compatible_timestamp_sql('event.occurred_at')} <= ?
-                    ORDER BY evidence.created_at ASC, evidence.event_id ASC,
-                             evidence.source_memory_id ASC
-                    """,
-                    (scope.scope_key, memory.id, known_timestamp),
-                ).fetchall()
-
-                evidence_memory_ids: list[str] = []
-                evidence_event_ids: set[str] = {row["lifecycle_event_id"]}
-                for evidence in evidence_rows:
-                    if evidence["memory_id"] != memory.id:
-                        raise StorageError(
-                            f"Receipt provenance in {path} has a mismatched evidence target"
-                        )
-                    _require_receipt_memory_scope(
-                        connection,
-                        path,
-                        scope,
-                        evidence["memory_id"],
-                    )
-                    _require_receipt_memory_scope(
-                        connection,
-                        path,
-                        scope,
-                        evidence["source_memory_id"],
-                    )
-                    _require_receipt_event_scope(
-                        connection,
-                        path,
-                        scope,
-                        evidence["event_id"],
-                    )
-                    if evidence["source_memory_id"] not in evidence_memory_ids:
-                        evidence_memory_ids.append(evidence["source_memory_id"])
-                    evidence_event_ids.add(evidence["event_id"])
-
-                lineage_memory_ids = [memory.id, *evidence_memory_ids]
+                lineage = _load_evidence_lineages(
+                    connection,
+                    path,
+                    scope,
+                    {memory.id: row["lifecycle_event_id"]},
+                    known_timestamp,
+                )[memory.id]
+                evidence_memory_ids = list(lineage.memory_ids)
+                evidence_event_ids = set(lineage.event_ids)
+                lineage_memory_ids = [*evidence_memory_ids, memory.id]
                 lineage_placeholders = ", ".join("?" for _ in lineage_memory_ids)
+                event_placeholders = ", ".join("?" for _ in evidence_event_ids)
                 relation_valid_from_sql = _legacy_compatible_timestamp_sql(
                     "relation.valid_from"
                 )
@@ -1827,8 +1941,13 @@ def _explain(
                     f"""
                     SELECT relation.*
                     FROM memory_relations AS relation
+                    JOIN memory_events AS relation_event
+                      ON relation_event.id = relation.event_id
+                     AND relation_event.scope_key = relation.scope_key
                     WHERE relation.scope_key = ?
-                      AND (relation.source_id = ? OR relation.target_id = ?)
+                      AND relation.event_id IN ({event_placeholders})
+                      AND relation_event.scope_key = ?
+                      AND {_legacy_compatible_timestamp_sql('relation_event.occurred_at')} <= ?
                       AND (
                           relation.valid_from IS NULL
                           OR {relation_valid_from_sql} <= ?
@@ -1837,18 +1956,29 @@ def _explain(
                           relation.valid_to IS NULL
                           OR {relation_valid_to_sql} > ?
                       )
-                    ORDER BY relation.created_at ASC, relation.id ASC
+                    ORDER BY {_legacy_compatible_timestamp_sql('relation_event.occurred_at')} ASC,
+                             {_legacy_compatible_timestamp_sql('relation_event.created_at')} ASC,
+                             relation.id ASC
                     """,
-                    (
+                    [
                         scope.scope_key,
-                        memory.id,
-                        memory.id,
+                        *sorted(evidence_event_ids),
+                        scope.scope_key,
+                        known_timestamp,
                         valid_timestamp,
                         valid_timestamp,
-                    ),
+                    ],
                 ).fetchall()
                 relations: list[MemoryRelation] = []
+                lineage_memory_id_set = set(lineage_memory_ids)
                 for relation_row in relation_rows:
+                    if (
+                        relation_row["source_id"] not in lineage_memory_id_set
+                        or relation_row["target_id"] not in lineage_memory_id_set
+                    ):
+                        raise StorageError(
+                            f"Receipt provenance in {path} has malformed relation endpoints"
+                        )
                     _require_receipt_memory_scope(
                         connection,
                         path,
@@ -1876,11 +2006,16 @@ def _explain(
                     SELECT history.*
                     FROM memory_history AS history
                     WHERE history.memory_id IN ({lineage_placeholders})
+                      AND history.event_id IN ({event_placeholders})
                       AND {_legacy_compatible_timestamp_sql('history.created_at')} <= ?
                     ORDER BY {_legacy_compatible_timestamp_sql('history.created_at')} ASC,
                              history.id ASC
                     """,
-                    [*lineage_memory_ids, known_timestamp],
+                    [
+                        *lineage_memory_ids,
+                        *sorted(evidence_event_ids),
+                        known_timestamp,
+                    ],
                 ).fetchall()
                 history: list[MemoryHistoryEntry] = []
                 for history_row in history_rows:
