@@ -94,3 +94,25 @@ The planned hybrid pipeline will combine lexical and vector candidates, apply
 scope and temporal policy before ranking, fuse and rerank candidates, and return
 evidence-bearing results. That pipeline is future work; applications should
 treat the current scores as lexical ranks.
+
+## Sessions and the core learning loop
+
+Use explicit sessions for episodic work. Critical reusable knowledge
+(preferences, hard failures, procedures) should be recorded at the
+project/agent scope so it is available across sessions.
+
+```python
+scope = MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
+async with await AgentMemory.open("./data/agent-memory.db", scope=scope) as memory:
+    sess = await memory.start_session(goal="Implement better retrieval")
+    # recall before acting
+    ctx = await memory.recall("retrieval strategy", kinds=(MemoryKind.PREFERENCE,))
+    # ... work ...
+    await sess.observe("Tried X and it failed because Y")
+    await sess.remember("Always union FTS first", kind=MemoryKind.PREFERENCE)
+    await sess.finish(outcome="success", reward=0.95)
+```
+
+See `examples/agent_memory_wow.py` for a full runnable example of the
+magic loop (recall before task, avoid prior failures, follow preferences,
+explain exactly which memory influenced a decision).

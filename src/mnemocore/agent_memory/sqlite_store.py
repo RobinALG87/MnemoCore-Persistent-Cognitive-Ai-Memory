@@ -1198,6 +1198,29 @@ def _fts_match_query(query: str) -> str:
     return " OR ".join(f'"{token}"' for token in tokens)
 
 
+def _get_search_scope_keys(scope: MemoryScope, *, include_ancestors: bool) -> list[str]:
+    """Return the scope_key(s) to search.
+
+    When include_ancestors=True we also include the parent project-level key
+    (same tenant/user/agent/project but no session). This lets sessions
+    naturally see reusable project preferences, hard failures, and procedures
+    while keeping writes scope-exact.
+    """
+    keys = [scope.scope_key]
+    if include_ancestors and scope.session_id is not None:
+        parent = MemoryScope(
+            tenant_id=scope.tenant_id,
+            user_id=scope.user_id,
+            agent_id=scope.agent_id,
+            project_id=scope.project_id,
+            session_id=None,
+        )
+        parent_key = parent.scope_key
+        if parent_key not in keys:
+            keys.append(parent_key)
+    return keys
+
+
 def _normalize_memory_kinds(kinds: Sequence[MemoryKind]) -> list[MemoryKind]:
     normalized_kinds: list[MemoryKind] = []
     try:
@@ -1221,7 +1244,15 @@ def _rows_to_recall_results(
     path: Path,
     rows: list[sqlite3.Row],
     limit: int,
+    *,
+    query: Optional[str] = None,
+    use_hdv_rerank: bool = False,
 ) -> list[RecallResult]:
+    """Convert candidate rows (post providers/rerank) to RecallResults.
+
+    Enriches score_components with bm25 + optional hdv/fusion signals for explainability.
+    Rank/reciprocal is based on final ordering of provided rows (supports HDV rerank).
+    """
     results: list[RecallResult] = []
     seen_memory_ids: set[str] = set()
     for row in rows:
@@ -1231,15 +1262,36 @@ def _rows_to_recall_results(
         seen_memory_ids.add(memory_id)
         rank = len(results) + 1
         reciprocal_rank = 1.0 / rank
+        score_components = {
+            "bm25_rank": reciprocal_rank,
+            "bm25_raw": float(row["bm25_raw"]),
+        }
+        reason = "Matched lexical terms in the authorized scope"
+        if use_hdv_rerank and query:
+            try:
+                # Lazy import to keep clean deps; cheap fingerprint rerank signal
+                from ..core.binary_hdv import BinaryHDV
+                q_vec = BinaryHDV.from_seed(query or "")
+                c_vec = BinaryHDV.from_seed(str(row["content"] or ""))
+                hdv_sim = q_vec.similarity(c_vec)
+                score_components["hdv"] = float(hdv_sim)
+                bm25_raw = float(row["bm25_raw"])
+                bm25_contrib = 1.0 / (1.0 + max(0.0, bm25_raw))
+                fusion = 0.5 * hdv_sim + 0.5 * bm25_contrib
+                score_components["fusion"] = float(fusion)
+                reason = (
+                    f"Lexical match + HDV rerank fusion (bm25_raw={bm25_raw:.4f}, "
+                    f"hdv={hdv_sim:.4f}, fusion={fusion:.4f})"
+                )
+            except Exception:
+                # graceful fallback keeps FTS-only explainability
+                pass
         results.append(
             RecallResult(
                 memory=_row_to_record(path, row),
                 score=reciprocal_rank,
-                score_components={
-                    "bm25_rank": reciprocal_rank,
-                    "bm25_raw": float(row["bm25_raw"]),
-                },
-                reason="Matched lexical terms in the authorized scope",
+                score_components=score_components,
+                reason=reason,
                 evidence_ids=(row["source_event_id"],),
             )
         )
@@ -1248,23 +1300,26 @@ def _rows_to_recall_results(
     return results
 
 
-def _recall(
+def _fts_candidate_provider(
     path: Path,
     scope: MemoryScope,
-    query: str,
+    match_query: str,
+    normalized_kinds: list[MemoryKind],
+    as_of_timestamp: str,
+    fetch_limit: int,
     *,
-    kinds: Sequence[MemoryKind],
-    limit: int,
-    as_of: Optional[str],
-) -> list[RecallResult]:
-    match_query = _fts_match_query(query)
-    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
-        raise ValidationError("limit must be between 1 and 1000")
-    normalized_kinds = _normalize_memory_kinds(kinds)
+    search_scope_keys: list[str] | None = None,
+) -> list[sqlite3.Row]:
+    """Clear FTS candidate provider (starting point for hybrid candidate collection).
 
-    as_of_timestamp = _timestamp_to_storage(
-        _timestamp_from_input(as_of, "as_of") or utc_now()
-    )
+    Enforces active status and temporal validity (as_of).
+    When search_scope_keys is provided (for include_ancestors), searches across
+    them (exact session + project level etc.). Otherwise uses the given scope.
+    Returns overfetched rows ordered by bm25.
+    """
+    scope_keys = search_scope_keys or [scope.scope_key]
+    scope_ph = ", ".join("?" for _ in scope_keys)
+
     valid_from_sql = _legacy_compatible_timestamp_sql("memories.valid_from")
     valid_to_sql = _legacy_compatible_timestamp_sql("memories.valid_to")
     sql = f"""
@@ -1281,24 +1336,24 @@ def _recall(
         FROM memory_fts
         JOIN memories ON memories.id = memory_fts.memory_id
         WHERE memory_fts MATCH ?
-          AND memories.scope_key = ?
+          AND memories.scope_key IN ({scope_ph})
           AND memories.status = ?
           AND (memories.valid_from IS NULL OR {valid_from_sql} <= ?)
           AND (memories.valid_to IS NULL OR {valid_to_sql} > ?)
     """
     parameters: list[Any] = [
         match_query,
-        scope.scope_key,
+        *scope_keys,
         MemoryStatus.ACTIVE.value,
         as_of_timestamp,
         as_of_timestamp,
     ]
     if normalized_kinds:
-        placeholders = ", ".join("?" for _ in normalized_kinds)
-        sql += f" AND memories.kind IN ({placeholders})"
+        kind_ph = ", ".join("?" for _ in normalized_kinds)
+        sql += f" AND memories.kind IN ({kind_ph})"
         parameters.extend(kind.value for kind in normalized_kinds)
     sql += " ORDER BY bm25(memory_fts) ASC, memories.id ASC LIMIT ?"
-    parameters.append(limit * 3)
+    parameters.append(fetch_limit)
 
     try:
         with closing(_connect(path)) as connection:
@@ -1308,7 +1363,94 @@ def _recall(
         raise StorageError(f"Failed to recall memories from {path}: {error}") from error
     if any(row["source_event_id"] is None for row in rows):
         raise StorageError(f"Recall projection in {path} has no remembered source event")
-    return _rows_to_recall_results(path, rows, limit)
+    return rows
+
+
+def _apply_hdv_rerank(
+    query: str,
+    rows: list[sqlite3.Row],
+) -> list[sqlite3.Row]:
+    """HDV rerank signal using cheap deterministic fingerprint (BinaryHDV.from_seed).
+
+    Provides 'hdv' similarity on top candidates; used for reranking when hook enabled.
+    Falls back silently to preserve FTS behavior if import/encode issue.
+    """
+    if not rows or not query:
+        return rows
+    try:
+        # Relative import kept inside hook; no top-level dep on core for agent_memory
+        from ..core.binary_hdv import BinaryHDV
+        q_vec = BinaryHDV.from_seed(query or "")
+        scored: list[tuple[float, sqlite3.Row]] = []
+        for row in rows:
+            c_vec = BinaryHDV.from_seed(str(row["content"] or ""))
+            sim = q_vec.similarity(c_vec)
+            scored.append((sim, row))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [r for _, r in scored]
+    except Exception:
+        return rows  # zero breakage: keep original FTS candidate order
+
+
+def _recall(
+    path: Path,
+    scope: MemoryScope,
+    query: str,
+    *,
+    kinds: Sequence[MemoryKind],
+    limit: int,
+    as_of: Optional[str],
+    use_hdv_rerank: bool = False,
+    embedder: Optional[Callable[[str], Any]] = None,
+    include_ancestors: bool = False,
+) -> list[RecallResult]:
+    """Recall refactored with explicit candidate providers + optional signals.
+
+    - Starts with fts_provider (lexical).
+    - Optional embedder hook for future embedding candidates (default None = zero-dep, off).
+    - Optional HDV rerank on candidates (use_hdv_rerank test hook).
+    - include_ancestors: when True, also search parent scopes (e.g. project level from a session).
+      Results carry their original scope so provenance is clear.
+    - score_components always enriched when signals active.
+    """
+    match_query = _fts_match_query(query)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+        raise ValidationError("limit must be between 1 and 1000")
+    normalized_kinds = _normalize_memory_kinds(kinds)
+
+    as_of_timestamp = _timestamp_to_storage(
+        _timestamp_from_input(as_of, "as_of") or utc_now()
+    )
+
+    # Candidate collection via clear providers (fts first; prepare for union)
+    overfetch = limit * 3
+    search_keys = _get_search_scope_keys(scope, include_ancestors=include_ancestors)
+    fts_rows = _fts_candidate_provider(
+        path,
+        scope,
+        match_query,
+        normalized_kinds,
+        as_of_timestamp,
+        overfetch,
+        search_scope_keys=search_keys,
+    )
+    candidate_rows: list[sqlite3.Row] = list(fts_rows)
+
+    # Optional embedding candidates support (via passed embed function; default off, zero-dep)
+    # Full collection+union happens in future hybrid; embedder hook accepted here for protocol.
+    # No-op today (no vectors persisted in this FTS sqlite store; avoids heavy deps).
+    if embedder is not None:
+        # Future: query_vec = embedder(query); embed_rows = ...
+        # candidate_rows = _union_dedup(fts_rows, embed_rows or [])
+        pass
+
+    # HDV rerank signal (cheap, on top candidates)
+    if use_hdv_rerank:
+        candidate_rows = _apply_hdv_rerank(query, candidate_rows)
+
+    return _rows_to_recall_results(
+        path, candidate_rows, limit, query=query, use_hdv_rerank=use_hdv_rerank
+    )
 
 
 def _history(
@@ -1479,6 +1621,9 @@ class SQLiteMemoryStore:
         kinds: Sequence[MemoryKind] = (),
         limit: int = 10,
         as_of: Optional[str] = None,
+        use_hdv_rerank: bool = False,
+        embedder: Optional[Callable[[str], Any]] = None,
+        include_ancestors: bool = False,
     ) -> builtins.list[RecallResult]:
         return await self._run(
             _recall,
@@ -1487,4 +1632,7 @@ class SQLiteMemoryStore:
             kinds=kinds,
             limit=limit,
             as_of=as_of,
+            use_hdv_rerank=use_hdv_rerank,
+            embedder=embedder,
+            include_ancestors=include_ancestors,
         )

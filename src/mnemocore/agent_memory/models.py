@@ -85,6 +85,7 @@ class MemoryKind(str, Enum):
     EPISODE = "episode"
     PROCEDURE = "procedure"
     PREFERENCE = "preference"
+    DECISION = "decision"
     SUMMARY = "summary"
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import builtins
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from .models import (
@@ -60,6 +60,9 @@ class MemoryStore(Protocol):
         kinds: Sequence[MemoryKind] = (),
         limit: int = 10,
         as_of: Optional[str] = None,
+        use_hdv_rerank: bool = False,
+        embedder: Optional[Callable[[str], Any]] = None,
+        include_ancestors: bool = False,
     ) -> builtins.list[RecallResult]:
         ...
 

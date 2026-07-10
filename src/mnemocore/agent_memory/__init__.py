@@ -1,6 +1,6 @@
 """Public API for MnemoCore's vNext agent-memory foundation."""
 
-from .client import AgentMemory, SyncAgentMemory
+from .client import AgentMemory, MemorySession, SyncAgentMemory, SyncMemorySession
 from .errors import (
     AgentMemoryError,
     ClosedStoreError,
@@ -34,9 +34,11 @@ __all__ = [
     "MemoryScope",
     "MemoryStatus",
     "RecallResult",
+    "MemorySession",
     "ScopeError",
     "StorageError",
     "SyncAgentMemory",
+    "SyncMemorySession",
     "ValidationError",
     "utc_now",
 ]

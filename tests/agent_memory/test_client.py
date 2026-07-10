@@ -14,8 +14,10 @@ from mnemocore.agent_memory import (
     MemoryKind,
     MemoryNotFoundError,
     MemoryScope,
+    MemorySession,
     MemoryStatus,
     SyncAgentMemory,
+    SyncMemorySession,
 )
 
 
@@ -214,3 +216,89 @@ asyncio.run(main())
 
     assert completed.stdout == "Persistent across restarts\n"
     assert completed.stderr == ""
+
+
+@pytest.mark.asyncio
+async def test_session_start_finish_roundtrip_and_session_scoped_recall(tmp_path):
+    """Roundtrip for the Session API: start, remember (DECISION), recall, finish(EPISODE)."""
+    base_scope = MemoryScope(
+        user_id="robin", agent_id="codex", project_id="mnemocore"
+    )
+    path = tmp_path / "memory.db"
+    memory = await AgentMemory.open(path, scope=base_scope)
+
+    async with memory:
+        session = await memory.start_session(goal="Fix bug in retrieval fusion")
+        assert isinstance(session, MemorySession)
+        assert session.goal == "Fix bug in retrieval fusion"
+        assert session.session_id is not None
+        assert session.session_id == session._scope.session_id  # internal for test
+
+        # remember in session with DECISION kind
+        rec = await session.remember(
+            "Never use pure HDV for semantic; always union with FTS first",
+            kind=MemoryKind.DECISION,
+        )
+        assert rec.kind == MemoryKind.DECISION
+        assert rec.scope.session_id == session.session_id
+        assert rec.scope.project_id == base_scope.project_id  # inherits base
+
+        # recall within session sees the session-scoped item
+        # The default provider is intentionally lexical; use terms present in
+        # the remembered item so this test isolates session-scope behavior.
+        ctx = await session.recall("semantic FTS", limit=5)
+        assert len(ctx) >= 1
+        assert ctx[0].memory.scope.session_id == session.session_id
+        assert "FTS first" in ctx[0].memory.content
+
+        # also test observe alias
+        obs = await session.observe("Observed mid-session work")
+        assert obs.kind == MemoryKind.OBSERVATION
+        assert obs.scope.session_id == session.session_id
+
+        # finish writes EPISODE in session scope
+        episode = await session.finish(
+            outcome="success", reward=0.8, notes="demo roundtrip"
+        )
+        assert episode.kind == MemoryKind.EPISODE
+        assert episode.scope.session_id == session.session_id
+        assert episode.metadata["outcome"] == "success"
+        assert episode.metadata["reward"] == 0.8
+        assert episode.metadata["goal"] == "Fix bug in retrieval fusion"
+
+        # post-finish recall in session still works and includes episode
+        after = await session.recall("success", kinds=[MemoryKind.EPISODE], limit=1)
+        assert len(after) == 1
+        assert after[0].memory.id == episode.id
+
+    # direct remember on base memory still works (backward compat)
+    async with await AgentMemory.open(path, scope=base_scope) as mem2:
+        base_rec = await mem2.remember("base level fact", kind=MemoryKind.FACT)
+        assert base_rec.scope.session_id is None
+        # session data not visible in base (no cross)
+        base_results = await mem2.recall("retrieval", limit=3)
+        assert all(r.memory.scope.session_id is None for r in base_results)
+
+
+def test_sync_session_start_finish(tmp_path):
+    """Sync counterpart for MemorySession via SyncAgentMemory."""
+    base_scope = MemoryScope(user_id="robin", agent_id="codex")
+    with SyncAgentMemory.open(tmp_path / "syncmem.db", scope=base_scope) as mem:
+        sess = mem.start_session(goal="sync goal", session_id="fixed-sync-123")
+        assert isinstance(sess, SyncMemorySession)
+        assert sess.session_id == "fixed-sync-123"
+        assert sess.goal == "sync goal"
+
+        rec = sess.remember("Sync decision in session", kind=MemoryKind.DECISION)
+        assert rec.scope.session_id == "fixed-sync-123"
+
+        results = sess.recall("decision", limit=1)
+        assert results[0].memory.scope.session_id == "fixed-sync-123"
+
+        ep = sess.finish(outcome="partial", reward=0.5)
+        assert ep.kind == MemoryKind.EPISODE
+        assert ep.metadata["reward"] == 0.5
+
+        # observe also
+        o = sess.observe("sync observe")
+        assert o.scope.session_id == "fixed-sync-123"
