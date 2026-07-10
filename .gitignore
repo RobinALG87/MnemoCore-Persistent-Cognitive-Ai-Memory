@@ -80,6 +80,7 @@ AGENT_MASTER_PLAN.md
 # Local IDE / agent settings
 .claude/
 .worktrees/
+.superpowers/
 
 # Runtime artifacts
 error_log.txt
