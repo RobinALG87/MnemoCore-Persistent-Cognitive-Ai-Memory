@@ -219,6 +219,25 @@ asyncio.run(main())
 
 
 @pytest.mark.asyncio
+async def test_compile_context_is_bounded_and_receipted(tmp_path):
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="core")
+
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        await memory.remember(
+            "Prefer concise retrieval updates", kind=MemoryKind.PREFERENCE
+        )
+        await memory.remember(
+            "Use FTS retrieval before reranking", kind=MemoryKind.PROCEDURE
+        )
+
+        pack = await memory.compile_context("retrieval", token_budget=20)
+
+    assert pack.estimated_tokens <= 20
+    assert pack.core[0].receipt.kind is MemoryKind.PREFERENCE
+    assert pack.procedural[0].receipt.evidence_ids
+
+
+@pytest.mark.asyncio
 async def test_session_start_finish_roundtrip_and_session_scoped_recall(tmp_path):
     """Roundtrip for the Session API: start, remember (DECISION), recall, finish(EPISODE)."""
     base_scope = MemoryScope(
@@ -294,6 +313,9 @@ def test_sync_session_start_finish(tmp_path):
 
         results = sess.recall("decision", limit=1)
         assert results[0].memory.scope.session_id == "fixed-sync-123"
+
+        brief = sess.compile_context("decision", token_budget=20)
+        assert brief.working[0].receipt.memory_id == rec.id
 
         ep = sess.finish(outcome="partial", reward=0.5)
         assert ep.kind == MemoryKind.EPISODE

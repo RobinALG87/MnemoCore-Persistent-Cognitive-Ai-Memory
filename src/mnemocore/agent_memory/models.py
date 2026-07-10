@@ -318,3 +318,45 @@ class ContextItem:
             raise ValidationError("content must not be blank")
         if not isinstance(self.receipt, MemoryReceipt):
             raise ValidationError("receipt must be a MemoryReceipt")
+
+
+@dataclass(frozen=True, slots=True)
+class ContextPack:
+    """A bounded, leveled briefing assembled from explainable recall results."""
+
+    query: str
+    token_budget: int
+    estimated_tokens: int
+    core: tuple[ContextItem, ...] = ()
+    working: tuple[ContextItem, ...] = ()
+    episodic: tuple[ContextItem, ...] = ()
+    semantic: tuple[ContextItem, ...] = ()
+    procedural: tuple[ContextItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.query, str) or not self.query.strip():
+            raise ValidationError("query must not be blank")
+        for name in ("token_budget", "estimated_tokens"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValidationError(f"{name} must be a non-negative integer")
+        if self.token_budget < 1:
+            raise ValidationError("token_budget must be a positive integer")
+        if self.estimated_tokens > self.token_budget:
+            raise ValidationError("estimated_tokens must not exceed token_budget")
+        seen_memory_ids: set[str] = set()
+        for name in ("core", "working", "episodic", "semantic", "procedural"):
+            value = getattr(self, name)
+            if isinstance(value, (str, bytes)):
+                raise ValidationError(f"{name} must be a sequence of ContextItem")
+            try:
+                items = tuple(value)
+            except TypeError as error:
+                raise ValidationError(f"{name} must be a sequence of ContextItem") from error
+            if any(not isinstance(item, ContextItem) for item in items):
+                raise ValidationError(f"{name} must contain only ContextItem")
+            for item in items:
+                if item.receipt.memory_id in seen_memory_ids:
+                    raise ValidationError("context items must not repeat a memory_id")
+                seen_memory_ids.add(item.receipt.memory_id)
+            object.__setattr__(self, name, items)

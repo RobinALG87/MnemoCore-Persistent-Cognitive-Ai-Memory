@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any, Optional, TypeVar
 from uuid import uuid4
 
+from .context import CONTEXT_LEVELS, compile_context_pack
 from .errors import AgentMemoryError, ClosedStoreError
 from .models import (
+    ContextPack,
     MemoryHistoryEntry,
     MemoryKind,
     MemoryRecord,
@@ -22,6 +24,30 @@ from .sqlite_store import SQLiteMemoryStore
 from .store import MemoryStore
 
 _T = TypeVar("_T")
+
+
+async def _compile_context(
+    store: MemoryStore,
+    scope: MemoryScope,
+    query: str,
+    *,
+    token_budget: int,
+    include_ancestors: bool,
+) -> ContextPack:
+    results_by_level = {}
+    for level, kinds in CONTEXT_LEVELS:
+        results_by_level[level] = await store.recall(
+            scope,
+            query,
+            kinds=kinds,
+            limit=10,
+            include_ancestors=include_ancestors,
+        )
+    return compile_context_pack(
+        query,
+        token_budget=token_budget,
+        results_by_level=results_by_level,
+    )
 
 
 class AgentMemory:
@@ -101,6 +127,23 @@ class AgentMemory:
             self._scope,
             memory_id,
             include_forgotten=include_forgotten,
+        )
+
+    async def compile_context(
+        self,
+        query: str,
+        *,
+        token_budget: int = 1200,
+        include_ancestors: bool = False,
+    ) -> ContextPack:
+        """Compile exact-scope recall into a bounded, receipt-bearing briefing."""
+        self._ensure_open()
+        return await _compile_context(
+            self._store,
+            self._scope,
+            query,
+            token_budget=token_budget,
+            include_ancestors=include_ancestors,
         )
 
     async def list(
@@ -267,6 +310,21 @@ class SyncAgentMemory:
             )
         )
 
+    def compile_context(
+        self,
+        query: str,
+        *,
+        token_budget: int = 1200,
+        include_ancestors: bool = False,
+    ) -> ContextPack:
+        return self._run(
+            lambda: self._client.compile_context(
+                query,
+                token_budget=token_budget,
+                include_ancestors=include_ancestors,
+            )
+        )
+
     def list(
         self,
         *,
@@ -398,6 +456,22 @@ class MemorySession:
             self._scope,
             memory_id,
             include_forgotten=include_forgotten,
+        )
+
+    async def compile_context(
+        self,
+        query: str,
+        *,
+        token_budget: int = 1200,
+        include_ancestors: bool = True,
+    ) -> ContextPack:
+        """Compile session and permitted ancestor memory into a mission briefing."""
+        return await _compile_context(
+            self._store,
+            self._scope,
+            query,
+            token_budget=token_budget,
+            include_ancestors=include_ancestors,
         )
 
     async def list(
@@ -542,6 +616,21 @@ class SyncMemorySession:
             lambda: self._session.get(
                 memory_id,
                 include_forgotten=include_forgotten,
+            )
+        )
+
+    def compile_context(
+        self,
+        query: str,
+        *,
+        token_budget: int = 1200,
+        include_ancestors: bool = True,
+    ) -> ContextPack:
+        return self._run(
+            lambda: self._session.compile_context(
+                query,
+                token_budget=token_budget,
+                include_ancestors=include_ancestors,
             )
         )
 

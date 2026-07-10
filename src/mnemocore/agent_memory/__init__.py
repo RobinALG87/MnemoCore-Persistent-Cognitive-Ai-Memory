@@ -10,6 +10,7 @@ from .errors import (
     ValidationError,
 )
 from .models import (
+    ContextPack,
     ContextItem,
     MemoryEvent,
     MemoryEventType,
@@ -28,6 +29,7 @@ __all__ = [
     "AgentMemoryError",
     "ClosedStoreError",
     "ContextItem",
+    "ContextPack",
     "MemoryEvent",
     "MemoryEventType",
     "MemoryHistoryEntry",
