@@ -161,12 +161,16 @@ Add `scope_key TEXT NOT NULL` to the v2 evidence table. Create compound lifecycl
 
 Replay each exact-scope event stream in `(occurred_at, created_at, id)` order. Remembered events open active intervals. Forgotten events close active intervals and open forgotten intervals. Reject incomplete, out-of-order, cross-scope, duplicate, or foreign-owned streams before mutation.
 
-- [ ] **Step 6: Run schema and foundation tests**
+- [ ] **Step 6: Maintain lifecycle in foundation operations**
+
+`remember` inserts its active lifecycle row in the existing transaction. `forget` closes the current active interval and opens a forgotten interval in the existing transaction. The foundation rebuild path reconstructs remembered/forgotten lifecycle rows and includes them in preflight, cleanup, rollback, and equivalence tests. Deterministic lifecycle identities and timestamps must match migration backfill so reopen/rebuild does not drift.
+
+- [ ] **Step 7: Run schema and foundation tests**
 
 Run: `python -m pytest tests/agent_memory/test_schema_v2.py tests/agent_memory/test_sqlite_store.py -q`  
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/mnemocore/agent_memory/schema.py src/mnemocore/agent_memory/sqlite_store.py tests/agent_memory/test_schema_v2.py tests/agent_memory/test_sqlite_store.py
