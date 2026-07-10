@@ -500,7 +500,13 @@ Expected: FAIL because the public facade is missing.
 
 - [ ] **Step 4: Implement sync wrapper without loop bridging**
 
-`SyncAgentMemory` owns a private `AgentMemory` and uses `asyncio.run` only when no event loop is running. If called inside a running event loop, raise `AgentMemoryError("Use AgentMemory inside async code")`. Support `with`; never start a worker thread to run a coroutine.
+`SyncAgentMemory` owns a private `AgentMemory` and one persistent private event
+loop created with `asyncio.new_event_loop()`. It reuses that loop with
+`run_until_complete` for every operation and closes it deterministically with the
+client; it does not call `asyncio.run` per method because the store's lifecycle
+lock belongs to one loop. If called inside a running event loop, raise
+`AgentMemoryError("Use AgentMemory inside async code")`. Support `with`; never
+start a worker thread to run a coroutine.
 
 - [ ] **Step 5: Define public exports**
 

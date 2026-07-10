@@ -35,6 +35,7 @@ async def test_async_public_round_trip(tmp_path):
             valid_from="2026-07-10T09:00:00Z",
             valid_to="2026-07-11T09:00:00Z",
         )
+        assert await memory.rebuild() == 1
         recalled = await memory.recall(
             "minimal APIs",
             kinds=(MemoryKind.PREFERENCE,),
@@ -88,6 +89,7 @@ async def test_async_close_is_idempotent_and_all_operations_reject_after_close(t
         lambda: memory.list(),
         lambda: memory.history("missing"),
         lambda: memory.forget("missing"),
+        lambda: memory.rebuild(),
     )
     for operation in operations:
         with pytest.raises(ClosedStoreError):
@@ -103,6 +105,7 @@ def test_sync_public_round_trip_reuses_one_private_loop(tmp_path):
             kind=MemoryKind.PROCEDURE,
             idempotency_key="sync-1",
         )
+        assert memory.rebuild() == 1
         assert memory.get(stored.id).content == stored.content
         assert memory.list(kind=MemoryKind.PROCEDURE) == [stored]
         assert memory.recall("wrapper explicit")[0].memory.id == stored.id

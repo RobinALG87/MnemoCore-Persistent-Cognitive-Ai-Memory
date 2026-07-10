@@ -124,6 +124,11 @@ class AgentMemory:
         self._ensure_open()
         return await self._store.forget(self._scope, memory_id, reason=reason)
 
+    async def rebuild(self) -> int:
+        """Repair this exact scope's projections from its immutable ledger."""
+        self._ensure_open()
+        return await self._store.rebuild(self._scope)
+
     async def close(self) -> None:
         if self._closed:
             return
@@ -248,6 +253,9 @@ class SyncAgentMemory:
         reason: Optional[str] = None,
     ) -> MemoryRecord:
         return self._run(lambda: self._client.forget(memory_id, reason=reason))
+
+    def rebuild(self) -> int:
+        return self._run(self._client.rebuild)
 
     def close(self) -> None:
         self._reject_running_loop()

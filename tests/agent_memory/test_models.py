@@ -321,6 +321,59 @@ def test_event_history_and_recall_models_are_frozen_and_slotted():
             setattr(model, attribute, "changed")
 
 
+def test_public_models_recursively_detach_and_freeze_nested_values():
+    record_metadata = {"nested": {"items": [1, {"name": "original"}]}}
+    history_details = {"nested": {"reasons": ["first"]}}
+    score_components = {"lexical": {"weights": [0.75]}}
+    evidence_ids = ["event-1"]
+
+    record = make_record(metadata=record_metadata)
+    history = make_history(details=history_details)
+    result = RecallResult(
+        memory=record,
+        score=0.75,
+        score_components=score_components,
+        evidence_ids=evidence_ids,
+    )
+
+    record_metadata["nested"]["items"][1]["name"] = "mutated"
+    history_details["nested"]["reasons"].append("mutated")
+    score_components["lexical"]["weights"].append(0.25)
+    evidence_ids.append("event-2")
+
+    assert record.metadata["nested"]["items"][1]["name"] == "original"
+    assert history.details["nested"]["reasons"] == ("first",)
+    assert result.score_components["lexical"]["weights"] == (0.75,)
+    assert result.evidence_ids == ("event-1",)
+    with pytest.raises(TypeError):
+        record.metadata["nested"]["changed"] = True
+    with pytest.raises(TypeError):
+        history.details["nested"]["changed"] = True
+    with pytest.raises(TypeError):
+        result.score_components["lexical"]["changed"] = True
+
+
+@pytest.mark.parametrize(
+    ("factory", "kwargs"),
+    [
+        (make_record, {"metadata": {"bad": float("nan")}}),
+        (make_event, {"payload": {"bad": float("inf")}}),
+        (make_history, {"details": {"bad": float("-inf")}}),
+        (
+            lambda **values: RecallResult(memory=make_record(), **values),
+            {"score": float("nan")},
+        ),
+        (
+            lambda **values: RecallResult(memory=make_record(), score=1.0, **values),
+            {"score_components": {"bad": float("inf")}},
+        ),
+    ],
+)
+def test_public_models_reject_non_finite_floats(factory, kwargs):
+    with pytest.raises(ValidationError):
+        factory(**kwargs)
+
+
 def test_utc_now_returns_an_aware_utc_datetime():
     result = utc_now()
 

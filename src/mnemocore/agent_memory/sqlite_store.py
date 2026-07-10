@@ -9,6 +9,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, TypeVar
@@ -350,6 +351,33 @@ def _timestamp_from_input(value: Optional[str], name: str) -> Optional[datetime]
         raise ValidationError(f"{name} must be a valid timezone-aware ISO-8601 string") from error
 
 
+def _record_observation_payload(record: MemoryRecord) -> dict[str, Any]:
+    """Return the normalized event payload needed to rebuild a projection."""
+    return {
+        "memory_id": record.id,
+        "observation": {
+            "kind": record.kind.value,
+            "content": record.content,
+            "metadata": record.metadata,
+            "status": record.status.value,
+            "confidence": record.confidence,
+            "observed_at": _timestamp_to_storage(record.observed_at),
+            "valid_from": (
+                _timestamp_to_storage(record.valid_from)
+                if record.valid_from is not None
+                else None
+            ),
+            "valid_to": (
+                _timestamp_to_storage(record.valid_to)
+                if record.valid_to is not None
+                else None
+            ),
+            "created_at": _timestamp_to_storage(record.created_at),
+            "updated_at": _timestamp_to_storage(record.updated_at),
+        },
+    }
+
+
 def _scope_from_row(row: sqlite3.Row) -> MemoryScope:
     return MemoryScope(
         tenant_id=row["tenant_id"],
@@ -645,7 +673,7 @@ def _remember(
                     memory_id=memory_id,
                     scope=scope,
                     event_type=MemoryEventType.REMEMBERED,
-                    payload={"memory_id": memory_id},
+                    payload=_record_observation_payload(record),
                     idempotency_key=idempotency_key,
                     occurred_at=now,
                     created_at=now,
@@ -897,6 +925,192 @@ def _forget(
         raise StorageError(f"Failed to forget memory in {path}: {error}") from error
 
 
+def _record_from_remembered_event(path: Path, event: MemoryEvent) -> MemoryRecord:
+    observation = event.payload.get("observation")
+    if event.memory_id is None or not isinstance(observation, Mapping):
+        raise StorageError(
+            f"Cannot rebuild memory from incomplete remembered event {event.id!r} in {path}"
+        )
+    try:
+        if observation.get("status") != MemoryStatus.ACTIVE.value:
+            raise ValidationError("remembered observation status must be active")
+        metadata = observation.get("metadata")
+        if not isinstance(metadata, Mapping):
+            raise ValidationError("remembered observation metadata must be a mapping")
+        return MemoryRecord(
+            id=event.memory_id,
+            scope=event.scope,
+            kind=MemoryKind(observation["kind"]),
+            content=observation["content"],
+            metadata=metadata,
+            status=MemoryStatus(observation["status"]),
+            confidence=observation["confidence"],
+            observed_at=_timestamp_from_storage(
+                observation["observed_at"], "observed_at"
+            ),
+            valid_from=(
+                _timestamp_from_storage(observation["valid_from"], "valid_from")
+                if observation.get("valid_from") is not None
+                else None
+            ),
+            valid_to=(
+                _timestamp_from_storage(observation["valid_to"], "valid_to")
+                if observation.get("valid_to") is not None
+                else None
+            ),
+            created_at=_timestamp_from_storage(
+                observation["created_at"], "created_at"
+            ),
+            updated_at=_timestamp_from_storage(
+                observation["updated_at"], "updated_at"
+            ),
+        )
+    except Exception as error:
+        raise StorageError(
+            f"Cannot rebuild memory from invalid remembered event {event.id!r} in {path}: {error}"
+        ) from error
+
+
+def _rebuild(path: Path, scope: MemoryScope) -> int:
+    """Atomically rebuild one exact scope's projections from immutable events."""
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                rows = connection.execute(
+                    """
+                    SELECT * FROM memory_events
+                    WHERE scope_key = ?
+                    ORDER BY occurred_at ASC, created_at ASC, id ASC
+                    """,
+                    (scope.scope_key,),
+                ).fetchall()
+                events = [_row_to_event(path, row) for row in rows]
+                records: dict[str, MemoryRecord] = {}
+                histories: list[
+                    tuple[MemoryEvent, MemoryStatus, Mapping[str, Any]]
+                ] = []
+                for event in events:
+                    if event.event_type is MemoryEventType.REMEMBERED:
+                        record = _record_from_remembered_event(path, event)
+                        if record.id in records:
+                            raise StorageError(
+                                f"Duplicate remembered event for memory {record.id!r} in {path}"
+                            )
+                        records[record.id] = record
+                        histories.append((event, MemoryStatus.ACTIVE, {}))
+                    elif event.event_type is MemoryEventType.FORGOTTEN:
+                        if event.memory_id is None or event.memory_id not in records:
+                            raise StorageError(
+                                f"Forgotten event {event.id!r} has no remembered source in {path}"
+                            )
+                        records[event.memory_id] = replace(
+                            records[event.memory_id],
+                            status=MemoryStatus.FORGOTTEN,
+                            updated_at=event.occurred_at,
+                        )
+                        histories.append(
+                            (
+                                event,
+                                MemoryStatus.FORGOTTEN,
+                                {"reason": event.payload.get("reason")},
+                            )
+                        )
+                    else:
+                        raise StorageError(
+                            f"Unsupported event {event.event_type.value!r} while rebuilding {path}"
+                        )
+
+                memory_ids = tuple(records)
+                if not memory_ids:
+                    connection.commit()
+                    return 0
+                placeholders = ", ".join("?" for _ in memory_ids)
+                connection.execute(
+                    f"DELETE FROM memory_fts WHERE memory_id IN ({placeholders})",
+                    memory_ids,
+                )
+                connection.execute(
+                    f"DELETE FROM memory_history WHERE memory_id IN ({placeholders})",
+                    memory_ids,
+                )
+                connection.execute(
+                    f"DELETE FROM memories WHERE id IN ({placeholders})",
+                    memory_ids,
+                )
+
+                for record in records.values():
+                    connection.execute(
+                        """
+                        INSERT INTO memories (
+                            id, scope_key, tenant_id, user_id, agent_id, project_id,
+                            session_id, kind, content, metadata_json, status,
+                            confidence, observed_at, valid_from, valid_to, created_at,
+                            updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            record.id,
+                            record.scope.scope_key,
+                            record.scope.tenant_id,
+                            record.scope.user_id,
+                            record.scope.agent_id,
+                            record.scope.project_id,
+                            record.scope.session_id,
+                            record.kind.value,
+                            record.content,
+                            _canonical_json(record.metadata),
+                            record.status.value,
+                            record.confidence,
+                            _timestamp_to_storage(record.observed_at),
+                            (
+                                _timestamp_to_storage(record.valid_from)
+                                if record.valid_from is not None
+                                else None
+                            ),
+                            (
+                                _timestamp_to_storage(record.valid_to)
+                                if record.valid_to is not None
+                                else None
+                            ),
+                            _timestamp_to_storage(record.created_at),
+                            _timestamp_to_storage(record.updated_at),
+                        ),
+                    )
+                    if record.status is MemoryStatus.ACTIVE:
+                        connection.execute(
+                            "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+                            (record.id, record.content),
+                        )
+
+                for event, status, details in histories:
+                    connection.execute(
+                        """
+                        INSERT INTO memory_history (
+                            id, memory_id, event_id, action, status, details_json,
+                            created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            f"{event.id}:history",
+                            event.memory_id,
+                            event.id,
+                            event.event_type.value,
+                            status.value,
+                            _canonical_json(details),
+                            _timestamp_to_storage(event.created_at),
+                        ),
+                    )
+                connection.commit()
+                return len(records)
+            except Exception:
+                connection.rollback()
+                raise
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to rebuild memory projections in {path}: {error}") from error
+
+
 def _list(
     path: Path,
     scope: MemoryScope,
@@ -974,6 +1188,7 @@ def _rows_to_recall_results(
                     "bm25_raw": float(row["bm25_raw"]),
                 },
                 reason="Matched lexical terms in the authorized scope",
+                evidence_ids=(row["source_event_id"],),
             )
         )
         if len(results) == limit:
@@ -1001,7 +1216,16 @@ def _recall(
     valid_from_sql = _legacy_compatible_timestamp_sql("memories.valid_from")
     valid_to_sql = _legacy_compatible_timestamp_sql("memories.valid_to")
     sql = f"""
-        SELECT memories.*, bm25(memory_fts) AS bm25_raw
+        SELECT memories.*, bm25(memory_fts) AS bm25_raw,
+               (
+                   SELECT source_event.id
+                   FROM memory_events AS source_event
+                   WHERE source_event.memory_id = memories.id
+                     AND source_event.scope_key = memories.scope_key
+                     AND source_event.event_type = 'remembered'
+                   ORDER BY source_event.occurred_at ASC, source_event.id ASC
+                   LIMIT 1
+               ) AS source_event_id
         FROM memory_fts
         JOIN memories ON memories.id = memory_fts.memory_id
         WHERE memory_fts MATCH ?
@@ -1030,6 +1254,8 @@ def _recall(
             rows = connection.execute(sql, parameters).fetchall()
     except sqlite3.Error as error:
         raise StorageError(f"Failed to recall memories from {path}: {error}") from error
+    if any(row["source_event_id"] is None for row in rows):
+        raise StorageError(f"Recall projection in {path} has no remembered source event")
     return _rows_to_recall_results(path, rows, limit)
 
 
@@ -1092,7 +1318,26 @@ class SQLiteMemoryStore:
         async with self._lifecycle_lock:
             if self._closed:
                 raise ClosedStoreError("SQLite memory store is closed")
-            return await asyncio.to_thread(worker, self._path, *args, **kwargs)
+            worker_task = asyncio.create_task(
+                asyncio.to_thread(worker, self._path, *args, **kwargs)
+            )
+            try:
+                return await asyncio.shield(worker_task)
+            except asyncio.CancelledError as cancellation:
+                while not worker_task.done():
+                    try:
+                        await asyncio.shield(worker_task)
+                    except asyncio.CancelledError:
+                        continue
+                    except BaseException:
+                        break
+                try:
+                    worker_task.result()
+                except BaseException:
+                    # Cancellation remains caller-visible, but the worker is
+                    # observed before the lifecycle lock is released.
+                    pass
+                raise cancellation
 
     async def remember(
         self,
@@ -1170,6 +1415,9 @@ class SQLiteMemoryStore:
             memory_id,
             reason=reason,
         )
+
+    async def rebuild(self, scope: MemoryScope) -> int:
+        return await self._run(_rebuild, scope)
 
     async def recall(
         self,

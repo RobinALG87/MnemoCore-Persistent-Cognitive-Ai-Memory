@@ -1,9 +1,10 @@
 # Persistent Agent Memory Quickstart
 
 MnemoCore's agent-memory API provides durable, exact-scoped memory backed by a
-local SQLite file. The foundation API uses only the Python standard library at
-runtime and is available through both asynchronous and explicit synchronous
-clients.
+local SQLite file. The `mnemocore.agent_memory` implementation itself uses only
+Python's standard library at runtime and is available through both asynchronous
+and explicit synchronous clients; installing the complete MnemoCore package may
+install additional dependencies used by its other modules.
 
 ## Install
 
@@ -75,9 +76,13 @@ record in its complete scope. Reusing an idempotency key in the same scope
 returns the existing memory instead of creating a duplicate.
 
 `forget()` is logical and auditable. It marks the projection as forgotten,
-records the reason in immutable history, and removes the memory from lexical
-search. The record remains available through `get(..., include_forgotten=True)`
-for audit purposes.
+records an immutable ledger event plus an audit-history entry, and removes the
+memory from lexical search. The record remains available through
+`get(..., include_forgotten=True)` for audit purposes.
+
+If a projection or search index is damaged, `rebuild()` repairs the client's
+exact scope from its immutable events. It does not read or rewrite another
+scope.
 
 ## Retrieval status
 

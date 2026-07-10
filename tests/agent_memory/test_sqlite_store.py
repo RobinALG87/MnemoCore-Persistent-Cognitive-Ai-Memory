@@ -1,3 +1,5 @@
+import asyncio
+import json
 import sqlite3
 from contextlib import closing
 from datetime import timezone
@@ -357,7 +359,7 @@ async def test_remember_returns_same_canonical_metadata_on_create_retry_and_reop
     await reopened.close()
 
     assert created == retried == restored
-    assert created.metadata == {"nested": {"items": ["first", {"answer": 42}]}}
+    assert created.metadata == {"nested": {"items": ("first", {"answer": 42})}}
 
 
 @pytest.mark.asyncio
@@ -530,7 +532,7 @@ async def test_remember_serializes_immutable_json_and_utc_timestamps(tmp_path, s
 
     reopened = await SQLiteMemoryStore.open(path)
     restored = await reopened.get(scope, record.id)
-    assert restored.metadata == {"outer": {"items": ["first", {"answer": 42}]}}
+    assert restored.metadata == {"outer": {"items": ("first", {"answer": 42})}}
     assert restored.observed_at.tzinfo is timezone.utc
     assert restored.observed_at.isoformat() == "2026-07-10T10:00:00+00:00"
     await reopened.close()
@@ -546,11 +548,28 @@ async def test_remember_serializes_immutable_json_and_utc_timestamps(tmp_path, s
             """,
             (record.id,),
         ).fetchone()
-    assert stored == (
+    assert stored[:2] == (
         '{"outer":{"items":["first",{"answer":42}]}}',
         "2026-07-10T10:00:00.000000Z",
-        f'{{"memory_id":"{record.id}"}}',
     )
+    payload = json.loads(stored[2])
+    assert payload["memory_id"] == record.id
+    assert payload["observation"] == {
+        "kind": "observation",
+        "content": "Canonical metadata",
+        "metadata": {"outer": {"items": ["first", {"answer": 42}]}},
+        "status": "active",
+        "confidence": 1.0,
+        "observed_at": "2026-07-10T10:00:00.000000Z",
+        "valid_from": "2026-07-10T09:00:00.000000Z",
+        "valid_to": "2026-07-11T09:00:00.000000Z",
+        "created_at": record.created_at.isoformat(timespec="microseconds").replace(
+            "+00:00", "Z"
+        ),
+        "updated_at": record.updated_at.isoformat(timespec="microseconds").replace(
+            "+00:00", "Z"
+        ),
+    }
 
 
 @pytest.mark.asyncio
@@ -838,3 +857,117 @@ async def test_history_wraps_corrupt_stored_rows_with_path_and_cause(tmp_path, s
     assert str(path.resolve()) in str(raised.value)
     assert raised.value.__cause__ is not None
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    active = await store.remember(
+        scope,
+        "Rebuild this durable observation",
+        kind=MemoryKind.PREFERENCE,
+        metadata={"nested": {"items": ["one"]}},
+        confidence=0.8,
+        observed_at="2026-07-10T10:00:00Z",
+        valid_from="2026-07-10T09:00:00Z",
+        valid_to="2026-07-11T09:00:00Z",
+    )
+    forgotten = await store.remember(scope, "Rebuild forgotten observation")
+    forgotten = await store.forget(scope, forgotten.id, reason="expired")
+    foreign_scope = MemoryScope(user_id="other", agent_id="codex")
+    foreign = await store.remember(foreign_scope, "Foreign projection remains")
+
+    with closing(sqlite3.connect(path)) as conn:
+        remembered_payload = conn.execute(
+            "SELECT payload_json FROM memory_events WHERE memory_id = ? AND event_type = ?",
+            (active.id, "remembered"),
+        ).fetchone()[0]
+        assert '"observation"' in remembered_payload
+        conn.execute(
+            "UPDATE memories SET content = 'corrupt', metadata_json = '{}' WHERE id = ?",
+            (active.id,),
+        )
+        conn.execute(
+            "UPDATE memory_fts SET content = 'corrupt' WHERE memory_id = ?",
+            (active.id,),
+        )
+        conn.execute("DELETE FROM memories WHERE id = ?", (forgotten.id,))
+        conn.execute("DELETE FROM memory_fts WHERE memory_id = ?", (forgotten.id,))
+        conn.commit()
+
+    assert await store.rebuild(scope) == 2
+    assert await store.get(scope, active.id) == active
+    restored_forgotten = await store.get(
+        scope, forgotten.id, include_forgotten=True
+    )
+    assert restored_forgotten == forgotten
+    assert [entry.action.value for entry in await store.history(scope, forgotten.id)] == [
+        "remembered",
+        "forgotten",
+    ]
+    assert [
+        result.memory.id
+        for result in await store.recall(
+            scope, "durable observation", as_of="2026-07-10T12:00:00Z"
+        )
+    ] == [active.id]
+    assert await store.recall(scope, "forgotten observation") == []
+    assert await store.get(foreign_scope, foreign.id) == foreign
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (active.id,)
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (forgotten.id,)
+        ).fetchone()[0] == 0
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_recall_returns_exact_scope_remember_event_as_evidence(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(scope, "Evidence-bearing lexical memory")
+    foreign_scope = MemoryScope(user_id="other", agent_id="codex")
+    await store.remember(foreign_scope, "Evidence-bearing lexical memory")
+
+    result = (await store.recall(scope, "evidence lexical", limit=1))[0]
+
+    with closing(sqlite3.connect(path)) as conn:
+        expected = conn.execute(
+            """
+            SELECT id FROM memory_events
+            WHERE memory_id = ? AND scope_key = ? AND event_type = 'remembered'
+            """,
+            (record.id, scope.scope_key),
+        ).fetchone()[0]
+    assert result.evidence_ids == (expected,)
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_worker_holds_lifecycle_lock_until_thread_finishes(tmp_path):
+    import threading
+
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_worker(path):
+        started.set()
+        assert release.wait(timeout=5)
+        return path
+
+    operation = asyncio.create_task(store._run(blocking_worker))
+    assert await asyncio.to_thread(started.wait, 5)
+    operation.cancel()
+    close = asyncio.create_task(store.close())
+    await asyncio.sleep(0.05)
+
+    assert not operation.done()
+    assert not close.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await operation
+    await asyncio.wait_for(close, timeout=5)
