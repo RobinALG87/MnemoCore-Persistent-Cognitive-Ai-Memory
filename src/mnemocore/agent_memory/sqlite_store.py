@@ -28,13 +28,19 @@ from .models import (
     MemoryHistoryEntry,
     MemoryKind,
     MemoryRecord,
+    MemoryReceipt,
+    MemoryRelation,
     MemoryScope,
     MemoryStatus,
     RecallResult,
     utc_now,
 )
 from .schema import initialize_or_migrate
-from .timeline import build_superseded_payload, parse_superseded_payload
+from .timeline import (
+    build_superseded_payload,
+    normalize_timeline_query,
+    parse_superseded_payload,
+)
 
 _T = TypeVar("_T")
 
@@ -211,6 +217,32 @@ def _row_to_history(path: Path, row: sqlite3.Row) -> MemoryHistoryEntry:
         )
     except Exception as error:
         raise StorageError(f"Failed to hydrate memory history from {path}: {error}") from error
+
+
+def _row_to_relation(
+    path: Path,
+    row: sqlite3.Row,
+    scope: MemoryScope,
+) -> MemoryRelation:
+    try:
+        return MemoryRelation(
+            id=row["id"],
+            scope=scope,
+            source_id=row["source_id"],
+            target_id=row["target_id"],
+            relation_type=row["relation_type"],
+            valid_from=_timestamp_from_storage(row["valid_from"], "valid_from"),
+            valid_to=(
+                _timestamp_from_storage(row["valid_to"], "valid_to")
+                if row["valid_to"] is not None
+                else None
+            ),
+            confidence=row["confidence"],
+            event_id=row["event_id"],
+            created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+        )
+    except Exception as error:
+        raise StorageError(f"Failed to hydrate memory relation from {path}: {error}") from error
 
 
 def _initialize_schema(path: Path) -> None:
@@ -1372,34 +1404,170 @@ def _legacy_compatible_timestamp_sql(column: str) -> str:
     )
 
 
+def _timeline_validity_value_sql(column: str) -> str:
+    """Use lifecycle snapshots after transitions and legacy projection values otherwise."""
+    return (
+        f"CASE WHEN lifecycle.known_to IS NOT NULL THEN lifecycle.{column} "
+        f"ELSE memories.{column} END"
+    )
+
+
+def _row_to_lifecycle_record(path: Path, row: sqlite3.Row) -> MemoryRecord:
+    try:
+        return replace(
+            _row_to_record(path, row),
+            status=MemoryStatus(row["lifecycle_status"]),
+            valid_from=(
+                _timestamp_from_storage(row["lifecycle_valid_from"], "valid_from")
+                if row["lifecycle_valid_from"] is not None
+                else None
+            ),
+            valid_to=(
+                _timestamp_from_storage(row["lifecycle_valid_to"], "valid_to")
+                if row["lifecycle_valid_to"] is not None
+                else None
+            ),
+        )
+    except Exception as error:
+        if isinstance(error, StorageError):
+            raise
+        raise StorageError(f"Failed to hydrate memory lifecycle from {path}: {error}") from error
+
+
+def _unique_recall_rows(rows: list[sqlite3.Row], limit: int) -> list[sqlite3.Row]:
+    selected: list[sqlite3.Row] = []
+    seen_memory_ids: set[str] = set()
+    for row in rows:
+        if row["id"] in seen_memory_ids:
+            continue
+        seen_memory_ids.add(row["id"])
+        selected.append(row)
+        if len(selected) == limit:
+            break
+    return selected
+
+
+def _recall_evidence_ids(
+    connection: sqlite3.Connection,
+    path: Path,
+    scope: MemoryScope,
+    rows: list[sqlite3.Row],
+    known_at: str,
+) -> dict[str, tuple[str, ...]]:
+    if not rows:
+        return {}
+
+    memory_ids = [row["id"] for row in rows]
+    direct_event_ids = {
+        row["id"]: {row["lifecycle_event_id"]}
+        for row in rows
+    }
+    lineage_memory_ids = {row["id"]: {row["id"]} for row in rows}
+    placeholders = ", ".join("?" for _ in memory_ids)
+    event_time_sql = _legacy_compatible_timestamp_sql("event.occurred_at")
+    evidence_rows = connection.execute(
+        f"""
+        SELECT evidence.*, source.scope_key AS source_scope_key,
+               event.scope_key AS event_scope_key
+        FROM memory_evidence AS evidence
+        LEFT JOIN memories AS source ON source.id = evidence.source_memory_id
+        LEFT JOIN memory_events AS event ON event.id = evidence.event_id
+        WHERE evidence.scope_key = ?
+          AND evidence.memory_id IN ({placeholders})
+          AND {event_time_sql} <= ?
+        ORDER BY evidence.created_at ASC, evidence.event_id ASC,
+                 evidence.source_memory_id ASC
+        """,
+        [scope.scope_key, *memory_ids, known_at],
+    ).fetchall()
+    for evidence in evidence_rows:
+        if (
+            evidence["source_scope_key"] != scope.scope_key
+            or evidence["event_scope_key"] != scope.scope_key
+        ):
+            raise StorageError(f"Recall provenance in {path} crosses memory scope")
+        memory_id = evidence["memory_id"]
+        direct_event_ids[memory_id].add(evidence["event_id"])
+        lineage_memory_ids[memory_id].add(evidence["source_memory_id"])
+
+    all_direct_event_ids = sorted(
+        {event_id for values in direct_event_ids.values() for event_id in values}
+    )
+    all_lineage_memory_ids = sorted(
+        {memory_id for values in lineage_memory_ids.values() for memory_id in values}
+    )
+    event_placeholders = ", ".join("?" for _ in all_direct_event_ids)
+    lineage_placeholders = ", ".join("?" for _ in all_lineage_memory_ids)
+    event_rows = connection.execute(
+        f"""
+        SELECT *
+        FROM memory_events AS event
+        WHERE event.scope_key = ?
+          AND {_legacy_compatible_timestamp_sql('event.occurred_at')} <= ?
+          AND (
+              event.id IN ({event_placeholders})
+              OR (
+                  event.event_type = ?
+                  AND event.memory_id IN ({lineage_placeholders})
+              )
+          )
+        ORDER BY {_legacy_compatible_timestamp_sql('event.occurred_at')} ASC,
+                 {_legacy_compatible_timestamp_sql('event.created_at')} ASC,
+                 event.id ASC
+        """,
+        [
+            scope.scope_key,
+            known_at,
+            *all_direct_event_ids,
+            MemoryEventType.REMEMBERED.value,
+            *all_lineage_memory_ids,
+        ],
+    ).fetchall()
+    events = [_row_to_event(path, event_row) for event_row in event_rows]
+    if any(event.scope != scope for event in events):
+        raise StorageError(f"Recall provenance in {path} crosses event scope")
+    events_by_id = {event.id: event for event in events}
+    ordered_event_ids = [event.id for event in events]
+
+    result: dict[str, tuple[str, ...]] = {}
+    for memory_id in memory_ids:
+        missing = direct_event_ids[memory_id].difference(events_by_id)
+        if missing:
+            raise StorageError(f"Recall projection in {path} has missing immutable evidence")
+        wanted = set(direct_event_ids[memory_id])
+        wanted.update(
+            event.id
+            for event in events
+            if event.event_type is MemoryEventType.REMEMBERED
+            and event.memory_id in lineage_memory_ids[memory_id]
+        )
+        result[memory_id] = tuple(
+            event_id for event_id in ordered_event_ids if event_id in wanted
+        )
+    return result
+
+
 def _rows_to_recall_results(
     path: Path,
     rows: list[sqlite3.Row],
-    limit: int,
+    evidence_ids: Mapping[str, tuple[str, ...]],
 ) -> list[RecallResult]:
     results: list[RecallResult] = []
-    seen_memory_ids: set[str] = set()
     for row in rows:
-        memory_id = row["id"]
-        if memory_id in seen_memory_ids:
-            continue
-        seen_memory_ids.add(memory_id)
         rank = len(results) + 1
         reciprocal_rank = 1.0 / rank
         results.append(
             RecallResult(
-                memory=_row_to_record(path, row),
+                memory=_row_to_lifecycle_record(path, row),
                 score=reciprocal_rank,
                 score_components={
                     "bm25_rank": reciprocal_rank,
                     "bm25_raw": float(row["bm25_raw"]),
                 },
                 reason="Matched lexical terms in the authorized scope",
-                evidence_ids=(row["source_event_id"],),
+                evidence_ids=evidence_ids[row["id"]],
             )
         )
-        if len(results) == limit:
-            break
     return results
 
 
@@ -1411,42 +1579,54 @@ def _recall(
     kinds: Sequence[MemoryKind],
     limit: int,
     as_of: Optional[str],
+    valid_at: Optional[str],
+    known_at: Optional[str],
 ) -> list[RecallResult]:
     match_query = _fts_match_query(query)
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
         raise ValidationError("limit must be between 1 and 1000")
     normalized_kinds = _normalize_memory_kinds(kinds)
 
-    as_of_timestamp = _timestamp_to_storage(
-        _timestamp_from_input(as_of, "as_of") or utc_now()
+    valid_timestamp, known_timestamp = normalize_timeline_query(
+        as_of=as_of,
+        valid_at=valid_at,
+        known_at=known_at,
+        now=utc_now(),
     )
-    valid_from_sql = _legacy_compatible_timestamp_sql("memories.valid_from")
-    valid_to_sql = _legacy_compatible_timestamp_sql("memories.valid_to")
+    known_from_sql = _legacy_compatible_timestamp_sql("lifecycle.known_from")
+    known_to_sql = _legacy_compatible_timestamp_sql("lifecycle.known_to")
+    validity_from_value_sql = _timeline_validity_value_sql("valid_from")
+    validity_to_value_sql = _timeline_validity_value_sql("valid_to")
+    valid_from_sql = _legacy_compatible_timestamp_sql(validity_from_value_sql)
+    valid_to_sql = _legacy_compatible_timestamp_sql(validity_to_value_sql)
     sql = f"""
         SELECT memories.*, bm25(memory_fts) AS bm25_raw,
-               (
-                   SELECT source_event.id
-                   FROM memory_events AS source_event
-                   WHERE source_event.memory_id = memories.id
-                     AND source_event.scope_key = memories.scope_key
-                     AND source_event.event_type = 'remembered'
-                   ORDER BY source_event.occurred_at ASC, source_event.id ASC
-                   LIMIT 1
-               ) AS source_event_id
+               lifecycle.status AS lifecycle_status,
+               {validity_from_value_sql} AS lifecycle_valid_from,
+               {validity_to_value_sql} AS lifecycle_valid_to,
+               lifecycle.event_id AS lifecycle_event_id
         FROM memory_fts
         JOIN memories ON memories.id = memory_fts.memory_id
+        JOIN memory_lifecycle AS lifecycle
+          ON lifecycle.memory_id = memories.id
+         AND lifecycle.scope_key = memories.scope_key
         WHERE memory_fts MATCH ?
           AND memories.scope_key = ?
-          AND memories.status = ?
-          AND (memories.valid_from IS NULL OR {valid_from_sql} <= ?)
-          AND (memories.valid_to IS NULL OR {valid_to_sql} > ?)
+          AND lifecycle.status IN (?, ?)
+          AND {known_from_sql} <= ?
+          AND (lifecycle.known_to IS NULL OR {known_to_sql} > ?)
+          AND ({validity_from_value_sql} IS NULL OR {valid_from_sql} <= ?)
+          AND ({validity_to_value_sql} IS NULL OR {valid_to_sql} > ?)
     """
     parameters: list[Any] = [
         match_query,
         scope.scope_key,
         MemoryStatus.ACTIVE.value,
-        as_of_timestamp,
-        as_of_timestamp,
+        MemoryStatus.SUPERSEDED.value,
+        known_timestamp,
+        known_timestamp,
+        valid_timestamp,
+        valid_timestamp,
     ]
     if normalized_kinds:
         placeholders = ", ".join("?" for _ in normalized_kinds)
@@ -1459,11 +1639,309 @@ def _recall(
         with closing(_connect(path)) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(sql, parameters).fetchall()
+            selected_rows = _unique_recall_rows(rows, limit)
+            evidence_ids = _recall_evidence_ids(
+                connection,
+                path,
+                scope,
+                selected_rows,
+                known_timestamp,
+            )
     except sqlite3.Error as error:
         raise StorageError(f"Failed to recall memories from {path}: {error}") from error
-    if any(row["source_event_id"] is None for row in rows):
-        raise StorageError(f"Recall projection in {path} has no remembered source event")
-    return _rows_to_recall_results(path, rows, limit)
+    return _rows_to_recall_results(path, selected_rows, evidence_ids)
+
+
+def _require_receipt_memory_scope(
+    connection: sqlite3.Connection,
+    path: Path,
+    scope: MemoryScope,
+    memory_id: str,
+) -> MemoryRecord:
+    row = connection.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+    if row is None:
+        raise StorageError(f"Receipt provenance in {path} refers to a missing memory")
+    record = _row_to_record(path, row)
+    if record.scope != scope:
+        raise StorageError(f"Receipt provenance in {path} crosses memory scope")
+    return record
+
+
+def _require_receipt_event_scope(
+    connection: sqlite3.Connection,
+    path: Path,
+    scope: MemoryScope,
+    event_id: str,
+) -> MemoryEvent:
+    row = connection.execute("SELECT * FROM memory_events WHERE id = ?", (event_id,)).fetchone()
+    if row is None:
+        raise StorageError(f"Receipt provenance in {path} refers to a missing event")
+    event = _row_to_event(path, row)
+    if event.scope != scope:
+        raise StorageError(f"Receipt provenance in {path} crosses event scope")
+    return event
+
+
+def _receipt_explanation(
+    memory: MemoryRecord,
+    relations: Sequence[MemoryRelation],
+    evidence_event_ids: Sequence[str],
+) -> str:
+    supersedes = next(
+        (
+            relation
+            for relation in relations
+            if relation.source_id == memory.id and relation.relation_type == "supersedes"
+        ),
+        None,
+    )
+    if supersedes is not None:
+        return (
+            f"Memory {memory.id} supersedes memory {supersedes.target_id} from "
+            f"{_timestamp_to_storage(supersedes.valid_from)} via event "
+            f"{supersedes.event_id}; confidence {memory.confidence:.6f}."
+        )
+    source_event = evidence_event_ids[0]
+    return (
+        f"Memory {memory.id} is {memory.status.value} in the requested timeline via "
+        f"event {source_event}; confidence {memory.confidence:.6f}."
+    )
+
+
+def _explain(
+    path: Path,
+    scope: MemoryScope,
+    memory_id: str,
+    *,
+    valid_at: Optional[str],
+    known_at: Optional[str],
+) -> MemoryReceipt:
+    valid_timestamp, known_timestamp = normalize_timeline_query(
+        as_of=None,
+        valid_at=valid_at,
+        known_at=known_at,
+        now=utc_now(),
+    )
+    known_from_sql = _legacy_compatible_timestamp_sql("lifecycle.known_from")
+    known_to_sql = _legacy_compatible_timestamp_sql("lifecycle.known_to")
+    validity_from_value_sql = _timeline_validity_value_sql("valid_from")
+    validity_to_value_sql = _timeline_validity_value_sql("valid_to")
+    valid_from_sql = _legacy_compatible_timestamp_sql(validity_from_value_sql)
+    valid_to_sql = _legacy_compatible_timestamp_sql(validity_to_value_sql)
+
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("BEGIN")
+                row = connection.execute(
+                    f"""
+                    SELECT memories.*,
+                           lifecycle.status AS lifecycle_status,
+                           {validity_from_value_sql} AS lifecycle_valid_from,
+                           {validity_to_value_sql} AS lifecycle_valid_to,
+                           lifecycle.event_id AS lifecycle_event_id
+                    FROM memories
+                    JOIN memory_lifecycle AS lifecycle
+                      ON lifecycle.memory_id = memories.id
+                     AND lifecycle.scope_key = memories.scope_key
+                    WHERE memories.scope_key = ?
+                      AND memories.id = ?
+                      AND lifecycle.status IN (?, ?)
+                      AND {known_from_sql} <= ?
+                      AND (lifecycle.known_to IS NULL OR {known_to_sql} > ?)
+                      AND ({validity_from_value_sql} IS NULL OR {valid_from_sql} <= ?)
+                      AND ({validity_to_value_sql} IS NULL OR {valid_to_sql} > ?)
+                    ORDER BY lifecycle.known_from DESC, lifecycle.status ASC
+                    LIMIT 1
+                    """,
+                    (
+                        scope.scope_key,
+                        memory_id,
+                        MemoryStatus.ACTIVE.value,
+                        MemoryStatus.SUPERSEDED.value,
+                        known_timestamp,
+                        known_timestamp,
+                        valid_timestamp,
+                        valid_timestamp,
+                    ),
+                ).fetchone()
+                if row is None:
+                    raise MemoryNotFoundError(
+                        f"Memory {memory_id!r} was not found in this scope"
+                    )
+                memory = _row_to_lifecycle_record(path, row)
+
+                evidence_rows = connection.execute(
+                    f"""
+                    SELECT evidence.*
+                    FROM memory_evidence AS evidence
+                    JOIN memory_events AS event ON event.id = evidence.event_id
+                    WHERE evidence.scope_key = ?
+                      AND evidence.memory_id = ?
+                      AND {_legacy_compatible_timestamp_sql('event.occurred_at')} <= ?
+                    ORDER BY evidence.created_at ASC, evidence.event_id ASC,
+                             evidence.source_memory_id ASC
+                    """,
+                    (scope.scope_key, memory.id, known_timestamp),
+                ).fetchall()
+
+                evidence_memory_ids: list[str] = []
+                evidence_event_ids: set[str] = {row["lifecycle_event_id"]}
+                for evidence in evidence_rows:
+                    if evidence["memory_id"] != memory.id:
+                        raise StorageError(
+                            f"Receipt provenance in {path} has a mismatched evidence target"
+                        )
+                    _require_receipt_memory_scope(
+                        connection,
+                        path,
+                        scope,
+                        evidence["memory_id"],
+                    )
+                    _require_receipt_memory_scope(
+                        connection,
+                        path,
+                        scope,
+                        evidence["source_memory_id"],
+                    )
+                    _require_receipt_event_scope(
+                        connection,
+                        path,
+                        scope,
+                        evidence["event_id"],
+                    )
+                    if evidence["source_memory_id"] not in evidence_memory_ids:
+                        evidence_memory_ids.append(evidence["source_memory_id"])
+                    evidence_event_ids.add(evidence["event_id"])
+
+                lineage_memory_ids = [memory.id, *evidence_memory_ids]
+                lineage_placeholders = ", ".join("?" for _ in lineage_memory_ids)
+                relation_valid_from_sql = _legacy_compatible_timestamp_sql(
+                    "relation.valid_from"
+                )
+                relation_valid_to_sql = _legacy_compatible_timestamp_sql(
+                    "relation.valid_to"
+                )
+                relation_rows = connection.execute(
+                    f"""
+                    SELECT relation.*
+                    FROM memory_relations AS relation
+                    WHERE relation.scope_key = ?
+                      AND (relation.source_id = ? OR relation.target_id = ?)
+                      AND (
+                          relation.valid_from IS NULL
+                          OR {relation_valid_from_sql} <= ?
+                      )
+                      AND (
+                          relation.valid_to IS NULL
+                          OR {relation_valid_to_sql} > ?
+                      )
+                    ORDER BY relation.created_at ASC, relation.id ASC
+                    """,
+                    (
+                        scope.scope_key,
+                        memory.id,
+                        memory.id,
+                        valid_timestamp,
+                        valid_timestamp,
+                    ),
+                ).fetchall()
+                relations: list[MemoryRelation] = []
+                for relation_row in relation_rows:
+                    _require_receipt_memory_scope(
+                        connection,
+                        path,
+                        scope,
+                        relation_row["source_id"],
+                    )
+                    _require_receipt_memory_scope(
+                        connection,
+                        path,
+                        scope,
+                        relation_row["target_id"],
+                    )
+                    _require_receipt_event_scope(
+                        connection,
+                        path,
+                        scope,
+                        relation_row["event_id"],
+                    )
+                    relation = _row_to_relation(path, relation_row, scope)
+                    relations.append(relation)
+                    evidence_event_ids.add(relation.event_id)
+
+                history_rows = connection.execute(
+                    f"""
+                    SELECT history.*
+                    FROM memory_history AS history
+                    WHERE history.memory_id IN ({lineage_placeholders})
+                      AND {_legacy_compatible_timestamp_sql('history.created_at')} <= ?
+                    ORDER BY {_legacy_compatible_timestamp_sql('history.created_at')} ASC,
+                             history.id ASC
+                    """,
+                    [*lineage_memory_ids, known_timestamp],
+                ).fetchall()
+                history: list[MemoryHistoryEntry] = []
+                for history_row in history_rows:
+                    _require_receipt_memory_scope(
+                        connection,
+                        path,
+                        scope,
+                        history_row["memory_id"],
+                    )
+                    _require_receipt_event_scope(
+                        connection,
+                        path,
+                        scope,
+                        history_row["event_id"],
+                    )
+                    history_entry = _row_to_history(path, history_row)
+                    history.append(history_entry)
+                    evidence_event_ids.add(history_entry.event_id)
+
+                event_placeholders = ", ".join("?" for _ in evidence_event_ids)
+                event_rows = connection.execute(
+                    f"""
+                    SELECT *
+                    FROM memory_events AS event
+                    WHERE event.scope_key = ?
+                      AND event.id IN ({event_placeholders})
+                      AND {_legacy_compatible_timestamp_sql('event.occurred_at')} <= ?
+                    ORDER BY {_legacy_compatible_timestamp_sql('event.occurred_at')} ASC,
+                             {_legacy_compatible_timestamp_sql('event.created_at')} ASC,
+                             event.id ASC
+                    """,
+                    [scope.scope_key, *sorted(evidence_event_ids), known_timestamp],
+                ).fetchall()
+                events = [_row_to_event(path, event_row) for event_row in event_rows]
+                if any(event.scope != scope for event in events):
+                    raise StorageError(f"Receipt provenance in {path} crosses event scope")
+                ordered_event_ids = tuple(event.id for event in events)
+                if set(ordered_event_ids) != evidence_event_ids:
+                    raise StorageError(
+                        f"Receipt provenance in {path} has missing immutable evidence"
+                    )
+
+                receipt = MemoryReceipt(
+                    memory=memory,
+                    evidence_event_ids=ordered_event_ids,
+                    evidence_memory_ids=evidence_memory_ids,
+                    relations=relations,
+                    history=history,
+                    explanation=_receipt_explanation(
+                        memory,
+                        relations,
+                        ordered_event_ids,
+                    ),
+                )
+                connection.commit()
+                return receipt
+            except Exception:
+                connection.rollback()
+                raise
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to explain memory from {path}: {error}") from error
 
 
 def _history(
@@ -1658,6 +2136,8 @@ class SQLiteMemoryStore:
         kinds: Sequence[MemoryKind] = (),
         limit: int = 10,
         as_of: Optional[str] = None,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
     ) -> builtins.list[RecallResult]:
         return await self._run(
             _recall,
@@ -1666,4 +2146,22 @@ class SQLiteMemoryStore:
             kinds=kinds,
             limit=limit,
             as_of=as_of,
+            valid_at=valid_at,
+            known_at=known_at,
+        )
+
+    async def explain(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+        *,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
+    ) -> MemoryReceipt:
+        return await self._run(
+            _explain,
+            scope,
+            memory_id,
+            valid_at=valid_at,
+            known_at=known_at,
         )

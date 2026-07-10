@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -525,3 +526,255 @@ async def test_supersede_different_idempotency_key_race_yields_success_and_confl
         assert connection.execute("SELECT count(*) FROM memories").fetchone()[0] == 2
     await first_store.close()
     await second_store.close()
+
+
+def _canonical_timestamp(value):
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+@pytest.mark.asyncio
+async def test_recall_uses_independent_valid_and_known_time_boundaries(tmp_path, scope):
+    path = tmp_path / "timeline.db"
+    store = await SQLiteMemoryStore.open(path)
+    source = await _remember_fact(
+        store,
+        scope,
+        content="Launch timeline says July 20",
+    )
+    replacement = await store.supersede(
+        scope,
+        source.id,
+        "Launch timeline says July 27",
+        effective_at=EFFECTIVE_AT,
+        reason="vendor confirmed delay",
+        confidence=0.95,
+    )
+
+    with closing(sqlite3.connect(path)) as connection:
+        superseded_at = datetime.fromisoformat(
+            connection.execute(
+                "SELECT occurred_at FROM memory_events WHERE event_type = 'superseded'"
+            ).fetchone()[0].replace("Z", "+00:00")
+        )
+    known_before = _canonical_timestamp(superseded_at - timedelta(microseconds=1))
+    known_exact = _canonical_timestamp(superseded_at)
+    known_after = _canonical_timestamp(superseded_at + timedelta(microseconds=1))
+    valid_before = "2026-07-11T09:30:00.000000Z"
+    valid_exact = EFFECTIVE_AT
+    valid_after = "2026-07-11T09:30:00.000002Z"
+
+    async def recalled_id(*, valid_at, known_at):
+        results = await store.recall(
+            scope,
+            "launch timeline",
+            valid_at=valid_at,
+            known_at=known_at,
+        )
+        assert len(results) == 1
+        return results[0]
+
+    current_current = await recalled_id(valid_at=valid_after, known_at=known_after)
+    current_past = await recalled_id(valid_at=valid_before, known_at=known_after)
+    past_past = await recalled_id(valid_at=valid_before, known_at=known_before)
+    past_different_validity = await recalled_id(
+        valid_at=valid_after,
+        known_at=known_before,
+    )
+
+    assert current_current.memory.id == replacement.id
+    assert current_current.memory.status is MemoryStatus.ACTIVE
+    assert current_past.memory.id == source.id
+    assert current_past.memory.status is MemoryStatus.SUPERSEDED
+    assert past_past.memory.id == source.id
+    assert past_past.memory.status is MemoryStatus.ACTIVE
+    assert past_past.memory.valid_to.isoformat() == "2026-08-01T00:00:00+00:00"
+    assert past_different_validity.memory.id == source.id
+
+    assert (await recalled_id(valid_at=valid_before, known_at=known_after)).memory.id == source.id
+    assert (await recalled_id(valid_at=valid_exact, known_at=known_after)).memory.id == replacement.id
+    assert (await recalled_id(valid_at=valid_after, known_at=known_after)).memory.id == replacement.id
+    assert (await recalled_id(valid_at=valid_after, known_at=known_exact)).memory.id == replacement.id
+
+    alias = await store.recall(
+        scope,
+        "launch timeline",
+        as_of=valid_exact,
+        known_at=known_after,
+    )
+    explicit = await store.recall(
+        scope,
+        "launch timeline",
+        valid_at=valid_exact,
+        known_at=known_after,
+    )
+    assert alias == explicit
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_recall_returns_complete_deduplicated_temporal_evidence_chain(tmp_path, scope):
+    path = tmp_path / "timeline.db"
+    store = await SQLiteMemoryStore.open(path)
+    source = await _remember_fact(
+        store,
+        scope,
+        content="Launch timeline says July 20",
+    )
+    replacement = await store.supersede(
+        scope,
+        source.id,
+        "Launch timeline says July 27",
+        effective_at=EFFECTIVE_AT,
+    )
+
+    with closing(sqlite3.connect(path)) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, event_type, occurred_at
+            FROM memory_events
+            WHERE scope_key = ?
+            ORDER BY occurred_at, created_at, id
+            """,
+            (scope.scope_key,),
+        ).fetchall()
+    remembered_event_id = next(row[0] for row in rows if row[1] == "remembered")
+    superseded_event_id = next(row[0] for row in rows if row[1] == "superseded")
+    superseded_at = datetime.fromisoformat(
+        next(row[2] for row in rows if row[1] == "superseded").replace("Z", "+00:00")
+    )
+    known_before = _canonical_timestamp(superseded_at - timedelta(microseconds=1))
+    known_after = _canonical_timestamp(superseded_at + timedelta(microseconds=1))
+
+    replacement_result = (
+        await store.recall(
+            scope,
+            "launch timeline",
+            valid_at="2026-07-11T09:30:00.000002Z",
+            known_at=known_after,
+        )
+    )[0]
+    current_source_result = (
+        await store.recall(
+            scope,
+            "launch timeline",
+            valid_at="2026-07-11T09:30:00.000000Z",
+            known_at=known_after,
+        )
+    )[0]
+    historical_source_result = (
+        await store.recall(
+            scope,
+            "launch timeline",
+            valid_at="2026-07-11T09:30:00.000000Z",
+            known_at=known_before,
+        )
+    )[0]
+
+    assert replacement_result.memory.id == replacement.id
+    assert replacement_result.evidence_ids == (remembered_event_id, superseded_event_id)
+    assert current_source_result.memory.id == source.id
+    assert current_source_result.evidence_ids == (remembered_event_id, superseded_event_id)
+    assert historical_source_result.evidence_ids == (remembered_event_id,)
+    assert len(replacement_result.evidence_ids) == len(set(replacement_result.evidence_ids))
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_explain_returns_deterministic_same_scope_supersession_receipt(tmp_path, scope):
+    path = tmp_path / "timeline.db"
+    store = await SQLiteMemoryStore.open(path)
+    source = await _remember_fact(
+        store,
+        scope,
+        content="Launch timeline says July 20",
+    )
+    replacement = await store.supersede(
+        scope,
+        source.id,
+        "Launch timeline says July 27",
+        effective_at=EFFECTIVE_AT,
+        reason="vendor confirmed delay",
+        metadata={"private": "do not expose this payload"},
+        confidence=0.95,
+    )
+
+    with closing(sqlite3.connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        events = connection.execute(
+            """
+            SELECT * FROM memory_events
+            WHERE scope_key = ?
+            ORDER BY occurred_at, created_at, id
+            """,
+            (scope.scope_key,),
+        ).fetchall()
+    remembered_event = next(row for row in events if row["event_type"] == "remembered")
+    superseded_event = next(row for row in events if row["event_type"] == "superseded")
+    known_after = _canonical_timestamp(
+        datetime.fromisoformat(superseded_event["occurred_at"].replace("Z", "+00:00"))
+        + timedelta(microseconds=1)
+    )
+
+    receipt = await store.explain(
+        scope,
+        replacement.id,
+        valid_at="2026-07-11T09:30:00.000002Z",
+        known_at=known_after,
+    )
+
+    assert receipt.memory == replacement
+    assert receipt.memory.confidence == 0.95
+    assert receipt.memory.valid_from.isoformat() == "2026-07-11T09:30:00.000001+00:00"
+    assert receipt.evidence_event_ids == (remembered_event["id"], superseded_event["id"])
+    assert receipt.evidence_memory_ids == (source.id,)
+    assert len(receipt.relations) == 1
+    relation = receipt.relations[0]
+    assert relation.scope == scope
+    assert relation.source_id == replacement.id
+    assert relation.target_id == source.id
+    assert relation.relation_type == "supersedes"
+    assert relation.confidence == 0.95
+    assert relation.valid_from == replacement.valid_from
+    assert relation.event_id == superseded_event["id"]
+    assert {
+        (entry.memory_id, entry.event_id, entry.status)
+        for entry in receipt.history
+        if entry.event_id == superseded_event["id"]
+    } == {
+        (source.id, superseded_event["id"], MemoryStatus.SUPERSEDED),
+        (replacement.id, superseded_event["id"], MemoryStatus.ACTIVE),
+    }
+    assert receipt.explanation == (
+        f"Memory {replacement.id} supersedes memory {source.id} from {EFFECTIVE_AT} "
+        f"via event {superseded_event['id']}; confidence 0.950000."
+    )
+    assert "vendor confirmed delay" not in receipt.explanation
+    assert "do not expose" not in receipt.explanation
+    assert await store.explain(
+        scope,
+        replacement.id,
+        valid_at="2026-07-11T09:30:00.000002Z",
+        known_at=known_after,
+    ) == receipt
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_explain_hides_foreign_scope_ids_like_missing_ids(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "timeline.db")
+    foreign_scope = MemoryScope(user_id="mallory", agent_id="codex", project_id="timeline")
+    foreign = await _remember_fact(store, foreign_scope)
+
+    errors = []
+    for memory_id in (foreign.id, "random-missing-id"):
+        with pytest.raises(MemoryNotFoundError) as caught:
+            await store.explain(scope, memory_id)
+        errors.append(str(caught.value))
+
+    assert errors == [
+        f"Memory {foreign.id!r} was not found in this scope",
+        "Memory 'random-missing-id' was not found in this scope",
+    ]
+    await store.close()
