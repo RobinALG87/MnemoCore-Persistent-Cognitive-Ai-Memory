@@ -92,6 +92,11 @@ def make_relation(**overrides):
     return MemoryRelation(**values)
 
 
+class FloatableButNotOrderable:
+    def __float__(self):
+        return 0.5
+
+
 def test_scope_requires_user_and_agent():
     with pytest.raises(ScopeError):
         MemoryScope(user_id="", agent_id="codex")
@@ -413,6 +418,19 @@ def test_public_models_reject_non_finite_floats(factory, kwargs):
 def test_finiteness_check_errors_are_public_validation_errors(factory, value):
     with pytest.raises(ValidationError):
         factory(value)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda value: make_record(confidence=value),
+        lambda value: make_relation(confidence=value),
+    ],
+    ids=["record-confidence", "relation-confidence"],
+)
+def test_probability_range_errors_are_public_validation_errors(factory):
+    with pytest.raises(ValidationError):
+        factory(FloatableButNotOrderable())
 
 
 def test_utc_now_returns_an_aware_utc_datetime():

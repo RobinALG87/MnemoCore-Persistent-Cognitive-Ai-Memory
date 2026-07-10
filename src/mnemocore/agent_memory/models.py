@@ -86,6 +86,13 @@ def _is_finite_number(value: Any) -> bool:
         return False
 
 
+def _is_probability(value: Any) -> bool:
+    try:
+        return math.isfinite(value) and 0 <= value <= 1
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 class MemoryKind(str, Enum):
     OBSERVATION = "observation"
     FACT = "fact"
@@ -166,10 +173,7 @@ class MemoryRecord:
             raise ValidationError("content must not be blank")
         if len(self.content) > MAX_CONTENT_LENGTH:
             raise ValidationError(f"content must be at most {MAX_CONTENT_LENGTH} characters")
-        confidence_is_valid = (
-            _is_finite_number(self.confidence) and 0 <= self.confidence <= 1
-        )
-        if not confidence_is_valid:
+        if not _is_probability(self.confidence):
             raise ValidationError("confidence must be between 0 and 1")
         if not isinstance(self.metadata, Mapping):
             raise ValidationError("metadata must be a mapping")
@@ -250,10 +254,7 @@ class MemoryRelation:
             object.__setattr__(self, name, value)
         if not isinstance(self.scope, MemoryScope):
             raise ValidationError("scope must be a MemoryScope")
-        confidence_is_valid = (
-            _is_finite_number(self.confidence) and 0 <= self.confidence <= 1
-        )
-        if not confidence_is_valid:
+        if not _is_probability(self.confidence):
             raise ValidationError("confidence must be between 0 and 1")
         for name, required in (
             ("valid_from", True),
