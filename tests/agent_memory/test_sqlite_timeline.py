@@ -162,7 +162,8 @@ async def test_supersede_atomically_creates_full_event_and_all_projections(tmp_p
         assert new_active["valid_from"] == EFFECTIVE_AT
 
         history = connection.execute(
-            "SELECT * FROM memory_history WHERE event_id = ? ORDER BY id", (event["id"],)
+            "SELECT * FROM memory_history WHERE event_id = ? ORDER BY id",
+            (event["id"],),
         ).fetchall()
         assert [row["id"] for row in history] == [
             f"{event['id']}:history:replacement",
@@ -465,7 +466,11 @@ async def test_supersede_same_idempotency_key_race_yields_one_replacement(tmp_pa
 
     first, second = await asyncio.gather(
         first_store.supersede(
-            scope, source.id, "replacement", effective_at=EFFECTIVE_AT, idempotency_key="race"
+            scope,
+            source.id,
+            "replacement",
+            effective_at=EFFECTIVE_AT,
+            idempotency_key="race",
         ),
         second_store.supersede(
             scope,
@@ -531,9 +536,7 @@ async def test_supersede_different_idempotency_key_race_yields_success_and_confl
 
 
 def _canonical_timestamp(value):
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
-        "+00:00", "Z"
-    )
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 @pytest.mark.asyncio
@@ -558,7 +561,9 @@ async def test_recall_uses_independent_valid_and_known_time_boundaries(tmp_path,
         superseded_at = datetime.fromisoformat(
             connection.execute(
                 "SELECT occurred_at FROM memory_events WHERE event_type = 'superseded'"
-            ).fetchone()[0].replace("Z", "+00:00")
+            )
+            .fetchone()[0]
+            .replace("Z", "+00:00")
         )
     known_before = _canonical_timestamp(superseded_at - timedelta(microseconds=1))
     known_exact = _canonical_timestamp(superseded_at)
@@ -595,9 +600,15 @@ async def test_recall_uses_independent_valid_and_known_time_boundaries(tmp_path,
     assert past_different_validity.memory.id == source.id
 
     assert (await recalled_id(valid_at=valid_before, known_at=known_after)).memory.id == source.id
-    assert (await recalled_id(valid_at=valid_exact, known_at=known_after)).memory.id == replacement.id
-    assert (await recalled_id(valid_at=valid_after, known_at=known_after)).memory.id == replacement.id
-    assert (await recalled_id(valid_at=valid_after, known_at=known_exact)).memory.id == replacement.id
+    assert (
+        await recalled_id(valid_at=valid_exact, known_at=known_after)
+    ).memory.id == replacement.id
+    assert (
+        await recalled_id(valid_at=valid_after, known_at=known_after)
+    ).memory.id == replacement.id
+    assert (
+        await recalled_id(valid_at=valid_after, known_at=known_exact)
+    ).memory.id == replacement.id
 
     alias = await store.recall(
         scope,
@@ -677,7 +688,10 @@ async def test_recall_returns_complete_deduplicated_temporal_evidence_chain(tmp_
     assert replacement_result.memory.id == replacement.id
     assert replacement_result.evidence_ids == (remembered_event_id, superseded_event_id)
     assert current_source_result.memory.id == source.id
-    assert current_source_result.evidence_ids == (remembered_event_id, superseded_event_id)
+    assert current_source_result.evidence_ids == (
+        remembered_event_id,
+        superseded_event_id,
+    )
     assert historical_source_result.evidence_ids == (remembered_event_id,)
     assert len(replacement_result.evidence_ids) == len(set(replacement_result.evidence_ids))
     await store.close()
@@ -729,7 +743,10 @@ async def test_explain_returns_deterministic_same_scope_supersession_receipt(tmp
     assert receipt.memory == replacement
     assert receipt.memory.confidence == 0.95
     assert receipt.memory.valid_from.isoformat() == "2026-07-11T09:30:00.000001+00:00"
-    assert receipt.evidence_event_ids == (remembered_event["id"], superseded_event["id"])
+    assert receipt.evidence_event_ids == (
+        remembered_event["id"],
+        superseded_event["id"],
+    )
     assert receipt.evidence_memory_ids == (source.id,)
     assert len(receipt.relations) == 1
     relation = receipt.relations[0]
@@ -754,12 +771,15 @@ async def test_explain_returns_deterministic_same_scope_supersession_receipt(tmp
     )
     assert "vendor confirmed delay" not in receipt.explanation
     assert "do not expose" not in receipt.explanation
-    assert await store.explain(
-        scope,
-        replacement.id,
-        valid_at="2026-07-11T09:30:00.000002Z",
-        known_at=known_after,
-    ) == receipt
+    assert (
+        await store.explain(
+            scope,
+            replacement.id,
+            valid_at="2026-07-11T09:30:00.000002Z",
+            known_at=known_after,
+        )
+        == receipt
+    )
     await store.close()
 
 
@@ -906,10 +926,7 @@ async def test_explain_traverses_complete_upstream_evidence_dag(tmp_path, scope)
         (middle.id, source.id),
         (final.id, middle.id),
     ]
-    assert {
-        (entry.memory_id, entry.event_id)
-        for entry in receipt.history
-    } == {
+    assert {(entry.memory_id, entry.event_id) for entry in receipt.history} == {
         (source.id, events[0]["id"]),
         (source.id, events[1]["id"]),
         (middle.id, events[1]["id"]),
@@ -1004,13 +1021,9 @@ async def test_payload_valid_reverse_cycle_respects_known_at_then_fails_closed(
         path,
         scope,
     )
-    latest_event_time = datetime.fromisoformat(
-        events[-1]["occurred_at"].replace("Z", "+00:00")
-    )
+    latest_event_time = datetime.fromisoformat(events[-1]["occurred_at"].replace("Z", "+00:00"))
     reverse_event_time = latest_event_time + timedelta(microseconds=10)
-    before_reverse_event = _canonical_timestamp(
-        reverse_event_time - timedelta(microseconds=1)
-    )
+    before_reverse_event = _canonical_timestamp(reverse_event_time - timedelta(microseconds=1))
     valid_at = "2026-07-11T09:30:00.000002Z"
     expected_recall = await store.recall(
         scope,
@@ -1033,18 +1046,24 @@ async def test_payload_valid_reverse_cycle_respects_known_at_then_fails_closed(
         reverse_event_time,
     )
 
-    assert await store.recall(
-        scope,
-        "launch lineage",
-        valid_at=valid_at,
-        known_at=before_reverse_event,
-    ) == expected_recall
-    assert await store.explain(
-        scope,
-        final.id,
-        valid_at=valid_at,
-        known_at=before_reverse_event,
-    ) == expected_receipt
+    assert (
+        await store.recall(
+            scope,
+            "launch lineage",
+            valid_at=valid_at,
+            known_at=before_reverse_event,
+        )
+        == expected_recall
+    )
+    assert (
+        await store.explain(
+            scope,
+            final.id,
+            valid_at=valid_at,
+            known_at=before_reverse_event,
+        )
+        == expected_receipt
+    )
     for known_instant in (
         reverse_event_time,
         reverse_event_time + timedelta(microseconds=1),
@@ -1070,9 +1089,7 @@ async def test_payload_valid_reverse_cycle_respects_known_at_then_fails_closed(
 def _corrupt_evidence_dag(path, scope, final, events, corruption):
     with closing(sqlite3.connect(path)) as connection:
         connection.execute("DROP TRIGGER trg_memory_evidence_scope_insert")
-        source_memory_id = (
-            "missing-upstream-memory" if corruption == "missing" else corruption
-        )
+        source_memory_id = "missing-upstream-memory" if corruption == "missing" else corruption
         connection.execute(
             """
             INSERT INTO memory_evidence (
@@ -1140,4 +1157,330 @@ async def test_provenance_dag_corruption_raises_storage_error(
                 valid_at="2026-07-11T09:30:00.000002Z",
                 known_at=known_after,
             )
+    await store.close()
+
+
+def _delete_scope_projections(path, target_scope):
+    with closing(sqlite3.connect(path)) as connection:
+        memory_ids = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT id FROM memories WHERE scope_key = ? ORDER BY id",
+                (target_scope.scope_key,),
+            )
+        )
+        connection.execute(
+            "DELETE FROM memory_relations WHERE scope_key = ?",
+            (target_scope.scope_key,),
+        )
+        connection.execute(
+            "DELETE FROM memory_evidence WHERE scope_key = ?",
+            (target_scope.scope_key,),
+        )
+        if memory_ids:
+            placeholders = ", ".join("?" for _ in memory_ids)
+            connection.execute(
+                f"DELETE FROM memory_fts WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            )
+            connection.execute(
+                f"DELETE FROM memory_history WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            )
+            connection.execute(
+                f"DELETE FROM memory_lifecycle WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            )
+        connection.execute(
+            "DELETE FROM memories WHERE scope_key = ?",
+            (target_scope.scope_key,),
+        )
+        connection.commit()
+
+
+def _mutate_superseded_payload(path, corruption):
+    with closing(sqlite3.connect(path)) as connection:
+        event_id, payload_json = connection.execute(
+            "SELECT id, payload_json FROM memory_events WHERE event_type = 'superseded'"
+        ).fetchone()
+        payload = json.loads(payload_json)
+        if corruption == "incomplete_snapshot":
+            del payload["source"]["metadata"]
+        elif corruption == "payload_scope":
+            payload["scope_key"] = "foreign-payload-scope"
+        elif corruption == "source_column":
+            payload["source_memory_id"] = "wrong-source-column"
+        elif corruption == "replacement_column":
+            payload["replacement_memory_id"] = "wrong-replacement-column"
+        elif corruption == "relation_endpoint":
+            payload["relation"]["target_id"] = "wrong-relation-endpoint"
+        elif corruption == "evidence_endpoint":
+            payload["evidence"]["memory_id"] = "wrong-evidence-endpoint"
+        elif corruption == "invalid_boundary":
+            payload["source"]["valid_to"] = SOURCE_VALID_FROM.replace("Z", ".000000Z")
+        else:  # pragma: no cover - protects the test helper itself
+            raise AssertionError(f"unknown corruption {corruption!r}")
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload, separators=(",", ":"), sort_keys=True), event_id),
+        )
+        connection.commit()
+
+
+async def _superseded_rebuild_fixture(path, scope):
+    store = await SQLiteMemoryStore.open(path)
+    source = await _remember_fact(store, scope, content="Launch rebuild source")
+    replacement = await store.supersede(
+        scope,
+        source.id,
+        "Launch rebuild replacement",
+        effective_at=EFFECTIVE_AT,
+        reason="verified correction",
+        confidence=0.95,
+    )
+    foreign_scope = MemoryScope(
+        tenant_id="tenant-b",
+        user_id="mallory",
+        agent_id="codex",
+        project_id="timeline",
+    )
+    foreign = await _remember_fact(
+        store,
+        foreign_scope,
+        content="Foreign projection must remain byte-identical",
+    )
+    return store, source, replacement, foreign_scope, foreign
+
+
+@pytest.mark.asyncio
+async def test_rebuild_superseded_stream_restores_every_projection_and_query(tmp_path, scope):
+    path = tmp_path / "superseded-rebuild.db"
+    (
+        store,
+        source,
+        replacement,
+        foreign_scope,
+        foreign,
+    ) = await _superseded_rebuild_fixture(path, scope)
+    unrelated = await _remember_fact(store, scope, content="Unrelated record to forget")
+    await store.forget(scope, unrelated.id, reason="unrelated cleanup")
+    before_database = _database_snapshot(path)
+    valid_after_supersession = "2026-07-11T09:30:00.000002Z"
+    before_recall = await store.recall(
+        scope, "launch rebuild", limit=10, valid_at=valid_after_supersession
+    )
+    before_receipt = await store.explain(scope, replacement.id, valid_at=valid_after_supersession)
+    before_source = await store.get(scope, source.id, include_forgotten=True)
+
+    _delete_scope_projections(path, scope)
+
+    assert await store.rebuild(scope) == 3
+    assert _database_snapshot(path) == before_database
+    assert (
+        await store.recall(scope, "launch rebuild", limit=10, valid_at=valid_after_supersession)
+        == before_recall
+    )
+    assert (
+        await store.explain(scope, replacement.id, valid_at=valid_after_supersession)
+        == before_receipt
+    )
+    assert await store.get(foreign_scope, foreign.id) == foreign
+    assert await store.get(scope, source.id, include_forgotten=True) == before_source
+    await store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("corruption", "message"),
+    [
+        ("incomplete_snapshot", "source has invalid fields"),
+        ("payload_scope", "payload scope_key does not match event scope"),
+        ("source_column", "source_memory_id does not match source snapshot"),
+        (
+            "replacement_column",
+            "replacement_memory_id does not match replacement snapshot",
+        ),
+        ("relation_endpoint", "relation endpoints do not match snapshots"),
+        ("evidence_endpoint", "evidence endpoints do not match snapshots"),
+        (
+            "invalid_boundary",
+            "valid_to must be after valid_from|effective boundary|source boundary",
+        ),
+    ],
+)
+async def test_rebuild_preflights_superseded_payload_before_cleanup(
+    tmp_path,
+    scope,
+    corruption,
+    message,
+):
+    path = tmp_path / f"preflight-{corruption}.db"
+    store, _, _, _, _ = await _superseded_rebuild_fixture(path, scope)
+    _mutate_superseded_payload(path, corruption)
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match=message):
+        await store.rebuild(scope)
+
+    assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_preflights_superseded_event_order_before_cleanup(tmp_path, scope):
+    path = tmp_path / "preflight-event-order.db"
+    store, source, _, _, _ = await _superseded_rebuild_fixture(path, scope)
+    with closing(sqlite3.connect(path)) as connection:
+        remembered_at = connection.execute(
+            "SELECT occurred_at FROM memory_events WHERE memory_id = ? AND event_type = 'remembered'",
+            (source.id,),
+        ).fetchone()[0]
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET occurred_at = ? WHERE event_type = 'superseded'",
+            (remembered_at,),
+        )
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="out of order|event time"):
+        await store.rebuild(scope)
+
+    assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_preflights_duplicate_supersession_replacement(tmp_path, scope):
+    path = tmp_path / "preflight-duplicate-replacement.db"
+    store = await SQLiteMemoryStore.open(path)
+    source = await _remember_fact(store, scope, content="Lineage source")
+    middle = await store.supersede(
+        scope,
+        source.id,
+        "Lineage middle",
+        effective_at="2026-07-05T00:00:00Z",
+    )
+    await store.supersede(
+        scope,
+        middle.id,
+        "Lineage final",
+        effective_at=EFFECTIVE_AT,
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        event_id, payload_json = connection.execute(
+            """
+            SELECT id, payload_json FROM memory_events
+            WHERE event_type = 'superseded'
+            ORDER BY occurred_at DESC, created_at DESC, id DESC LIMIT 1
+            """
+        ).fetchone()
+        payload = json.loads(payload_json)
+        payload["replacement_memory_id"] = source.id
+        payload["replacement"]["id"] = source.id
+        payload["relation"]["source_id"] = source.id
+        payload["evidence"]["memory_id"] = source.id
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload, separators=(",", ":"), sort_keys=True), event_id),
+        )
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="Duplicate supersession replacement"):
+        await store.rebuild(scope)
+
+    assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_preflights_foreign_projection_owner_for_replacement(tmp_path, scope):
+    path = tmp_path / "preflight-foreign-projection.db"
+    store, _, replacement, foreign_scope, _ = await _superseded_rebuild_fixture(path, scope)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            """
+            UPDATE memories
+            SET scope_key = ?, tenant_id = ?, user_id = ?, agent_id = ?,
+                project_id = ?, session_id = ?
+            WHERE id = ?
+            """,
+            (
+                foreign_scope.scope_key,
+                foreign_scope.tenant_id,
+                foreign_scope.user_id,
+                foreign_scope.agent_id,
+                foreign_scope.project_id,
+                foreign_scope.session_id,
+                replacement.id,
+            ),
+        )
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="owned by another scope"):
+        await store.rebuild(scope)
+
+    assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_preflights_foreign_ledger_only_owner_for_replacement(tmp_path, scope):
+    path = tmp_path / "preflight-foreign-ledger.db"
+    store, _, replacement, foreign_scope, foreign = await _superseded_rebuild_fixture(path, scope)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        template = connection.execute(
+            "SELECT * FROM memory_events WHERE memory_id = ? AND event_type = 'remembered'",
+            (foreign.id,),
+        ).fetchone()
+        columns = tuple(template.keys())
+        row = dict(template)
+        payload = json.loads(row["payload_json"])
+        payload["memory_id"] = replacement.id
+        row.update(
+            id="foreign-ledger-only-owner",
+            memory_id=replacement.id,
+            payload_json=json.dumps(payload, separators=(",", ":"), sort_keys=True),
+            idempotency_key=None,
+        )
+        connection.execute(
+            f"INSERT INTO memory_events ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+            tuple(row[column] for column in columns),
+        )
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="foreign event scope"):
+        await store.rebuild(scope)
+
+    assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_rolls_back_cleanup_when_late_relation_write_fails(tmp_path, scope):
+    path = tmp_path / "rebuild-late-write.db"
+    store, _, _, _, _ = await _superseded_rebuild_fixture(path, scope)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER fail_late_rebuild_relation
+            BEFORE INSERT ON memory_relations
+            BEGIN SELECT RAISE(ABORT, 'late relation write'); END
+            """
+        )
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="late relation write") as caught:
+        await store.rebuild(scope)
+
+    assert isinstance(caught.value.__cause__, sqlite3.IntegrityError)
+    assert "late relation write" in str(caught.value.__cause__)
+    assert _database_snapshot(path) == before
     await store.close()

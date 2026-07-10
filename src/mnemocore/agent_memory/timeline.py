@@ -349,6 +349,8 @@ def parse_superseded_payload(
         source = _hydrate_record(payload["source"], "source")
         replacement = _hydrate_record(payload["replacement"], "replacement")
         boundary = _validate_supersession_records(source, replacement)
+        if source.updated_at != event.occurred_at or replacement.updated_at != event.occurred_at:
+            raise ValidationError("supersession snapshot updated_at does not match event time")
         effective_at = _parse_stored_timestamp(payload["effective_at"], "effective_at")
         if effective_at != boundary:
             raise ValidationError("effective boundary does not match snapshots")
