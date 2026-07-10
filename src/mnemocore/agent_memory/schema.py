@@ -5,9 +5,18 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .models import (
+    MAX_IDENTIFIER_LENGTH,
+    MemoryKind,
+    MemoryRecord,
+    MemoryScope,
+    MemoryStatus,
+)
 
 SCHEMA_VERSION = 2
 
@@ -416,6 +425,48 @@ _FOREIGN_KEYS_V2 = {
     },
 }
 
+_FTS_TABLES = {
+    "memory_fts",
+    "memory_fts_config",
+    "memory_fts_content",
+    "memory_fts_data",
+    "memory_fts_docsize",
+    "memory_fts_idx",
+}
+_ALLOWED_SQLITE_INTERNAL_TABLES = {
+    "sqlite_sequence",
+    "sqlite_stat1",
+    "sqlite_stat2",
+    "sqlite_stat3",
+    "sqlite_stat4",
+}
+_TABLES_V1 = {*_TABLE_INFO_V1, *_FTS_TABLES}
+_TABLES_V2 = {*_TABLE_INFO_V2, *_FTS_TABLES}
+_AUTO_INDEXES_V1 = {
+    "sqlite_autoindex_memory_events_1",
+    "sqlite_autoindex_memories_1",
+    "sqlite_autoindex_memory_relations_1",
+    "sqlite_autoindex_memory_history_1",
+}
+_AUTO_INDEXES_V2 = {
+    *_AUTO_INDEXES_V1,
+    "sqlite_autoindex_memory_lifecycle_1",
+}
+_AUTO_INDEX_FINGERPRINTS_V1 = {
+    "sqlite_autoindex_memory_events_1": (("id", False, "BINARY"),),
+    "sqlite_autoindex_memories_1": (("id", False, "BINARY"),),
+    "sqlite_autoindex_memory_relations_1": (("id", False, "BINARY"),),
+    "sqlite_autoindex_memory_history_1": (("id", False, "BINARY"),),
+}
+_AUTO_INDEX_FINGERPRINTS_V2 = {
+    **_AUTO_INDEX_FINGERPRINTS_V1,
+    "sqlite_autoindex_memory_lifecycle_1": (
+        ("memory_id", False, "BINARY"),
+        ("known_from", False, "BINARY"),
+        ("status", False, "BINARY"),
+    ),
+}
+
 _FTS5_PATTERN = re.compile(r"\busing\s+fts5\s*\(", re.IGNORECASE)
 _UNICODE61_PATTERN = re.compile(r"\btokenize\s*=\s*(['\"])unicode61\1", re.IGNORECASE)
 _MEMORY_ID_UNINDEXED_PATTERN = re.compile(r"\bmemory_id\s+unindexed\s*,", re.IGNORECASE)
@@ -445,14 +496,75 @@ def _validate_tables(connection: sqlite3.Connection, expected: dict[str, tuple])
             )
 
 
+def _validate_owned_objects(
+    connection: sqlite3.Connection,
+    version: int,
+    *,
+    check_missing: bool,
+) -> None:
+    if version == 1:
+        expected = {
+            "table": _TABLES_V1,
+            "index": {*_COMMON_INDEXES, *_AUTO_INDEXES_V1},
+            "trigger": set(_IMMUTABLE_TRIGGER_SQL),
+            "view": set(),
+        }
+    elif version == 2:
+        expected = {
+            "table": _TABLES_V2,
+            "index": {*_INDEXES_V2, *_AUTO_INDEXES_V2},
+            "trigger": {*_IMMUTABLE_TRIGGER_SQL, *_GUARD_TRIGGER_SQL},
+            "view": set(),
+        }
+    else:
+        raise sqlite3.DatabaseError(f"unsupported schema version {version}")
+
+    actual: dict[str, set[str]] = {
+        object_type: set() for object_type in expected
+    }
+    for object_type, name in connection.execute(
+        """
+        SELECT type, name FROM sqlite_master
+        WHERE type IN ('table', 'index', 'trigger', 'view')
+        """
+    ):
+        actual[object_type].add(name)
+
+    for object_type, expected_names in expected.items():
+        allowed_optional = (
+            _ALLOWED_SQLITE_INTERNAL_TABLES
+            if object_type == "table"
+            else set()
+        )
+        unexpected = sorted(
+            actual[object_type] - expected_names - allowed_optional
+        )
+        if unexpected:
+            raise sqlite3.DatabaseError(
+                f"unexpected {object_type} {unexpected[0]!r} in schema version {version}"
+            )
+        missing = sorted(expected_names - actual[object_type])
+        if check_missing and missing:
+            raise sqlite3.DatabaseError(
+                f"missing {object_type} {missing[0]!r} in schema version {version}"
+            )
+
+
 def _validate_indexes(connection: sqlite3.Connection, expected: dict[str, tuple]) -> None:
     for name, (table, columns, unique, partial) in expected.items():
         indexes = {row[1]: row for row in connection.execute(f'PRAGMA index_list("{table}")')}
         index = indexes.get(name)
-        actual_columns = tuple(row[2] for row in connection.execute(f'PRAGMA index_info("{name}")'))
+        actual_columns = tuple(
+            (row[2], bool(row[3]), row[4])
+            for row in connection.execute(f'PRAGMA index_xinfo("{name}")')
+            if bool(row[5])
+        )
+        expected_columns = tuple(
+            (column, False, "BINARY") for column in columns
+        )
         if (
             index is None
-            or actual_columns != columns
+            or actual_columns != expected_columns
             or bool(index[2]) is not unique
             or bool(index[4]) is not partial
         ):
@@ -464,6 +576,20 @@ def _validate_indexes(connection: sqlite3.Connection, expected: dict[str, tuple]
             sql = "" if row is None or row[0] is None else _normalize_sql(row[0])
             if not re.search(r"\bwhere idempotency_key is not null$", sql):
                 raise sqlite3.DatabaseError(f"index {name} does not match schema")
+
+
+def _validate_auto_indexes(
+    connection: sqlite3.Connection,
+    expected: dict[str, tuple[tuple[str, bool, str], ...]],
+) -> None:
+    for name, expected_columns in expected.items():
+        actual_columns = tuple(
+            (row[2], bool(row[3]), row[4])
+            for row in connection.execute(f'PRAGMA index_xinfo("{name}")')
+            if bool(row[5])
+        )
+        if actual_columns != expected_columns:
+            raise sqlite3.DatabaseError(f"index {name} does not match schema")
 
 
 def _validate_foreign_keys(connection: sqlite3.Connection, expected: dict[str, set]) -> None:
@@ -511,27 +637,51 @@ def _validate_fts(connection: sqlite3.Connection) -> None:
 
 
 def _validate_schema(connection: sqlite3.Connection, version: int) -> None:
+    _validate_owned_objects(connection, version, check_missing=False)
     if version == 1:
         _validate_tables(connection, _TABLE_INFO_V1)
+        _validate_auto_indexes(connection, _AUTO_INDEX_FINGERPRINTS_V1)
         _validate_indexes(connection, _COMMON_INDEXES)
         _validate_foreign_keys(connection, _FOREIGN_KEYS_V1)
         _validate_triggers(connection, _IMMUTABLE_TRIGGER_SQL)
     elif version == 2:
         _validate_tables(connection, _TABLE_INFO_V2)
+        _validate_auto_indexes(connection, _AUTO_INDEX_FINGERPRINTS_V2)
         _validate_indexes(connection, _INDEXES_V2)
         _validate_foreign_keys(connection, _FOREIGN_KEYS_V2)
         _validate_triggers(connection, {**_IMMUTABLE_TRIGGER_SQL, **_GUARD_TRIGGER_SQL})
     else:
         raise sqlite3.DatabaseError(f"unsupported schema version {version}")
     _validate_fts(connection)
+    _validate_owned_objects(connection, version, check_missing=True)
 
 
-def _scope_key(row: sqlite3.Row) -> str:
-    return json.dumps(
-        [row["tenant_id"], row["user_id"], row["agent_id"], row["project_id"], row["session_id"]],
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+def _validate_stored_id(value: Any, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or len(value) > MAX_IDENTIFIER_LENGTH
+        or any(unicodedata.category(character) == "Cc" for character in value)
+    ):
+        raise sqlite3.DatabaseError(f"invalid {label}")
+    return value
+
+
+def _scope_from_row(row: sqlite3.Row, label: str) -> MemoryScope:
+    try:
+        scope = MemoryScope(
+            tenant_id=row["tenant_id"],
+            user_id=row["user_id"],
+            agent_id=row["agent_id"],
+            project_id=row["project_id"],
+            session_id=row["session_id"],
+        )
+    except Exception as error:
+        raise sqlite3.DatabaseError(f"invalid {label} scope") from error
+    if row["scope_key"] != scope.scope_key:
+        raise sqlite3.DatabaseError(f"{label} has cross-scope fields")
+    return scope
 
 
 def _parse_timestamp(value: Any, field: str, event_id: str) -> datetime:
@@ -552,17 +702,64 @@ def _timestamp_to_storage(value: datetime) -> str:
     return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def _optional_event_timestamp(value: Any, field: str, event_id: str) -> str | None:
-    if value is None:
-        return None
-    return _timestamp_to_storage(_parse_timestamp(value, field, event_id))
+def _hydrate_remembered_observation(
+    observation: Any,
+    *,
+    event_id: str,
+    memory_id: str,
+    scope: MemoryScope,
+) -> MemoryRecord:
+    try:
+        if not isinstance(observation, dict):
+            raise TypeError("observation must be a mapping")
+        record = MemoryRecord(
+            id=memory_id,
+            scope=scope,
+            kind=MemoryKind(observation["kind"]),
+            content=observation["content"],
+            metadata=observation["metadata"],
+            status=MemoryStatus(observation["status"]),
+            confidence=observation["confidence"],
+            observed_at=_parse_timestamp(
+                observation["observed_at"], "observation.observed_at", event_id
+            ),
+            valid_from=(
+                _parse_timestamp(
+                    observation["valid_from"], "observation.valid_from", event_id
+                )
+                if observation["valid_from"] is not None
+                else None
+            ),
+            valid_to=(
+                _parse_timestamp(
+                    observation["valid_to"], "observation.valid_to", event_id
+                )
+                if observation["valid_to"] is not None
+                else None
+            ),
+            created_at=_parse_timestamp(
+                observation["created_at"], "observation.created_at", event_id
+            ),
+            updated_at=_parse_timestamp(
+                observation["updated_at"], "observation.updated_at", event_id
+            ),
+        )
+        if record.status is not MemoryStatus.ACTIVE:
+            raise ValueError("remembered observation status must be active")
+        return record
+    except Exception as error:
+        raise sqlite3.DatabaseError(
+            f"remembered event {event_id!r} has invalid observation: {error}"
+        ) from error
 
 
 def _migration_plan(connection: sqlite3.Connection) -> tuple[list[tuple], list[tuple]]:
     connection.row_factory = sqlite3.Row
-    memory_rows = {
-        row["id"]: row for row in connection.execute("SELECT * FROM memories")
-    }
+    memory_rows: dict[str, sqlite3.Row] = {}
+    for row in connection.execute("SELECT * FROM memories"):
+        memory_id = _validate_stored_id(row["id"], "memory id")
+        _scope_from_row(row, f"memory {memory_id!r}")
+        memory_rows[memory_id] = row
     events = connection.execute(
         "SELECT * FROM memory_events ORDER BY scope_key, occurred_at, created_at, id"
     ).fetchall()
@@ -572,24 +769,28 @@ def _migration_plan(connection: sqlite3.Connection) -> tuple[list[tuple], list[t
     lifecycle: list[list[Any]] = []
     active_positions: dict[str, int] = {}
     for event in events:
-        event_id = event["id"]
-        if event["scope_key"] != _scope_key(event):
-            raise sqlite3.DatabaseError(f"event {event_id!r} has cross-scope fields")
-        memory_id = event["memory_id"]
-        if not isinstance(memory_id, str) or not memory_id:
-            raise sqlite3.DatabaseError(f"event {event_id!r} has incomplete memory_id")
+        event_id = _validate_stored_id(event["id"], "event id")
+        event_scope = _scope_from_row(event, "event")
+        memory_id = _validate_stored_id(event["memory_id"], "memory id")
         prior_owner = owners.setdefault(memory_id, event["scope_key"])
         if prior_owner != event["scope_key"]:
             raise sqlite3.DatabaseError(f"memory {memory_id!r} has cross-scope event ownership")
         projection = memory_rows.get(memory_id)
         if projection is None:
             raise sqlite3.DatabaseError(f"memory {memory_id!r} has no projection owner")
-        if projection["scope_key"] != event["scope_key"] or projection["scope_key"] != _scope_key(projection):
+        if projection["scope_key"] != event["scope_key"]:
             raise sqlite3.DatabaseError(f"memory {memory_id!r} is foreign-owned")
         try:
-            payload = json.loads(event["payload_json"])
-        except (TypeError, json.JSONDecodeError) as error:
-            raise sqlite3.DatabaseError(f"event {event_id!r} has invalid payload") from error
+            payload_json = event["payload_json"]
+            if not isinstance(payload_json, str):
+                if isinstance(payload_json, bytes):
+                    payload_json.decode("utf-8")
+                raise TypeError("payload_json must be TEXT")
+            payload = json.loads(payload_json)
+        except Exception as error:
+            raise sqlite3.DatabaseError(
+                f"event {event_id!r} has invalid payload: {error}"
+            ) from error
         if not isinstance(payload, dict) or payload.get("memory_id") != memory_id:
             raise sqlite3.DatabaseError(f"event {event_id!r} has incomplete payload memory_id")
         occurred = _parse_timestamp(event["occurred_at"], "occurred_at", event_id)
@@ -600,23 +801,21 @@ def _migration_plan(connection: sqlite3.Connection) -> tuple[list[tuple], list[t
         if event["event_type"] == "remembered":
             if memory_id in active or memory_id in completed:
                 raise sqlite3.DatabaseError(f"duplicate remembered stream for memory {memory_id!r}")
-            observation = payload.get("observation")
-            required = {
-                "kind", "content", "metadata", "status", "confidence", "observed_at",
-                "valid_from", "valid_to", "created_at", "updated_at",
-            }
-            if not isinstance(observation, dict) or not required <= observation.keys():
-                raise sqlite3.DatabaseError(f"remembered event {event_id!r} is incomplete")
-            if observation["status"] != "active" or not isinstance(observation["metadata"], dict):
-                raise sqlite3.DatabaseError(f"remembered event {event_id!r} is invalid")
-            _parse_timestamp(observation["observed_at"], "observed_at", event_id)
-            _parse_timestamp(observation["created_at"], "observation.created_at", event_id)
-            _parse_timestamp(observation["updated_at"], "observation.updated_at", event_id)
-            valid_from = _optional_event_timestamp(
-                observation["valid_from"], "valid_from", event_id
+            record = _hydrate_remembered_observation(
+                payload.get("observation"),
+                event_id=event_id,
+                memory_id=memory_id,
+                scope=event_scope,
             )
-            valid_to = _optional_event_timestamp(
-                observation["valid_to"], "valid_to", event_id
+            valid_from = (
+                _timestamp_to_storage(record.valid_from)
+                if record.valid_from is not None
+                else None
+            )
+            valid_to = (
+                _timestamp_to_storage(record.valid_to)
+                if record.valid_to is not None
+                else None
             )
             position = len(lifecycle)
             lifecycle.append(
@@ -784,4 +983,9 @@ def initialize_or_migrate(connection: sqlite3.Connection, path: Path) -> None:
         connection.commit()
     except sqlite3.Error as error:
         connection.rollback()
-        raise sqlite3.DatabaseError(f"schema operation failed for {path}: {error}") from error
+        original_cause: BaseException = error
+        while original_cause.__cause__ is not None:
+            original_cause = original_cause.__cause__
+        raise sqlite3.DatabaseError(
+            f"schema operation failed for {path}: {error}"
+        ) from original_cause

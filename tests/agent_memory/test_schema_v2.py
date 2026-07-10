@@ -213,6 +213,29 @@ def _database_snapshot(path):
         return connection.execute("PRAGMA user_version").fetchone()[0], objects, rows
 
 
+def _restore_immutable_update_trigger(connection):
+    _execute_statements(connection, _AUXILIARY_SCHEMA_V1)
+
+
+def _replace_remembered_payload(path, payload):
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET payload_json = ? WHERE id = ?",
+            (payload, "active-memory:remembered"),
+        )
+        _restore_immutable_update_trigger(connection)
+        connection.commit()
+
+
+async def _create_database_at_version(path, version):
+    if version == 1:
+        _create_v1_database(path)
+        return
+    store = await SQLiteMemoryStore.open(path)
+    await store.close()
+
+
 @pytest.mark.asyncio
 async def test_open_migrates_v1_and_preserves_foundation_state(tmp_path):
     path = tmp_path / "memory.db"
@@ -308,6 +331,291 @@ async def test_v1_migration_rejects_projection_without_remembered_stream(tmp_pat
     before = _database_snapshot(path)
 
     with pytest.raises(StorageError, match="has no immutable event stream"):
+        await SQLiteMemoryStore.open(path)
+
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize(
+    ("object_type", "create_sql"),
+    [
+        ("table", "CREATE TABLE unexpected_owned_table (id TEXT)"),
+        (
+            "index",
+            "CREATE INDEX unexpected_owned_index ON memories(content)",
+        ),
+        (
+            "trigger",
+            """
+            CREATE TRIGGER unexpected_owned_trigger
+            BEFORE INSERT ON memories
+            BEGIN
+                SELECT 1;
+            END
+            """,
+        ),
+    ],
+)
+async def test_schema_rejects_unexpected_owned_objects_without_mutation(
+    tmp_path, version, object_type, create_sql
+):
+    path = tmp_path / "memory.db"
+    await _create_database_at_version(path, version)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executescript(create_sql)
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match=f"unexpected {object_type}") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [1, 2])
+async def test_schema_rejects_changed_index_collation_without_mutation(
+    tmp_path, version
+):
+    path = tmp_path / "memory.db"
+    await _create_database_at_version(path, version)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executescript(
+            """
+            DROP INDEX ix_memories_scope_validity;
+            CREATE INDEX ix_memories_scope_validity
+                ON memories(scope_key COLLATE NOCASE, valid_from, valid_to);
+            """
+        )
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="ix_memories_scope_validity") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [1, 2])
+async def test_schema_rejects_changed_primary_key_collation_without_mutation(
+    tmp_path, version
+):
+    path = tmp_path / "memory.db"
+    await _create_database_at_version(path, version)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executescript(
+            """
+            DROP TABLE memory_history;
+            CREATE TABLE memory_history (
+                id TEXT COLLATE NOCASE PRIMARY KEY,
+                memory_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                details_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                FOREIGN KEY (event_id) REFERENCES memory_events(id)
+            );
+            """
+        )
+    before = _database_snapshot(path)
+
+    with pytest.raises(
+        StorageError, match="sqlite_autoindex_memory_history_1"
+    ) as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [1, 2])
+async def test_schema_allows_documented_sqlite_analyze_tables(tmp_path, version):
+    path = tmp_path / "memory.db"
+    await _create_database_at_version(path, version)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("ANALYZE")
+        connection.commit()
+
+    store = await SQLiteMemoryStore.open(path)
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'"
+        ).fetchone() == (1,)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("kind", None),
+        ("kind", "not-a-kind"),
+        ("content", None),
+        ("content", "   "),
+        ("confidence", None),
+        ("confidence", float("nan")),
+        ("confidence", 1.01),
+        ("metadata", []),
+        ("status", None),
+        ("observed_at", None),
+        ("created_at", None),
+        ("updated_at", None),
+    ],
+)
+async def test_v1_migration_fully_validates_remembered_observation_before_ddl(
+    tmp_path, field, invalid_value
+):
+    path = tmp_path / "memory.db"
+    _create_v1_database(path)
+    payload = _observation(
+        "active-memory",
+        "Still known",
+        "2026-07-10T10:00:00.000000Z",
+    )
+    payload["observation"][field] = invalid_value
+    _replace_remembered_payload(
+        path,
+        json.dumps(payload, separators=(",", ":"), sort_keys=True),
+    )
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="remembered event") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert raised.value.__cause__ is not None
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+async def test_v1_migration_rejects_invalid_remembered_validity_interval(tmp_path):
+    path = tmp_path / "memory.db"
+    _create_v1_database(path)
+    payload = _observation(
+        "active-memory",
+        "Still known",
+        "2026-07-10T10:00:00.000000Z",
+    )
+    payload["observation"].update(
+        {
+            "valid_from": "2026-07-12T00:00:00.000000Z",
+            "valid_to": "2026-07-11T00:00:00.000000Z",
+        }
+    )
+    _replace_remembered_payload(
+        path,
+        json.dumps(payload, separators=(",", ":"), sort_keys=True),
+    )
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="remembered event"):
+        await SQLiteMemoryStore.open(path)
+
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+async def test_v1_migration_wraps_invalid_utf8_blob_payload_without_mutation(tmp_path):
+    path = tmp_path / "memory.db"
+    _create_v1_database(path)
+    _replace_remembered_payload(path, sqlite3.Binary(b"\xff\xfe\x80"))
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="invalid payload") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert isinstance(raised.value.__cause__, sqlite3.Error)
+    assert isinstance(raised.value.__cause__.__cause__, UnicodeDecodeError)
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+async def test_v1_migration_rejects_json_blob_even_when_utf8_is_valid(tmp_path):
+    path = tmp_path / "memory.db"
+    _create_v1_database(path)
+    payload = json.dumps(
+        _observation(
+            "active-memory",
+            "Still known",
+            "2026-07-10T10:00:00.000000Z",
+        ),
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    _replace_remembered_payload(path, sqlite3.Binary(payload))
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="payload_json must be TEXT") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+async def test_v1_migration_rejects_blank_event_id_before_ddl(tmp_path):
+    path = tmp_path / "memory.db"
+    _create_v1_database(path)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET id = '' WHERE id = 'active-memory:remembered'"
+        )
+        connection.execute(
+            "UPDATE memory_history SET event_id = '' WHERE memory_id = 'active-memory'"
+        )
+        connection.execute(
+            "UPDATE memory_evidence SET event_id = '' WHERE memory_id = 'active-memory'"
+        )
+        _restore_immutable_update_trigger(connection)
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="invalid event id"):
+        await SQLiteMemoryStore.open(path)
+
+    assert _database_snapshot(path) == before
+
+
+@pytest.mark.asyncio
+async def test_v1_migration_hydrates_and_validates_event_scope_before_ddl(tmp_path):
+    path = tmp_path / "memory.db"
+    scope = _create_v1_database(path)
+    invalid_scope_key = json.dumps(
+        [scope.tenant_id, "   ", scope.agent_id, scope.project_id, scope.session_id],
+        separators=(",", ":"),
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            """
+            UPDATE memory_events SET user_id = '   ', scope_key = ?
+            WHERE id = 'active-memory:remembered'
+            """,
+            (invalid_scope_key,),
+        )
+        connection.execute(
+            """
+            UPDATE memories SET user_id = '   ', scope_key = ?
+            WHERE id = 'active-memory'
+            """,
+            (invalid_scope_key,),
+        )
+        connection.execute("DELETE FROM memory_evidence")
+        _restore_immutable_update_trigger(connection)
+        connection.commit()
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match=r"invalid .* scope"):
         await SQLiteMemoryStore.open(path)
 
     assert _database_snapshot(path) == before
