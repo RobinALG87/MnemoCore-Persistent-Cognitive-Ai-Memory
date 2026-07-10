@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Any, Optional, TypeVar
 from uuid import uuid4
 
-from .errors import ClosedStoreError, MemoryNotFoundError, StorageError, ValidationError
+from .errors import (
+    ClosedStoreError,
+    MemoryConflictError,
+    MemoryNotFoundError,
+    StorageError,
+    ValidationError,
+)
 from .models import (
     MemoryEvent,
     MemoryEventType,
@@ -28,8 +34,10 @@ from .models import (
     utc_now,
 )
 from .schema import initialize_or_migrate
+from .timeline import build_superseded_payload, parse_superseded_payload
 
 _T = TypeVar("_T")
+
 
 def _connect(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path, timeout=10)
@@ -597,6 +605,378 @@ def _forget(
                 raise
     except sqlite3.Error as error:
         raise StorageError(f"Failed to forget memory in {path}: {error}") from error
+
+
+def _validate_supersede_idempotency_key(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValidationError("idempotency_key must be a string or None")
+    normalized = value.strip()
+    if not normalized:
+        raise ValidationError("idempotency_key must not be blank")
+    if normalized != value:
+        raise ValidationError("idempotency_key must be normalized")
+    return normalized
+
+
+def _supersede(
+    path: Path,
+    scope: MemoryScope,
+    memory_id: str,
+    content: str,
+    *,
+    effective_at: str,
+    reason: Optional[str],
+    metadata: Optional[Mapping[str, Any]],
+    confidence: float,
+    idempotency_key: Optional[str],
+) -> MemoryRecord:
+    """Atomically supersede one active fact in one exact scope."""
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+
+                # A well-formed retry key is deliberately consulted before any
+                # validation of the new payload or source id.
+                if isinstance(idempotency_key, str):
+                    existing_event_row = connection.execute(
+                        """
+                        SELECT * FROM memory_events
+                        WHERE scope_key = ? AND idempotency_key = ?
+                        """,
+                        (scope.scope_key, idempotency_key),
+                    ).fetchone()
+                    if existing_event_row is not None:
+                        existing_event = _row_to_event(path, existing_event_row)
+                        if existing_event.event_type is not MemoryEventType.SUPERSEDED:
+                            raise MemoryConflictError(
+                                "idempotency_key is already used by another memory event"
+                            )
+                        replay = parse_superseded_payload(existing_event, path=path)
+                        replacement_row = connection.execute(
+                            "SELECT * FROM memories WHERE scope_key = ? AND id = ?",
+                            (scope.scope_key, replay.replacement.id),
+                        ).fetchone()
+                        if replacement_row is None:
+                            raise StorageError(
+                                "Idempotent supersession refers to a missing replacement projection"
+                            )
+                        replacement = _row_to_record(path, replacement_row)
+                        connection.commit()
+                        return replacement
+
+                normalized_idempotency_key = _validate_supersede_idempotency_key(idempotency_key)
+                if not isinstance(memory_id, str) or not memory_id.strip():
+                    raise ValidationError("memory_id must be a nonblank string")
+                if memory_id != memory_id.strip():
+                    raise ValidationError("memory_id must be normalized")
+
+                source_row = connection.execute(
+                    "SELECT * FROM memories WHERE scope_key = ? AND id = ?",
+                    (scope.scope_key, memory_id),
+                ).fetchone()
+                if source_row is None:
+                    raise MemoryNotFoundError(f"Memory {memory_id!r} was not found in this scope")
+                source_before = _row_to_record(path, source_row)
+                if source_before.kind is not MemoryKind.FACT:
+                    raise MemoryConflictError("Only fact memories can be superseded")
+                if source_before.status is not MemoryStatus.ACTIVE:
+                    raise MemoryConflictError(f"Memory {memory_id!r} is no longer active")
+
+                boundary = _timestamp_from_input(effective_at, "effective_at")
+                if boundary is None:
+                    raise ValidationError("effective_at is required")
+                if source_before.valid_from is not None and boundary <= source_before.valid_from:
+                    raise MemoryConflictError(
+                        "effective_at must be after the source valid_from boundary"
+                    )
+                if source_before.valid_to is not None and boundary >= source_before.valid_to:
+                    raise MemoryConflictError(
+                        "effective_at must be before the source valid_to boundary"
+                    )
+
+                now = utc_now()
+                if now <= source_before.updated_at:
+                    now = source_before.updated_at + timedelta(microseconds=1)
+                timestamp = _timestamp_to_storage(now)
+                effective_timestamp = _timestamp_to_storage(boundary)
+                previous_valid_to = source_before.valid_to
+                event_id = uuid4().hex
+                replacement_id = uuid4().hex
+                relation_id = f"{event_id}:relation:supersedes"
+
+                source = replace(
+                    source_before,
+                    status=MemoryStatus.SUPERSEDED,
+                    valid_to=boundary,
+                    updated_at=now,
+                )
+                metadata_json = _canonical_json({} if metadata is None else metadata)
+                replacement = MemoryRecord(
+                    id=replacement_id,
+                    scope=scope,
+                    kind=MemoryKind.FACT,
+                    content=content,
+                    metadata=json.loads(metadata_json),
+                    status=MemoryStatus.ACTIVE,
+                    confidence=confidence,
+                    observed_at=now,
+                    valid_from=boundary,
+                    valid_to=previous_valid_to,
+                    created_at=now,
+                    updated_at=now,
+                )
+                payload = build_superseded_payload(
+                    source,
+                    replacement,
+                    reason=reason,
+                    relation_id=relation_id,
+                )
+                event = MemoryEvent(
+                    id=event_id,
+                    memory_id=source.id,
+                    scope=scope,
+                    event_type=MemoryEventType.SUPERSEDED,
+                    payload=payload,
+                    idempotency_key=normalized_idempotency_key,
+                    occurred_at=now,
+                    created_at=now,
+                )
+                payload_json = _canonical_json(event.payload)
+                reason_json = _canonical_json(
+                    {
+                        "reason": event.payload["reason"],
+                        "replacement_memory_id": replacement.id,
+                        "role": "source",
+                    }
+                )
+                replacement_details_json = _canonical_json(
+                    {
+                        "reason": event.payload["reason"],
+                        "source_memory_id": source.id,
+                        "role": "replacement",
+                    }
+                )
+                source_valid_from = (
+                    _timestamp_to_storage(source.valid_from)
+                    if source.valid_from is not None
+                    else None
+                )
+                replacement_valid_to = (
+                    _timestamp_to_storage(replacement.valid_to)
+                    if replacement.valid_to is not None
+                    else None
+                )
+
+                connection.execute(
+                    """
+                    INSERT INTO memory_events (
+                        id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                        project_id, session_id, event_type, payload_json,
+                        idempotency_key, occurred_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.id,
+                        source.id,
+                        scope.scope_key,
+                        scope.tenant_id,
+                        scope.user_id,
+                        scope.agent_id,
+                        scope.project_id,
+                        scope.session_id,
+                        event.event_type.value,
+                        payload_json,
+                        normalized_idempotency_key,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                updated = connection.execute(
+                    """
+                    UPDATE memories
+                    SET status = ?, valid_to = ?, updated_at = ?
+                    WHERE scope_key = ? AND id = ? AND kind = ? AND status = ?
+                    """,
+                    (
+                        MemoryStatus.SUPERSEDED.value,
+                        effective_timestamp,
+                        timestamp,
+                        scope.scope_key,
+                        source.id,
+                        MemoryKind.FACT.value,
+                        MemoryStatus.ACTIVE.value,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise MemoryConflictError(f"Memory {source.id!r} changed during supersession")
+                connection.execute(
+                    """
+                    INSERT INTO memories (
+                        id, scope_key, tenant_id, user_id, agent_id, project_id,
+                        session_id, kind, content, metadata_json, status,
+                        confidence, observed_at, valid_from, valid_to, created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        replacement.id,
+                        scope.scope_key,
+                        scope.tenant_id,
+                        scope.user_id,
+                        scope.agent_id,
+                        scope.project_id,
+                        scope.session_id,
+                        replacement.kind.value,
+                        replacement.content,
+                        metadata_json,
+                        replacement.status.value,
+                        replacement.confidence,
+                        timestamp,
+                        effective_timestamp,
+                        replacement_valid_to,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                lifecycle_updated = connection.execute(
+                    """
+                    UPDATE memory_lifecycle
+                    SET known_to = ?
+                    WHERE memory_id = ? AND scope_key = ? AND status = ?
+                      AND known_to IS NULL
+                    """,
+                    (
+                        timestamp,
+                        source.id,
+                        scope.scope_key,
+                        MemoryStatus.ACTIVE.value,
+                    ),
+                )
+                if lifecycle_updated.rowcount != 1:
+                    raise StorageError("active memory lifecycle changed during supersession")
+                connection.execute(
+                    """
+                    INSERT INTO memory_lifecycle (
+                        memory_id, scope_key, status, known_from, known_to,
+                        valid_from, valid_to, event_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        source.id,
+                        scope.scope_key,
+                        MemoryStatus.SUPERSEDED.value,
+                        timestamp,
+                        None,
+                        source_valid_from,
+                        effective_timestamp,
+                        event.id,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memory_lifecycle (
+                        memory_id, scope_key, status, known_from, known_to,
+                        valid_from, valid_to, event_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        replacement.id,
+                        scope.scope_key,
+                        MemoryStatus.ACTIVE.value,
+                        timestamp,
+                        None,
+                        effective_timestamp,
+                        replacement_valid_to,
+                        event.id,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memory_history (
+                        id, memory_id, event_id, action, status, details_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"{event.id}:history:source",
+                        source.id,
+                        event.id,
+                        event.event_type.value,
+                        MemoryStatus.SUPERSEDED.value,
+                        reason_json,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memory_history (
+                        id, memory_id, event_id, action, status, details_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"{event.id}:history:replacement",
+                        replacement.id,
+                        event.id,
+                        event.event_type.value,
+                        MemoryStatus.ACTIVE.value,
+                        replacement_details_json,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memory_evidence (
+                        memory_id, source_memory_id, event_id, scope_key,
+                        relation, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        replacement.id,
+                        source.id,
+                        event.id,
+                        scope.scope_key,
+                        "supersedes",
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memory_relations (
+                        id, scope_key, source_id, target_id, relation_type,
+                        valid_from, valid_to, confidence, event_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        relation_id,
+                        scope.scope_key,
+                        replacement.id,
+                        source.id,
+                        "supersedes",
+                        effective_timestamp,
+                        None,
+                        replacement.confidence,
+                        event.id,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+                    (replacement.id, replacement.content),
+                )
+                connection.commit()
+                return replacement
+            except Exception:
+                connection.rollback()
+                raise
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to supersede memory in {path}: {error}") from error
 
 
 def _record_from_remembered_event(path: Path, event: MemoryEvent) -> MemoryRecord:
@@ -1241,6 +1621,30 @@ class SQLiteMemoryStore:
             scope,
             memory_id,
             reason=reason,
+        )
+
+    async def supersede(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+        content: str,
+        *,
+        effective_at: str,
+        reason: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        confidence: float = 1.0,
+        idempotency_key: Optional[str] = None,
+    ) -> MemoryRecord:
+        return await self._run(
+            _supersede,
+            scope,
+            memory_id,
+            content,
+            effective_at=effective_at,
+            reason=reason,
+            metadata=metadata,
+            confidence=confidence,
+            idempotency_key=idempotency_key,
         )
 
     async def rebuild(self, scope: MemoryScope) -> int:
