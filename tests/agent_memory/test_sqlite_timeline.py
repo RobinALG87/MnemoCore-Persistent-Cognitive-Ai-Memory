@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,6 +17,7 @@ from mnemocore.agent_memory import (
     ValidationError,
 )
 from mnemocore.agent_memory.sqlite_store import SQLiteMemoryStore
+from mnemocore.agent_memory.timeline import build_superseded_payload
 
 
 EFFECTIVE_AT = "2026-07-11T09:30:00.000001Z"
@@ -919,50 +921,179 @@ async def test_explain_traverses_complete_upstream_evidence_dag(tmp_path, scope)
     await store.close()
 
 
-def _corrupt_evidence_dag(path, scope, source, final, events, corruption):
+def _insert_payload_valid_reverse_cycle(
+    path,
+    scope,
+    source,
+    final,
+    reverse_event_time,
+):
+    reverse_boundary = datetime(2026, 7, 12, tzinfo=timezone.utc)
+    reverse_event_id = "reverse-cycle-event"
+    source_snapshot = replace(
+        final,
+        status=MemoryStatus.SUPERSEDED,
+        valid_to=reverse_boundary,
+        updated_at=reverse_event_time,
+    )
+    replacement_snapshot = replace(
+        source,
+        status=MemoryStatus.ACTIVE,
+        valid_from=reverse_boundary,
+        updated_at=reverse_event_time,
+    )
+    payload = build_superseded_payload(
+        source_snapshot,
+        replacement_snapshot,
+        reason="payload-valid reverse cycle",
+        relation_id=f"{reverse_event_id}:relation:supersedes",
+    )
+    timestamp = _canonical_timestamp(reverse_event_time)
     with closing(sqlite3.connect(path)) as connection:
-        if corruption == "cycle":
-            connection.execute(
-                """
-                INSERT INTO memory_evidence (
-                    memory_id, source_memory_id, event_id, scope_key, relation, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    source.id,
-                    final.id,
-                    events[-1]["id"],
-                    scope.scope_key,
-                    "cycle",
-                    events[-1]["created_at"],
-                ),
+        connection.execute(
+            """
+            INSERT INTO memory_events (
+                id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                project_id, session_id, event_type, payload_json,
+                idempotency_key, occurred_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reverse_event_id,
+                final.id,
+                scope.scope_key,
+                scope.tenant_id,
+                scope.user_id,
+                scope.agent_id,
+                scope.project_id,
+                scope.session_id,
+                "superseded",
+                json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                None,
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_evidence (
+                memory_id, source_memory_id, event_id, scope_key, relation, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source.id,
+                final.id,
+                reverse_event_id,
+                scope.scope_key,
+                "supersedes",
+                timestamp,
+            ),
+        )
+        connection.commit()
+
+
+@pytest.mark.asyncio
+async def test_payload_valid_reverse_cycle_respects_known_at_then_fails_closed(
+    tmp_path,
+    scope,
+):
+    path = tmp_path / "payload-valid-cycle.db"
+    store = await SQLiteMemoryStore.open(path)
+    source, _, final, events, _ = await _build_three_version_lineage(
+        store,
+        path,
+        scope,
+    )
+    latest_event_time = datetime.fromisoformat(
+        events[-1]["occurred_at"].replace("Z", "+00:00")
+    )
+    reverse_event_time = latest_event_time + timedelta(microseconds=10)
+    before_reverse_event = _canonical_timestamp(
+        reverse_event_time - timedelta(microseconds=1)
+    )
+    valid_at = "2026-07-11T09:30:00.000002Z"
+    expected_recall = await store.recall(
+        scope,
+        "launch lineage",
+        valid_at=valid_at,
+        known_at=before_reverse_event,
+    )
+    expected_receipt = await store.explain(
+        scope,
+        final.id,
+        valid_at=valid_at,
+        known_at=before_reverse_event,
+    )
+
+    _insert_payload_valid_reverse_cycle(
+        path,
+        scope,
+        source,
+        final,
+        reverse_event_time,
+    )
+
+    assert await store.recall(
+        scope,
+        "launch lineage",
+        valid_at=valid_at,
+        known_at=before_reverse_event,
+    ) == expected_recall
+    assert await store.explain(
+        scope,
+        final.id,
+        valid_at=valid_at,
+        known_at=before_reverse_event,
+    ) == expected_receipt
+    for known_instant in (
+        reverse_event_time,
+        reverse_event_time + timedelta(microseconds=1),
+    ):
+        known_at = _canonical_timestamp(known_instant)
+        with pytest.raises(StorageError, match="contains a cycle"):
+            await store.recall(
+                scope,
+                "launch lineage",
+                valid_at=valid_at,
+                known_at=known_at,
             )
-        else:
-            connection.execute("DROP TRIGGER trg_memory_evidence_scope_insert")
-            source_memory_id = (
-                "missing-upstream-memory" if corruption == "missing" else corruption
+        with pytest.raises(StorageError, match="contains a cycle"):
+            await store.explain(
+                scope,
+                final.id,
+                valid_at=valid_at,
+                known_at=known_at,
             )
-            connection.execute(
-                """
-                INSERT INTO memory_evidence (
-                    memory_id, source_memory_id, event_id, scope_key, relation, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    final.id,
-                    source_memory_id,
-                    events[-1]["id"],
-                    scope.scope_key,
-                    "malformed",
-                    events[-1]["created_at"],
-                ),
-            )
+    await store.close()
+
+
+def _corrupt_evidence_dag(path, scope, final, events, corruption):
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER trg_memory_evidence_scope_insert")
+        source_memory_id = (
+            "missing-upstream-memory" if corruption == "missing" else corruption
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_evidence (
+                memory_id, source_memory_id, event_id, scope_key, relation, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                final.id,
+                source_memory_id,
+                events[-1]["id"],
+                scope.scope_key,
+                "malformed",
+                events[-1]["created_at"],
+            ),
+        )
         connection.commit()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["recall", "explain"])
-@pytest.mark.parametrize("corruption", ["cycle", "foreign", "missing"])
+@pytest.mark.parametrize("corruption", ["foreign", "missing"])
 async def test_provenance_dag_corruption_raises_storage_error(
     tmp_path,
     scope,
@@ -971,7 +1102,7 @@ async def test_provenance_dag_corruption_raises_storage_error(
 ):
     path = tmp_path / f"{operation}-{corruption}.db"
     store = await SQLiteMemoryStore.open(path)
-    source, _, final, events, known_after = await _build_three_version_lineage(
+    _, _, final, events, known_after = await _build_three_version_lineage(
         store,
         path,
         scope,
@@ -989,7 +1120,6 @@ async def test_provenance_dag_corruption_raises_storage_error(
     _corrupt_evidence_dag(
         path,
         scope,
-        source,
         final,
         events,
         corruption_value,
