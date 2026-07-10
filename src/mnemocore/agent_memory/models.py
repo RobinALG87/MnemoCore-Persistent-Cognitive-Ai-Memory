@@ -79,6 +79,13 @@ def _freeze_json_value(value: Any, name: str) -> Any:
     raise ValidationError(f"{name} must contain only JSON-compatible values")
 
 
+def _is_finite_number(value: Any) -> bool:
+    try:
+        return math.isfinite(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 class MemoryKind(str, Enum):
     OBSERVATION = "observation"
     FACT = "fact"
@@ -159,10 +166,9 @@ class MemoryRecord:
             raise ValidationError("content must not be blank")
         if len(self.content) > MAX_CONTENT_LENGTH:
             raise ValidationError(f"content must be at most {MAX_CONTENT_LENGTH} characters")
-        try:
-            confidence_is_valid = math.isfinite(self.confidence) and 0 <= self.confidence <= 1
-        except TypeError:
-            confidence_is_valid = False
+        confidence_is_valid = (
+            _is_finite_number(self.confidence) and 0 <= self.confidence <= 1
+        )
         if not confidence_is_valid:
             raise ValidationError("confidence must be between 0 and 1")
         if not isinstance(self.metadata, Mapping):
@@ -244,10 +250,9 @@ class MemoryRelation:
             object.__setattr__(self, name, value)
         if not isinstance(self.scope, MemoryScope):
             raise ValidationError("scope must be a MemoryScope")
-        try:
-            confidence_is_valid = math.isfinite(self.confidence) and 0 <= self.confidence <= 1
-        except TypeError:
-            confidence_is_valid = False
+        confidence_is_valid = (
+            _is_finite_number(self.confidence) and 0 <= self.confidence <= 1
+        )
         if not confidence_is_valid:
             raise ValidationError("confidence must be between 0 and 1")
         for name, required in (
@@ -311,11 +316,7 @@ class RecallResult:
     evidence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        try:
-            score_is_finite = math.isfinite(self.score)
-        except TypeError:
-            score_is_finite = False
-        if not score_is_finite:
+        if not _is_finite_number(self.score):
             raise ValidationError("score must be finite")
         if not isinstance(self.score_components, Mapping):
             raise ValidationError("score_components must be a mapping")

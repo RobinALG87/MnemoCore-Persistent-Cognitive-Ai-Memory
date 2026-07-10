@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError, fields
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from types import MappingProxyType
 
 import pytest
@@ -393,6 +394,25 @@ def test_public_models_recursively_detach_and_freeze_nested_values():
 def test_public_models_reject_non_finite_floats(factory, kwargs):
     with pytest.raises(ValidationError):
         factory(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda value: make_record(confidence=value),
+        lambda value: make_relation(confidence=value),
+        lambda value: RecallResult(memory=make_record(), score=value),
+    ],
+    ids=["record-confidence", "relation-confidence", "recall-score"],
+)
+@pytest.mark.parametrize(
+    "value",
+    [object(), Decimal("sNaN"), 10**10_000],
+    ids=["type-error", "value-error", "overflow-error"],
+)
+def test_finiteness_check_errors_are_public_validation_errors(factory, value):
+    with pytest.raises(ValidationError):
+        factory(value)
 
 
 def test_utc_now_returns_an_aware_utc_datetime():
