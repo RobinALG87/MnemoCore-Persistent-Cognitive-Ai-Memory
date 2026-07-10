@@ -122,71 +122,72 @@ BEGIN
 END;
 """
 
-_REQUIRED_COLUMNS = {
+_REQUIRED_TABLE_INFO = {
     "memory_events": (
-        "id",
-        "memory_id",
-        "scope_key",
-        "tenant_id",
-        "user_id",
-        "agent_id",
-        "project_id",
-        "session_id",
-        "event_type",
-        "payload_json",
-        "idempotency_key",
-        "occurred_at",
-        "created_at",
+        ("id", "TEXT", 0, None, 1),
+        ("memory_id", "TEXT", 0, None, 0),
+        ("scope_key", "TEXT", 1, None, 0),
+        ("tenant_id", "TEXT", 1, None, 0),
+        ("user_id", "TEXT", 1, None, 0),
+        ("agent_id", "TEXT", 1, None, 0),
+        ("project_id", "TEXT", 0, None, 0),
+        ("session_id", "TEXT", 0, None, 0),
+        ("event_type", "TEXT", 1, None, 0),
+        ("payload_json", "TEXT", 1, None, 0),
+        ("idempotency_key", "TEXT", 0, None, 0),
+        ("occurred_at", "TEXT", 1, None, 0),
+        ("created_at", "TEXT", 1, None, 0),
     ),
     "memories": (
-        "id",
-        "scope_key",
-        "tenant_id",
-        "user_id",
-        "agent_id",
-        "project_id",
-        "session_id",
-        "kind",
-        "content",
-        "metadata_json",
-        "status",
-        "confidence",
-        "observed_at",
-        "valid_from",
-        "valid_to",
-        "created_at",
-        "updated_at",
+        ("id", "TEXT", 0, None, 1),
+        ("scope_key", "TEXT", 1, None, 0),
+        ("tenant_id", "TEXT", 1, None, 0),
+        ("user_id", "TEXT", 1, None, 0),
+        ("agent_id", "TEXT", 1, None, 0),
+        ("project_id", "TEXT", 0, None, 0),
+        ("session_id", "TEXT", 0, None, 0),
+        ("kind", "TEXT", 1, None, 0),
+        ("content", "TEXT", 1, None, 0),
+        ("metadata_json", "TEXT", 1, None, 0),
+        ("status", "TEXT", 1, None, 0),
+        ("confidence", "REAL", 1, None, 0),
+        ("observed_at", "TEXT", 1, None, 0),
+        ("valid_from", "TEXT", 0, None, 0),
+        ("valid_to", "TEXT", 0, None, 0),
+        ("created_at", "TEXT", 1, None, 0),
+        ("updated_at", "TEXT", 1, None, 0),
     ),
     "memory_evidence": (
-        "memory_id",
-        "source_memory_id",
-        "event_id",
-        "relation",
-        "created_at",
+        ("memory_id", "TEXT", 1, None, 0),
+        ("source_memory_id", "TEXT", 1, None, 0),
+        ("event_id", "TEXT", 1, None, 0),
+        ("relation", "TEXT", 1, None, 0),
+        ("created_at", "TEXT", 1, None, 0),
     ),
     "memory_relations": (
-        "id",
-        "scope_key",
-        "source_id",
-        "target_id",
-        "relation_type",
-        "valid_from",
-        "valid_to",
-        "confidence",
-        "event_id",
-        "created_at",
+        ("id", "TEXT", 0, None, 1),
+        ("scope_key", "TEXT", 1, None, 0),
+        ("source_id", "TEXT", 1, None, 0),
+        ("target_id", "TEXT", 1, None, 0),
+        ("relation_type", "TEXT", 1, None, 0),
+        ("valid_from", "TEXT", 0, None, 0),
+        ("valid_to", "TEXT", 0, None, 0),
+        ("confidence", "REAL", 1, None, 0),
+        ("event_id", "TEXT", 1, None, 0),
+        ("created_at", "TEXT", 1, None, 0),
     ),
     "memory_history": (
-        "id",
-        "memory_id",
-        "event_id",
-        "action",
-        "status",
-        "details_json",
-        "created_at",
+        ("id", "TEXT", 0, None, 1),
+        ("memory_id", "TEXT", 1, None, 0),
+        ("event_id", "TEXT", 1, None, 0),
+        ("action", "TEXT", 1, None, 0),
+        ("status", "TEXT", 1, None, 0),
+        ("details_json", "TEXT", 1, None, 0),
+        ("created_at", "TEXT", 1, None, 0),
     ),
-    "memory_fts": ("memory_id", "content"),
 }
+
+_REQUIRED_FTS_COLUMNS = ("memory_id", "content")
 
 _REQUIRED_INDEXES = {
     "ux_memory_events_scope_idempotency": (
@@ -254,6 +255,10 @@ _UNICODE61_PATTERN = re.compile(
     r"\btokenize\s*=\s*(['\"])unicode61\1",
     re.IGNORECASE,
 )
+_MEMORY_ID_UNINDEXED_PATTERN = re.compile(
+    r"\bmemory_id\s+unindexed\s*,",
+    re.IGNORECASE,
+)
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -280,13 +285,14 @@ def _execute_statements(connection: sqlite3.Connection, script: str) -> None:
 
 
 def _validate_table_columns(connection: sqlite3.Connection) -> None:
-    for table, required_columns in _REQUIRED_COLUMNS.items():
-        actual_columns = tuple(
-            row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')
+    for table, required_info in _REQUIRED_TABLE_INFO.items():
+        actual_info = tuple(
+            row[1:6] for row in connection.execute(f'PRAGMA table_info("{table}")')
         )
-        if actual_columns != required_columns:
+        if actual_info != required_info:
             raise sqlite3.DatabaseError(
-                f"{table} columns do not match schema version {SCHEMA_VERSION}"
+                f"{table} columns do not match schema version {SCHEMA_VERSION}; "
+                f"{table} table_info fingerprint differs"
             )
 
 
@@ -369,8 +375,17 @@ def _validate_fts(connection: sqlite3.Connection) -> None:
     sql = "" if row is None or row[0] is None else row[0]
     if not _FTS5_PATTERN.search(sql):
         raise sqlite3.DatabaseError("memory_fts must be an FTS5 virtual table")
+    actual_columns = tuple(
+        item[1] for item in connection.execute('PRAGMA table_info("memory_fts")')
+    )
+    if actual_columns != _REQUIRED_FTS_COLUMNS:
+        raise sqlite3.DatabaseError(
+            f"memory_fts columns do not match schema version {SCHEMA_VERSION}"
+        )
     if not _UNICODE61_PATTERN.search(sql):
         raise sqlite3.DatabaseError("memory_fts must use unicode61")
+    if not _MEMORY_ID_UNINDEXED_PATTERN.search(sql):
+        raise sqlite3.DatabaseError("memory_fts memory_id must be UNINDEXED")
 
 
 def _validate_schema(connection: sqlite3.Connection) -> None:

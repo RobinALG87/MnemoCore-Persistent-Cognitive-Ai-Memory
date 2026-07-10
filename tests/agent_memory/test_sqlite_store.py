@@ -7,6 +7,41 @@ from mnemocore.agent_memory import MemoryScope, StorageError
 from mnemocore.agent_memory.sqlite_store import SQLiteMemoryStore
 
 
+def _memory_history_schema(**overrides):
+    columns = {
+        "id": "id TEXT PRIMARY KEY",
+        "memory_id": "memory_id TEXT NOT NULL",
+        "event_id": "event_id TEXT NOT NULL",
+        "action": "action TEXT NOT NULL",
+        "status": "status TEXT NOT NULL",
+        "details_json": "details_json TEXT NOT NULL",
+        "created_at": "created_at TEXT NOT NULL",
+    }
+    columns.update(overrides)
+    declarations = ",\n".join(f"                {value}" for value in columns.values())
+    return f"""
+        CREATE TABLE memory_history (
+{declarations},
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+            FOREIGN KEY (event_id) REFERENCES memory_events(id)
+        );
+    """
+
+
+FINGERPRINT_MISMATCHES = [
+    pytest.param({"id": "id TEXT"}, id="primary-key"),
+    pytest.param({"memory_id": "memory_id TEXT"}, id="nullability"),
+    pytest.param(
+        {"details_json": "details_json BLOB NOT NULL"},
+        id="declared-type",
+    ),
+    pytest.param(
+        {"details_json": "details_json TEXT NOT NULL DEFAULT '{}'"},
+        id="default",
+    ),
+]
+
+
 @pytest.fixture
 def scope():
     return MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
@@ -193,3 +228,68 @@ async def test_version_zero_conflict_rolls_back_without_blessing_schema(tmp_path
             )
         }
     assert tables == {"memory_events"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overrides", FINGERPRINT_MISMATCHES)
+async def test_open_rejects_version_one_table_fingerprint_mismatch(
+    tmp_path, overrides
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        conn.executescript("DROP TABLE memory_history;")
+        conn.executescript(_memory_history_schema(**overrides))
+
+    with pytest.raises(StorageError, match="memory_history table_info") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overrides", FINGERPRINT_MISMATCHES)
+async def test_version_zero_table_fingerprint_conflict_rolls_back(
+    tmp_path, overrides
+):
+    path = tmp_path / "memory.db"
+    with closing(sqlite3.connect(path)) as conn:
+        conn.executescript(_memory_history_schema(**overrides))
+
+    with pytest.raises(StorageError, match="memory_history table_info") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert tables == {"memory_history"}
+
+
+@pytest.mark.asyncio
+async def test_open_rejects_fts_with_indexed_memory_id(tmp_path):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        conn.executescript(
+            """
+            DROP TABLE memory_fts;
+            CREATE VIRTUAL TABLE memory_fts USING fts5(
+                memory_id, content, tokenize='unicode61'
+            );
+            """
+        )
+
+    with pytest.raises(StorageError, match="memory_id must be UNINDEXED") as raised:
+        await SQLiteMemoryStore.open(path)
+
+    assert str(path.resolve()) in str(raised.value)
