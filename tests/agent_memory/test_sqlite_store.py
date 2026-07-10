@@ -395,7 +395,7 @@ async def test_remember_serializes_immutable_json_and_utc_timestamps(tmp_path, s
         ).fetchone()
     assert stored == (
         '{"outer":{"items":["first",{"answer":42}]}}',
-        "2026-07-10T10:00:00Z",
+        "2026-07-10T10:00:00.000000Z",
         f'{{"memory_id":"{record.id}"}}',
     )
 
@@ -480,6 +480,45 @@ async def test_recall_applies_point_in_time_validity_boundaries(tmp_path, scope)
     ]
     assert results[0].memory.valid_from.tzinfo is timezone.utc
     assert results[0].memory.valid_to.tzinfo is timezone.utc
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_recall_orders_fractional_validity_around_whole_second_as_of(
+    tmp_path, scope
+):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    await store.remember(
+        scope,
+        "Canonical boundary starts now",
+        valid_from="2026-07-10T12:00:00.000000Z",
+    )
+    await store.remember(
+        scope,
+        "Canonical boundary starts later",
+        valid_from="2026-07-10T12:00:00.000001Z",
+    )
+    await store.remember(
+        scope,
+        "Canonical boundary ended now",
+        valid_to="2026-07-10T12:00:00.000000Z",
+    )
+    await store.remember(
+        scope,
+        "Canonical boundary ends later",
+        valid_to="2026-07-10T12:00:00.000001Z",
+    )
+
+    results = await store.recall(
+        scope,
+        "canonical boundary",
+        as_of="2026-07-10T12:00:00Z",
+    )
+
+    assert {result.memory.content for result in results} == {
+        "Canonical boundary starts now",
+        "Canonical boundary ends later",
+    }
     await store.close()
 
 

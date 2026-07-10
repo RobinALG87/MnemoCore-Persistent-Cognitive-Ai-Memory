@@ -320,7 +320,11 @@ def _canonical_json(value: Any) -> str:
 
 
 def _timestamp_to_storage(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return (
+        value.astimezone(timezone.utc)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _timestamp_from_storage(value: str, name: str) -> datetime:
