@@ -60,3 +60,20 @@ Implemented scope-safe lexical recall with point-in-time validity filtering.
 - Final follow-up verification: the full Task 4 store file passed 38 tests;
   scoped Flake8 passed with no findings; scoped mypy reported no issues in the
   changed source file.
+
+## Legacy Timestamp Compatibility Follow-up
+
+- Added a reusable SQL timestamp expression that normalizes Task 3's legacy
+  20-character UTC `...SSZ` validity values to `...SS.000000Z` during temporal
+  comparisons while passing fixed-width values through unchanged.
+- Applied the expression to both `valid_from` and `valid_to`; no stored row,
+  immutable ledger event, or schema definition is mutated.
+- Added a reopen/public-recall regression with legacy whole-second bounds and a
+  canonical `.000000Z` `as_of`, covering inclusive start and exclusive end.
+- RED evidence: recall excluded the legacy record starting at `as_of` and included
+  the legacy record ending at `as_of`.
+- GREEN evidence: the focused compatibility regression passed after applying the
+  SQL normalization expression.
+- Final compatibility verification: the full Task 4 store file passed 39 tests;
+  scoped Flake8 passed with no findings; scoped mypy reported no issues in the
+  changed source file.

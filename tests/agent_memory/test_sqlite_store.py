@@ -523,6 +523,38 @@ async def test_recall_orders_fractional_validity_around_whole_second_as_of(
 
 
 @pytest.mark.asyncio
+async def test_recall_reopens_legacy_whole_second_validity_at_canonical_as_of(
+    tmp_path, scope
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    starts_now = await store.remember(scope, "Legacy boundary starts now")
+    ends_now = await store.remember(scope, "Legacy boundary ends now")
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute(
+            "UPDATE memories SET valid_from = ? WHERE id = ?",
+            ("2026-07-10T12:00:00Z", starts_now.id),
+        )
+        conn.execute(
+            "UPDATE memories SET valid_to = ? WHERE id = ?",
+            ("2026-07-10T12:00:00Z", ends_now.id),
+        )
+        conn.commit()
+
+    reopened = await SQLiteMemoryStore.open(path)
+    results = await reopened.recall(
+        scope,
+        "legacy boundary",
+        as_of="2026-07-10T12:00:00.000000Z",
+    )
+
+    assert [result.memory.id for result in results] == [starts_now.id]
+    await reopened.close()
+
+
+@pytest.mark.asyncio
 async def test_remember_rolls_back_every_projection_and_preserves_sqlite_cause(
     tmp_path, scope
 ):

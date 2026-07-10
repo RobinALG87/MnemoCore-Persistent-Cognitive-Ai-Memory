@@ -819,6 +819,13 @@ def _normalize_memory_kinds(kinds: Sequence[MemoryKind]) -> list[MemoryKind]:
     return normalized_kinds
 
 
+def _legacy_compatible_timestamp_sql(column: str) -> str:
+    return (
+        f"CASE WHEN length({column}) = 20 AND substr({column}, 20, 1) = 'Z' "
+        f"THEN substr({column}, 1, 19) || '.000000Z' ELSE {column} END"
+    )
+
+
 def _rows_to_recall_results(
     path: Path,
     rows: list[sqlite3.Row],
@@ -866,15 +873,17 @@ def _recall(
     as_of_timestamp = _timestamp_to_storage(
         _timestamp_from_input(as_of, "as_of") or utc_now()
     )
-    sql = """
+    valid_from_sql = _legacy_compatible_timestamp_sql("memories.valid_from")
+    valid_to_sql = _legacy_compatible_timestamp_sql("memories.valid_to")
+    sql = f"""
         SELECT memories.*, bm25(memory_fts) AS bm25_raw
         FROM memory_fts
         JOIN memories ON memories.id = memory_fts.memory_id
         WHERE memory_fts MATCH ?
           AND memories.scope_key = ?
           AND memories.status = ?
-          AND (memories.valid_from IS NULL OR memories.valid_from <= ?)
-          AND (memories.valid_to IS NULL OR memories.valid_to > ?)
+          AND (memories.valid_from IS NULL OR {valid_from_sql} <= ?)
+          AND (memories.valid_to IS NULL OR {valid_to_sql} > ?)
     """
     parameters: list[Any] = [
         match_query,
