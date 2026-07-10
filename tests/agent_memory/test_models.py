@@ -7,12 +7,15 @@ import pytest
 from mnemocore.agent_memory import (
     AgentMemoryError,
     ClosedStoreError,
+    MemoryConflictError,
     MemoryEvent,
     MemoryEventType,
     MemoryHistoryEntry,
     MemoryKind,
     MemoryNotFoundError,
     MemoryRecord,
+    MemoryReceipt,
+    MemoryRelation,
     MemoryScope,
     MemoryStatus,
     RecallResult,
@@ -68,6 +71,24 @@ def make_history(**overrides):
     }
     values.update(overrides)
     return MemoryHistoryEntry(**values)
+
+
+def make_relation(**overrides):
+    now = datetime(2026, 7, 10, tzinfo=timezone.utc)
+    values = {
+        "id": "relation-1",
+        "scope": MemoryScope(user_id="robin", agent_id="codex"),
+        "source_id": "memory-1",
+        "target_id": "memory-2",
+        "relation_type": "supersedes",
+        "valid_from": now,
+        "valid_to": now + timedelta(days=1),
+        "confidence": 0.9,
+        "event_id": "event-1",
+        "created_at": now,
+    }
+    values.update(overrides)
+    return MemoryRelation(**values)
 
 
 def test_scope_requires_user_and_agent():
@@ -381,9 +402,125 @@ def test_utc_now_returns_an_aware_utc_datetime():
     assert abs(datetime.now(timezone.utc) - result) < timedelta(seconds=1)
 
 
+def test_memory_relation_has_the_public_fields_and_is_immutable():
+    relation = make_relation()
+
+    assert [field.name for field in fields(relation)] == [
+        "id",
+        "scope",
+        "source_id",
+        "target_id",
+        "relation_type",
+        "valid_from",
+        "valid_to",
+        "confidence",
+        "event_id",
+        "created_at",
+    ]
+    assert not hasattr(relation, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        relation.relation_type = "changed"
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["id", "source_id", "target_id", "relation_type", "event_id"],
+)
+def test_memory_relation_rejects_blank_identifiers_and_type(field_name):
+    with pytest.raises(ValidationError):
+        make_relation(**{field_name: "   "})
+
+
+@pytest.mark.parametrize("confidence", [float("nan"), float("inf"), -0.01, 1.01])
+def test_memory_relation_rejects_invalid_confidence(confidence):
+    with pytest.raises(ValidationError):
+        make_relation(confidence=confidence)
+
+
+def test_memory_relation_normalizes_timestamps_and_rejects_invalid_interval():
+    local_timezone = timezone(timedelta(hours=2))
+    valid_from = datetime(2026, 7, 10, 14, tzinfo=local_timezone)
+    relation = make_relation(
+        valid_from=valid_from,
+        valid_to=valid_from + timedelta(hours=1),
+        created_at=valid_from,
+    )
+
+    assert relation.valid_from == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    assert relation.valid_to == datetime(2026, 7, 10, 13, tzinfo=timezone.utc)
+    assert relation.created_at == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    with pytest.raises(ValidationError):
+        make_relation(valid_to=make_relation().valid_from)
+
+
+def test_memory_receipt_normalizes_and_detaches_collections():
+    record = make_record()
+    relation = make_relation()
+    history = make_history()
+    event_ids = ["event-1"]
+    memory_ids = ["source-1"]
+    relations = [relation]
+    history_entries = [history]
+
+    receipt = MemoryReceipt(
+        memory=record,
+        evidence_event_ids=event_ids,
+        evidence_memory_ids=memory_ids,
+        relations=relations,
+        history=history_entries,
+        explanation="This fact supersedes source-1 at 2026-07-10T12:00:00Z.",
+    )
+    event_ids.append("event-2")
+    memory_ids.append("source-2")
+    relations.clear()
+    history_entries.clear()
+
+    assert [field.name for field in fields(receipt)] == [
+        "memory",
+        "evidence_event_ids",
+        "evidence_memory_ids",
+        "relations",
+        "history",
+        "explanation",
+    ]
+    assert receipt.evidence_event_ids == ("event-1",)
+    assert receipt.evidence_memory_ids == ("source-1",)
+    assert receipt.relations == (relation,)
+    assert receipt.history == (history,)
+    assert not hasattr(receipt, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        receipt.explanation = "changed"
+    with pytest.raises(AttributeError):
+        receipt.relations.append(relation)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("evidence_event_ids", [""]),
+        ("evidence_memory_ids", ["   "]),
+        ("explanation", "   "),
+    ],
+)
+def test_memory_receipt_rejects_blank_public_values(field_name, value):
+    values = {
+        "memory": make_record(),
+        "evidence_event_ids": ["event-1"],
+        "evidence_memory_ids": ["source-1"],
+        "relations": [make_relation()],
+        "history": [make_history()],
+        "explanation": "Because the source was superseded.",
+    }
+    values[field_name] = value
+
+    with pytest.raises(ValidationError):
+        MemoryReceipt(**values)
+
+
 def test_exception_hierarchy_is_public_and_stable():
     assert issubclass(ValidationError, AgentMemoryError)
     assert issubclass(ScopeError, ValidationError)
     assert issubclass(StorageError, AgentMemoryError)
     assert issubclass(MemoryNotFoundError, AgentMemoryError)
+    assert issubclass(MemoryConflictError, AgentMemoryError)
     assert issubclass(ClosedStoreError, StorageError)

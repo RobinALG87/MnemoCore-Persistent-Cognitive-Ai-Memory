@@ -10,6 +10,7 @@ from .models import (
     MemoryHistoryEntry,
     MemoryKind,
     MemoryRecord,
+    MemoryReceipt,
     MemoryScope,
     MemoryStatus,
     RecallResult,
@@ -60,7 +61,33 @@ class MemoryStore(Protocol):
         kinds: Sequence[MemoryKind] = (),
         limit: int = 10,
         as_of: Optional[str] = None,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
     ) -> builtins.list[RecallResult]:
+        ...
+
+    async def supersede(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+        content: str,
+        *,
+        effective_at: str,
+        reason: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        confidence: float = 1.0,
+        idempotency_key: Optional[str] = None,
+    ) -> MemoryRecord:
+        ...
+
+    async def explain(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+        *,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
+    ) -> MemoryReceipt:
         ...
 
     async def history(
