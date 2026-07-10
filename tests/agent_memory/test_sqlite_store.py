@@ -422,6 +422,68 @@ async def test_list_filters_orders_and_validates_limit(tmp_path, scope):
 
 
 @pytest.mark.asyncio
+async def test_recall_is_relevant_scope_safe_and_temporal(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    await store.remember(scope, "BM25 must introduce lexical candidates")
+    await store.remember(scope, "Redis stores transient queue signals")
+    foreign = MemoryScope(
+        user_id="other",
+        agent_id="codex",
+        project_id="mnemocore",
+    )
+    await store.remember(foreign, "BM25 private foreign memory")
+
+    results = await store.recall(scope, "BM25 lexical", limit=5)
+
+    assert [result.memory.content for result in results] == [
+        "BM25 must introduce lexical candidates"
+    ]
+    assert results[0].score == 1.0
+    assert results[0].score_components["bm25_rank"] == 1.0
+    assert isinstance(results[0].score_components["bm25_raw"], float)
+    assert results[0].reason == "Matched lexical terms in the authorized scope"
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_recall_applies_point_in_time_validity_boundaries(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    await store.remember(
+        scope,
+        "Temporal fact expired",
+        kind=MemoryKind.FACT,
+        valid_to="2026-07-10T12:00:00Z",
+    )
+    await store.remember(
+        scope,
+        "Temporal fact future",
+        kind=MemoryKind.FACT,
+        valid_from="2026-07-10T12:00:01Z",
+    )
+    await store.remember(
+        scope,
+        "Temporal fact currently valid",
+        kind=MemoryKind.FACT,
+        valid_from="2026-07-10T12:00:00+00:00",
+        valid_to="2026-07-10T13:00:00+00:00",
+    )
+
+    results = await store.recall(
+        scope,
+        "temporal fact",
+        kinds=(MemoryKind.FACT,),
+        as_of="2026-07-10T12:00:00Z",
+    )
+
+    assert [result.memory.content for result in results] == [
+        "Temporal fact currently valid"
+    ]
+    assert results[0].memory.valid_from.tzinfo is timezone.utc
+    assert results[0].memory.valid_to.tzinfo is timezone.utc
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_remember_rolls_back_every_projection_and_preserves_sqlite_cause(
     tmp_path, scope
 ):

@@ -7,7 +7,7 @@ import builtins
 import json
 import re
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +23,7 @@ from .models import (
     MemoryRecord,
     MemoryScope,
     MemoryStatus,
+    RecallResult,
     utc_now,
 )
 
@@ -793,6 +794,107 @@ def _list(
     return [_row_to_record(path, row) for row in rows]
 
 
+def _fts_match_query(query: str) -> str:
+    if not isinstance(query, str):
+        raise ValidationError("query must be a string")
+    tokens = re.findall(r"\w+", query.casefold())
+    if not tokens:
+        raise ValidationError("query must contain at least one searchable word")
+    return " OR ".join(f'"{token}"' for token in tokens)
+
+
+def _normalize_memory_kinds(kinds: Sequence[MemoryKind]) -> list[MemoryKind]:
+    normalized_kinds: list[MemoryKind] = []
+    try:
+        for kind in kinds:
+            normalized_kind = MemoryKind(kind)
+            if normalized_kind not in normalized_kinds:
+                normalized_kinds.append(normalized_kind)
+    except (TypeError, ValueError) as error:
+        raise ValidationError("kinds must contain only valid MemoryKind values") from error
+    return normalized_kinds
+
+
+def _rows_to_recall_results(
+    path: Path,
+    rows: list[sqlite3.Row],
+    limit: int,
+) -> list[RecallResult]:
+    results: list[RecallResult] = []
+    seen_memory_ids: set[str] = set()
+    for row in rows:
+        memory_id = row["id"]
+        if memory_id in seen_memory_ids:
+            continue
+        seen_memory_ids.add(memory_id)
+        rank = len(results) + 1
+        reciprocal_rank = 1.0 / rank
+        results.append(
+            RecallResult(
+                memory=_row_to_record(path, row),
+                score=reciprocal_rank,
+                score_components={
+                    "bm25_rank": reciprocal_rank,
+                    "bm25_raw": float(row["bm25_raw"]),
+                },
+                reason="Matched lexical terms in the authorized scope",
+            )
+        )
+        if len(results) == limit:
+            break
+    return results
+
+
+def _recall(
+    path: Path,
+    scope: MemoryScope,
+    query: str,
+    *,
+    kinds: Sequence[MemoryKind],
+    limit: int,
+    as_of: Optional[str],
+) -> list[RecallResult]:
+    match_query = _fts_match_query(query)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+        raise ValidationError("limit must be between 1 and 1000")
+    normalized_kinds = _normalize_memory_kinds(kinds)
+
+    as_of_timestamp = _timestamp_to_storage(
+        _timestamp_from_input(as_of, "as_of") or utc_now()
+    )
+    sql = """
+        SELECT memories.*, bm25(memory_fts) AS bm25_raw
+        FROM memory_fts
+        JOIN memories ON memories.id = memory_fts.memory_id
+        WHERE memory_fts MATCH ?
+          AND memories.scope_key = ?
+          AND memories.status = ?
+          AND (memories.valid_from IS NULL OR memories.valid_from <= ?)
+          AND (memories.valid_to IS NULL OR memories.valid_to > ?)
+    """
+    parameters: list[Any] = [
+        match_query,
+        scope.scope_key,
+        MemoryStatus.ACTIVE.value,
+        as_of_timestamp,
+        as_of_timestamp,
+    ]
+    if normalized_kinds:
+        placeholders = ", ".join("?" for _ in normalized_kinds)
+        sql += f" AND memories.kind IN ({placeholders})"
+        parameters.extend(kind.value for kind in normalized_kinds)
+    sql += " ORDER BY bm25(memory_fts) ASC, memories.id ASC LIMIT ?"
+    parameters.append(limit * 3)
+
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(sql, parameters).fetchall()
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to recall memories from {path}: {error}") from error
+    return _rows_to_recall_results(path, rows, limit)
+
+
 def _history(
     path: Path,
     scope: MemoryScope,
@@ -916,3 +1018,21 @@ class SQLiteMemoryStore:
         memory_id: str,
     ) -> builtins.list[MemoryHistoryEntry]:
         return await self._run(_history, scope, memory_id)
+
+    async def recall(
+        self,
+        scope: MemoryScope,
+        query: str,
+        *,
+        kinds: Sequence[MemoryKind] = (),
+        limit: int = 10,
+        as_of: Optional[str] = None,
+    ) -> builtins.list[RecallResult]:
+        return await self._run(
+            _recall,
+            scope,
+            query,
+            kinds=kinds,
+            limit=limit,
+            as_of=as_of,
+        )
