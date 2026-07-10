@@ -37,6 +37,7 @@
 ### Task 1: Public Models and Errors
 
 **Files:**
+- Create: `src/mnemocore/agent_memory/__init__.py`
 - Create: `src/mnemocore/agent_memory/errors.py`
 - Create: `src/mnemocore/agent_memory/models.py`
 - Create: `tests/agent_memory/test_models.py`
@@ -144,6 +145,8 @@ class MemoryEventType(str, Enum):
 
 `RecallResult` fields: `memory`, `score`, `score_components`, `reason`, `evidence_ids`.
 
+Create a minimal `agent_memory/__init__.py` that exports Task 1 models and errors. Task 6 extends this file with client exports.
+
 - [ ] **Step 4: Run model tests**
 
 Run: `python -m pytest tests/agent_memory/test_models.py -q`  
@@ -152,7 +155,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/mnemocore/agent_memory/errors.py src/mnemocore/agent_memory/models.py tests/agent_memory/test_models.py
+git add src/mnemocore/agent_memory/__init__.py src/mnemocore/agent_memory/errors.py src/mnemocore/agent_memory/models.py tests/agent_memory/test_models.py
 git commit -m "feat(memory): add typed agent memory models"
 ```
 
@@ -174,7 +177,13 @@ import sqlite3
 
 import pytest
 
+from mnemocore.agent_memory import MemoryScope
 from mnemocore.agent_memory.sqlite_store import SQLiteMemoryStore
+
+
+@pytest.fixture
+def scope():
+    return MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
 
 
 @pytest.mark.asyncio
