@@ -678,7 +678,7 @@ def _remember(
                     occurred_at=now,
                     created_at=now,
                 )
-                history_id = uuid4().hex
+                history_id = f"{event.id}:history"
                 payload_json = _canonical_json(event.payload)
                 details_json = _canonical_json({})
                 timestamp = _timestamp_to_storage(now)
@@ -894,7 +894,7 @@ def _forget(
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        uuid4().hex,
+                        f"{event.id}:history",
                         memory_id,
                         event.id,
                         event.event_type.value,
@@ -987,6 +987,27 @@ def _rebuild(path: Path, scope: MemoryScope) -> int:
                     (scope.scope_key,),
                 ).fetchall()
                 events = [_row_to_event(path, row) for row in rows]
+                event_memory_ids = tuple(
+                    dict.fromkeys(
+                        event.memory_id
+                        for event in events
+                        if event.memory_id is not None
+                    )
+                )
+                if event_memory_ids:
+                    event_placeholders = ", ".join("?" for _ in event_memory_ids)
+                    foreign_owner = connection.execute(
+                        f"""
+                        SELECT id FROM memories
+                        WHERE id IN ({event_placeholders}) AND scope_key != ?
+                        LIMIT 1
+                        """,
+                        (*event_memory_ids, scope.scope_key),
+                    ).fetchone()
+                    if foreign_owner is not None:
+                        raise StorageError(
+                            f"Memory {foreign_owner['id']!r} is owned by another scope"
+                        )
                 records: dict[str, MemoryRecord] = {}
                 histories: list[
                     tuple[MemoryEvent, MemoryStatus, Mapping[str, Any]]
@@ -1022,22 +1043,29 @@ def _rebuild(path: Path, scope: MemoryScope) -> int:
                             f"Unsupported event {event.event_type.value!r} while rebuilding {path}"
                         )
 
-                memory_ids = tuple(records)
-                if not memory_ids:
-                    connection.commit()
-                    return 0
-                placeholders = ", ".join("?" for _ in memory_ids)
-                connection.execute(
-                    f"DELETE FROM memory_fts WHERE memory_id IN ({placeholders})",
-                    memory_ids,
+                scope_projection_ids = tuple(
+                    row["id"]
+                    for row in connection.execute(
+                        "SELECT id FROM memories WHERE scope_key = ?",
+                        (scope.scope_key,),
+                    ).fetchall()
                 )
-                connection.execute(
-                    f"DELETE FROM memory_history WHERE memory_id IN ({placeholders})",
-                    memory_ids,
+                cleanup_ids = tuple(
+                    dict.fromkeys((*scope_projection_ids, *event_memory_ids))
                 )
+                if cleanup_ids:
+                    cleanup_placeholders = ", ".join("?" for _ in cleanup_ids)
+                    connection.execute(
+                        f"DELETE FROM memory_fts WHERE memory_id IN ({cleanup_placeholders})",
+                        cleanup_ids,
+                    )
+                    connection.execute(
+                        f"DELETE FROM memory_history WHERE memory_id IN ({cleanup_placeholders})",
+                        cleanup_ids,
+                    )
                 connection.execute(
-                    f"DELETE FROM memories WHERE id IN ({placeholders})",
-                    memory_ids,
+                    "DELETE FROM memories WHERE scope_key = ?",
+                    (scope.scope_key,),
                 )
 
                 for record in records.values():

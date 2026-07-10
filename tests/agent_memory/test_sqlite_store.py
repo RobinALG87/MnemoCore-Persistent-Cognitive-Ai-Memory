@@ -875,6 +875,9 @@ async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_pat
     )
     forgotten = await store.remember(scope, "Rebuild forgotten observation")
     forgotten = await store.forget(scope, forgotten.id, reason="expired")
+    history_ids_before = [
+        entry.id for entry in await store.history(scope, forgotten.id)
+    ]
     foreign_scope = MemoryScope(user_id="other", agent_id="codex")
     foreign = await store.remember(foreign_scope, "Foreign projection remains")
 
@@ -906,6 +909,7 @@ async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_pat
         "remembered",
         "forgotten",
     ]
+    assert [entry.id for entry in await store.history(scope, forgotten.id)] == history_ids_before
     assert [
         result.memory.id
         for result in await store.recall(
@@ -921,6 +925,154 @@ async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_pat
         assert conn.execute(
             "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (forgotten.id,)
         ).fetchone()[0] == 0
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_empty_ledger_removes_all_exact_scope_projections(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    orphan_id = "orphan-projection"
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO memories (
+                id, scope_key, tenant_id, user_id, agent_id, project_id,
+                session_id, kind, content, metadata_json, status, confidence,
+                observed_at, valid_from, valid_to, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                orphan_id,
+                scope.scope_key,
+                scope.tenant_id,
+                scope.user_id,
+                scope.agent_id,
+                scope.project_id,
+                scope.session_id,
+                "observation",
+                "orphan corrupt projection",
+                "{}",
+                "active",
+                1.0,
+                "2026-07-10T10:00:00.000000Z",
+                None,
+                None,
+                "2026-07-10T10:00:00.000000Z",
+                "2026-07-10T10:00:00.000000Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+            (orphan_id, "orphan corrupt projection"),
+        )
+        conn.execute(
+            """
+            INSERT INTO memory_history (
+                id, memory_id, event_id, action, status, details_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "orphan-history",
+                orphan_id,
+                "missing-event",
+                "remembered",
+                "active",
+                "{}",
+                "2026-07-10T10:00:00.000000Z",
+            ),
+        )
+        conn.commit()
+
+    assert await store.rebuild(scope) == 0
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memories WHERE scope_key = ?", (scope.scope_key,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (orphan_id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT count(*) FROM memory_history WHERE memory_id = ?", (orphan_id,)
+        ).fetchone()[0] == 0
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_rejects_cross_scope_event_before_any_mutation(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    foreign_scope = MemoryScope(user_id="other", agent_id="codex")
+    foreign = await store.remember(foreign_scope, "Foreign ownership survives")
+
+    with closing(sqlite3.connect(path)) as conn:
+        source = conn.execute(
+            "SELECT * FROM memory_events WHERE memory_id = ?", (foreign.id,)
+        ).fetchone()
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(memory_events)")]
+        copied = dict(zip(columns, source))
+        copied.update(
+            {
+                "id": "crafted-cross-scope-event",
+                "scope_key": scope.scope_key,
+                "tenant_id": scope.tenant_id,
+                "user_id": scope.user_id,
+                "agent_id": scope.agent_id,
+                "project_id": scope.project_id,
+                "session_id": scope.session_id,
+                "idempotency_key": None,
+            }
+        )
+        conn.execute(
+            f"INSERT INTO memory_events ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+            tuple(copied[column] for column in columns),
+        )
+        conn.execute(
+            """
+            INSERT INTO memories (
+                id, scope_key, tenant_id, user_id, agent_id, project_id,
+                session_id, kind, content, metadata_json, status, confidence,
+                observed_at, valid_from, valid_to, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "scope-a-orphan",
+                scope.scope_key,
+                scope.tenant_id,
+                scope.user_id,
+                scope.agent_id,
+                scope.project_id,
+                scope.session_id,
+                "observation",
+                "Must survive rejected rebuild",
+                "{}",
+                "active",
+                1.0,
+                "2026-07-10T10:00:00.000000Z",
+                None,
+                None,
+                "2026-07-10T10:00:00.000000Z",
+                "2026-07-10T10:00:00.000000Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+            ("scope-a-orphan", "Must survive rejected rebuild"),
+        )
+        conn.commit()
+
+    with pytest.raises(StorageError, match="owned by another scope"):
+        await store.rebuild(scope)
+
+    assert await store.get(foreign_scope, foreign.id) == foreign
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT content FROM memories WHERE id = ?", ("scope-a-orphan",)
+        ).fetchone()[0] == "Must survive rejected rebuild"
+        assert conn.execute(
+            "SELECT count(*) FROM memory_fts WHERE memory_id IN (?, ?)",
+            (foreign.id, "scope-a-orphan"),
+        ).fetchone()[0] == 2
     await store.close()
 
 
