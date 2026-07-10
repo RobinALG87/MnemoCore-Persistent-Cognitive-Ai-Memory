@@ -1,9 +1,18 @@
 import sqlite3
 from contextlib import closing
+from datetime import timezone
+from types import MappingProxyType
 
 import pytest
 
-from mnemocore.agent_memory import MemoryScope, StorageError
+from mnemocore.agent_memory import (
+    MemoryKind,
+    MemoryNotFoundError,
+    MemoryScope,
+    MemoryStatus,
+    StorageError,
+    ValidationError,
+)
 from mnemocore.agent_memory.sqlite_store import SQLiteMemoryStore
 
 
@@ -293,3 +302,149 @@ async def test_open_rejects_fts_with_indexed_memory_id(tmp_path):
         await SQLiteMemoryStore.open(path)
 
     assert str(path.resolve()) in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_remember_is_persistent_and_idempotent(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    first = await store.remember(
+        scope,
+        "Use BM25 candidate union",
+        idempotency_key="decision-1",
+    )
+    second = await store.remember(
+        scope,
+        "Use BM25 candidate union",
+        idempotency_key="decision-1",
+    )
+    assert second.id == first.id
+    assert len(await store.list(scope)) == 1
+    await store.close()
+
+    reopened = await SQLiteMemoryStore.open(path)
+    assert (await reopened.get(scope, first.id)).content == "Use BM25 candidate union"
+    history = await reopened.history(scope, first.id)
+    assert [entry.action for entry in history] == ["remembered"]
+    await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_crud_is_exact_scope_and_idempotency_is_scope_local(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    foreign_scope = MemoryScope(
+        user_id="other",
+        agent_id=scope.agent_id,
+        project_id=scope.project_id,
+    )
+    local = await store.remember(scope, "Local memory", idempotency_key="same-key")
+    foreign = await store.remember(
+        foreign_scope,
+        "Foreign memory",
+        idempotency_key="same-key",
+    )
+
+    assert local.id != foreign.id
+    assert [record.id for record in await store.list(scope)] == [local.id]
+    assert [record.id for record in await store.list(foreign_scope)] == [foreign.id]
+    with pytest.raises(MemoryNotFoundError):
+        await store.get(foreign_scope, local.id)
+    with pytest.raises(MemoryNotFoundError):
+        await store.history(foreign_scope, local.id)
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_remember_serializes_immutable_json_and_utc_timestamps(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    metadata = MappingProxyType(
+        {
+            "outer": MappingProxyType(
+                {"items": ("first", MappingProxyType({"answer": 42}))}
+            )
+        }
+    )
+    record = await store.remember(
+        scope,
+        "Canonical metadata",
+        metadata=metadata,
+        observed_at="2026-07-10T12:00:00+02:00",
+        valid_from="2026-07-10T09:00:00Z",
+        valid_to="2026-07-11T09:00:00+00:00",
+    )
+    await store.close()
+
+    reopened = await SQLiteMemoryStore.open(path)
+    restored = await reopened.get(scope, record.id)
+    assert restored.metadata == {"outer": {"items": ["first", {"answer": 42}]}}
+    assert restored.observed_at.tzinfo is timezone.utc
+    assert restored.observed_at.isoformat() == "2026-07-10T10:00:00+00:00"
+    await reopened.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        stored = conn.execute(
+            """
+            SELECT memories.metadata_json, memories.observed_at,
+                   memory_events.payload_json
+            FROM memories
+            JOIN memory_events ON memory_events.memory_id = memories.id
+            WHERE memories.id = ?
+            """,
+            (record.id,),
+        ).fetchone()
+    assert stored == (
+        '{"outer":{"items":["first",{"answer":42}]}}',
+        "2026-07-10T10:00:00Z",
+        f'{{"memory_id":"{record.id}"}}',
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_filters_orders_and_validates_limit(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    first = await store.remember(scope, "First", kind=MemoryKind.FACT)
+    second = await store.remember(scope, "Second", kind=MemoryKind.PROCEDURE)
+
+    assert [record.id for record in await store.list(scope)] == [second.id, first.id]
+    assert [
+        record.id
+        for record in await store.list(scope, kind=MemoryKind.FACT)
+    ] == [first.id]
+    assert [
+        record.id
+        for record in await store.list(scope, status=MemoryStatus.ACTIVE, limit=1)
+    ] == [second.id]
+    for invalid_limit in (0, 1001, True):
+        with pytest.raises(ValidationError, match="limit"):
+            await store.list(scope, limit=invalid_limit)
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_remember_rolls_back_every_projection_and_preserves_sqlite_cause(
+    tmp_path, scope
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    with closing(sqlite3.connect(path)) as conn:
+        conn.executescript(
+            """
+            CREATE TRIGGER fail_memory_insert
+            BEFORE INSERT ON memories
+            BEGIN
+                SELECT RAISE(ABORT, 'forced projection failure');
+            END;
+            """
+        )
+
+    with pytest.raises(StorageError, match="forced projection failure") as raised:
+        await store.remember(scope, "Must roll back")
+    assert isinstance(raised.value.__cause__, sqlite3.Error)
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute("SELECT count(*) FROM memory_events").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM memories").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM memory_history").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM memory_fts").fetchone()[0] == 0

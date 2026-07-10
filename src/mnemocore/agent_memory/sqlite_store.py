@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
+import json
 import re
 import sqlite3
+from collections.abc import Callable, Mapping
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Optional, TypeVar
+from uuid import uuid4
 
-from .errors import StorageError
+from .errors import ClosedStoreError, MemoryNotFoundError, StorageError, ValidationError
+from .models import (
+    MemoryEvent,
+    MemoryEventType,
+    MemoryHistoryEntry,
+    MemoryKind,
+    MemoryRecord,
+    MemoryScope,
+    MemoryStatus,
+    utc_now,
+)
 
 SCHEMA_VERSION = 1
+_T = TypeVar("_T")
 
 _TABLE_SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS memory_events (
@@ -273,6 +290,128 @@ def _connect(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def _thaw_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    if isinstance(value, list):
+        return [_thaw_json(item) for item in value]
+    return value
+
+
+def _canonical_json(value: Any) -> str:
+    try:
+        return json.dumps(
+            _thaw_json(value),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValidationError("value must contain only JSON-compatible values") from error
+
+
+def _timestamp_to_storage(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _timestamp_from_storage(value: str, name: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("timestamp is not timezone-aware")
+        return parsed.astimezone(timezone.utc)
+    except (AttributeError, TypeError, ValueError, OverflowError) as error:
+        raise StorageError(f"Stored {name} is not a valid aware timestamp") from error
+
+
+def _timestamp_from_input(value: Optional[str], name: str) -> Optional[datetime]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValidationError(f"{name} must be an ISO-8601 string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("timestamp is not timezone-aware")
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError) as error:
+        raise ValidationError(f"{name} must be a valid timezone-aware ISO-8601 string") from error
+
+
+def _scope_from_row(row: sqlite3.Row) -> MemoryScope:
+    return MemoryScope(
+        tenant_id=row["tenant_id"],
+        user_id=row["user_id"],
+        agent_id=row["agent_id"],
+        project_id=row["project_id"],
+        session_id=row["session_id"],
+    )
+
+
+def _row_to_record(row: sqlite3.Row) -> MemoryRecord:
+    try:
+        metadata = json.loads(row["metadata_json"])
+    except (TypeError, json.JSONDecodeError) as error:
+        raise StorageError("Stored memory metadata is not valid JSON") from error
+    return MemoryRecord(
+        id=row["id"],
+        scope=_scope_from_row(row),
+        kind=MemoryKind(row["kind"]),
+        content=row["content"],
+        metadata=metadata,
+        status=MemoryStatus(row["status"]),
+        confidence=row["confidence"],
+        observed_at=_timestamp_from_storage(row["observed_at"], "observed_at"),
+        valid_from=(
+            _timestamp_from_storage(row["valid_from"], "valid_from")
+            if row["valid_from"] is not None
+            else None
+        ),
+        valid_to=(
+            _timestamp_from_storage(row["valid_to"], "valid_to")
+            if row["valid_to"] is not None
+            else None
+        ),
+        created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+        updated_at=_timestamp_from_storage(row["updated_at"], "updated_at"),
+    )
+
+
+def _row_to_event(row: sqlite3.Row) -> MemoryEvent:
+    try:
+        payload = json.loads(row["payload_json"])
+    except (TypeError, json.JSONDecodeError) as error:
+        raise StorageError("Stored memory event payload is not valid JSON") from error
+    return MemoryEvent(
+        id=row["id"],
+        scope=_scope_from_row(row),
+        event_type=MemoryEventType(row["event_type"]),
+        payload=payload,
+        occurred_at=_timestamp_from_storage(row["occurred_at"], "occurred_at"),
+        created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+        memory_id=row["memory_id"],
+        idempotency_key=row["idempotency_key"],
+    )
+
+
+def _row_to_history(row: sqlite3.Row) -> MemoryHistoryEntry:
+    try:
+        details = json.loads(row["details_json"])
+    except (TypeError, json.JSONDecodeError) as error:
+        raise StorageError("Stored memory history details are not valid JSON") from error
+    return MemoryHistoryEntry(
+        id=row["id"],
+        memory_id=row["memory_id"],
+        event_id=row["event_id"],
+        action=MemoryEventType(row["action"]),
+        status=MemoryStatus(row["status"]),
+        details=details,
+        created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+    )
+
+
 def _execute_statements(connection: sqlite3.Connection, script: str) -> None:
     pending = ""
     for line in script.splitlines(keepends=True):
@@ -425,6 +564,248 @@ def _initialize_schema(path: Path) -> None:
         ) from error
 
 
+def _remember(
+    path: Path,
+    scope: MemoryScope,
+    content: str,
+    *,
+    kind: MemoryKind,
+    metadata: Optional[Mapping[str, Any]],
+    idempotency_key: Optional[str],
+    confidence: float,
+    observed_at: Optional[str],
+    valid_from: Optional[str],
+    valid_to: Optional[str],
+) -> MemoryRecord:
+    now = utc_now()
+    memory_id = uuid4().hex
+    record = MemoryRecord(
+        id=memory_id,
+        scope=scope,
+        kind=kind,
+        content=content,
+        metadata={} if metadata is None else metadata,
+        confidence=confidence,
+        observed_at=_timestamp_from_input(observed_at, "observed_at") or now,
+        valid_from=_timestamp_from_input(valid_from, "valid_from"),
+        valid_to=_timestamp_from_input(valid_to, "valid_to"),
+        created_at=now,
+        updated_at=now,
+    )
+    event = MemoryEvent(
+        id=uuid4().hex,
+        memory_id=memory_id,
+        scope=scope,
+        event_type=MemoryEventType.REMEMBERED,
+        payload={"memory_id": memory_id},
+        idempotency_key=idempotency_key,
+        occurred_at=now,
+        created_at=now,
+    )
+    history_id = uuid4().hex
+    metadata_json = _canonical_json(record.metadata)
+    payload_json = _canonical_json(event.payload)
+    details_json = _canonical_json({})
+    timestamp = _timestamp_to_storage(now)
+    observed_timestamp = _timestamp_to_storage(record.observed_at)
+    valid_from_timestamp = (
+        _timestamp_to_storage(record.valid_from)
+        if record.valid_from is not None
+        else None
+    )
+    valid_to_timestamp = (
+        _timestamp_to_storage(record.valid_to) if record.valid_to is not None else None
+    )
+
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                if idempotency_key is not None:
+                    existing = connection.execute(
+                        """
+                        SELECT memory_id
+                        FROM memory_events
+                        WHERE scope_key = ? AND idempotency_key = ?
+                        """,
+                        (scope.scope_key, idempotency_key),
+                    ).fetchone()
+                    if existing is not None:
+                        existing_record = connection.execute(
+                            "SELECT * FROM memories WHERE scope_key = ? AND id = ?",
+                            (scope.scope_key, existing["memory_id"]),
+                        ).fetchone()
+                        if existing_record is None:
+                            raise StorageError(
+                                "Idempotency event refers to a missing memory projection"
+                            )
+                        connection.commit()
+                        return _row_to_record(existing_record)
+
+                connection.execute(
+                    """
+                    INSERT INTO memory_events (
+                        id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                        project_id, session_id, event_type, payload_json,
+                        idempotency_key, occurred_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.id,
+                        memory_id,
+                        scope.scope_key,
+                        scope.tenant_id,
+                        scope.user_id,
+                        scope.agent_id,
+                        scope.project_id,
+                        scope.session_id,
+                        event.event_type.value,
+                        payload_json,
+                        idempotency_key,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memories (
+                        id, scope_key, tenant_id, user_id, agent_id, project_id,
+                        session_id, kind, content, metadata_json, status,
+                        confidence, observed_at, valid_from, valid_to, created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        memory_id,
+                        scope.scope_key,
+                        scope.tenant_id,
+                        scope.user_id,
+                        scope.agent_id,
+                        scope.project_id,
+                        scope.session_id,
+                        record.kind.value,
+                        record.content,
+                        metadata_json,
+                        record.status.value,
+                        record.confidence,
+                        observed_timestamp,
+                        valid_from_timestamp,
+                        valid_to_timestamp,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memory_history (
+                        id, memory_id, event_id, action, status, details_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        history_id,
+                        memory_id,
+                        event.id,
+                        event.event_type.value,
+                        record.status.value,
+                        details_json,
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+                    (memory_id, record.content),
+                )
+                connection.commit()
+                return record
+            except Exception:
+                connection.rollback()
+                raise
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to remember memory in {path}: {error}") from error
+
+
+def _get(
+    path: Path,
+    scope: MemoryScope,
+    memory_id: str,
+    *,
+    include_forgotten: bool,
+) -> MemoryRecord:
+    sql = "SELECT * FROM memories WHERE scope_key = ? AND id = ?"
+    parameters: list[Any] = [scope.scope_key, memory_id]
+    if not include_forgotten:
+        sql += " AND status != ?"
+        parameters.append(MemoryStatus.FORGOTTEN.value)
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            row = connection.execute(sql, parameters).fetchone()
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to get memory from {path}: {error}") from error
+    if row is None:
+        raise MemoryNotFoundError(f"Memory {memory_id!r} was not found in this scope")
+    return _row_to_record(row)
+
+
+def _list(
+    path: Path,
+    scope: MemoryScope,
+    *,
+    kind: Optional[MemoryKind],
+    status: MemoryStatus,
+    limit: int,
+) -> list[MemoryRecord]:
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+        raise ValidationError("limit must be between 1 and 1000")
+    sql = "SELECT * FROM memories WHERE scope_key = ? AND status = ?"
+    parameters: list[Any] = [scope.scope_key, status.value]
+    if kind is not None:
+        sql += " AND kind = ?"
+        parameters.append(kind.value)
+    sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+    parameters.append(limit)
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(sql, parameters).fetchall()
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to list memories from {path}: {error}") from error
+    return [_row_to_record(row) for row in rows]
+
+
+def _history(
+    path: Path,
+    scope: MemoryScope,
+    memory_id: str,
+) -> list[MemoryHistoryEntry]:
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            exists = connection.execute(
+                "SELECT 1 FROM memories WHERE scope_key = ? AND id = ?",
+                (scope.scope_key, memory_id),
+            ).fetchone()
+            if exists is None:
+                raise MemoryNotFoundError(
+                    f"Memory {memory_id!r} was not found in this scope"
+                )
+            rows = connection.execute(
+                """
+                SELECT history.*
+                FROM memory_history AS history
+                JOIN memories AS memory ON memory.id = history.memory_id
+                WHERE memory.scope_key = ? AND history.memory_id = ?
+                ORDER BY history.created_at ASC, history.id ASC
+                """,
+                (scope.scope_key, memory_id),
+            ).fetchall()
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to read memory history from {path}: {error}") from error
+    return [_row_to_history(row) for row in rows]
+
+
 class SQLiteMemoryStore:
     """SQLite store lifecycle and version-1 schema initialization."""
 
@@ -442,3 +823,78 @@ class SQLiteMemoryStore:
     async def close(self) -> None:
         async with self._lifecycle_lock:
             self._closed = True
+
+    async def _run(
+        self,
+        worker: Callable[..., _T],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        async with self._lifecycle_lock:
+            if self._closed:
+                raise ClosedStoreError("SQLite memory store is closed")
+            return await asyncio.to_thread(worker, self._path, *args, **kwargs)
+
+    async def remember(
+        self,
+        scope: MemoryScope,
+        content: str,
+        *,
+        kind: MemoryKind = MemoryKind.OBSERVATION,
+        metadata: Optional[Mapping[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        confidence: float = 1.0,
+        observed_at: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_to: Optional[str] = None,
+    ) -> MemoryRecord:
+        return await self._run(
+            _remember,
+            scope,
+            content,
+            kind=kind,
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+            confidence=confidence,
+            observed_at=observed_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
+        )
+
+    async def get(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+        *,
+        include_forgotten: bool = False,
+    ) -> MemoryRecord:
+        return await self._run(
+            _get,
+            scope,
+            memory_id,
+            include_forgotten=include_forgotten,
+        )
+
+    async def list(
+        self,
+        scope: MemoryScope,
+        *,
+        kind: Optional[MemoryKind] = None,
+        status: MemoryStatus = MemoryStatus.ACTIVE,
+        limit: int = 100,
+    ) -> builtins.list[MemoryRecord]:
+        return await self._run(
+            _list,
+            scope,
+            kind=kind,
+            status=status,
+            limit=limit,
+        )
+
+    async def history(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+    ) -> builtins.list[MemoryHistoryEntry]:
+        return await self._run(_history, scope, memory_id)
