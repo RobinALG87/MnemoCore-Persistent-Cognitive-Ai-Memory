@@ -448,3 +448,107 @@ async def test_remember_rolls_back_every_projection_and_preserves_sqlite_cause(
         assert conn.execute("SELECT count(*) FROM memories").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM memory_history").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM memory_fts").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        pytest.param(
+            {"nested": MappingProxyType({1: "not-a-string-key"})},
+            id="non-string-key",
+        ),
+        pytest.param({"number": float("nan")}, id="nan"),
+        pytest.param({"number": float("inf")}, id="infinity"),
+    ],
+)
+async def test_remember_rejects_noncanonical_json_without_writes(
+    tmp_path, scope, metadata
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+
+    with pytest.raises(ValidationError):
+        await store.remember(scope, "Invalid metadata", metadata=metadata)
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute("SELECT count(*) FROM memory_events").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM memories").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM memory_history").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM memory_fts").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_idempotent_retry_precedes_new_payload_validation(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    original = await store.remember(
+        scope,
+        "Original valid payload",
+        idempotency_key="retry-before-validation",
+    )
+
+    retried = await store.remember(
+        scope,
+        " ",
+        metadata={1: float("nan")},
+        observed_at="not-a-timestamp",
+        idempotency_key="retry-before-validation",
+    )
+
+    assert retried == original
+    await store.close()
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute("SELECT count(*) FROM memory_events").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM memories").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM memory_history").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM memory_fts").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        pytest.param("kind = 'not-a-kind'", id="enum"),
+        pytest.param("metadata_json = '{'", id="json"),
+        pytest.param("observed_at = 'not-a-timestamp'", id="timestamp"),
+        pytest.param("content = ' '", id="model-validation"),
+    ],
+)
+async def test_get_wraps_corrupt_stored_rows_with_path_and_cause(
+    tmp_path, scope, corruption
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(scope, "Valid before corruption")
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute(f"UPDATE memories SET {corruption} WHERE id = ?", (record.id,))
+        conn.commit()
+
+    with pytest.raises(StorageError) as raised:
+        await store.get(scope, record.id)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert raised.value.__cause__ is not None
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_history_wraps_corrupt_stored_rows_with_path_and_cause(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(scope, "Valid history before corruption")
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute(
+            "UPDATE memory_history SET details_json = '{' WHERE memory_id = ?",
+            (record.id,),
+        )
+        conn.commit()
+
+    with pytest.raises(StorageError) as raised:
+        await store.history(scope, record.id)
+
+    assert str(path.resolve()) in str(raised.value)
+    assert raised.value.__cause__ is not None
+    await store.close()

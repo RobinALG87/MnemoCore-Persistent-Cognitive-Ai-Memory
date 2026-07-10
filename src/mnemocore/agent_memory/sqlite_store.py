@@ -292,7 +292,12 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 def _thaw_json(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {key: _thaw_json(item) for key, item in value.items()}
+        thawed: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValidationError("JSON mapping keys must be strings")
+            thawed[key] = _thaw_json(item)
+        return thawed
     if isinstance(value, tuple):
         return [_thaw_json(item) for item in value]
     if isinstance(value, list):
@@ -305,6 +310,7 @@ def _canonical_json(value: Any) -> str:
         return json.dumps(
             _thaw_json(value),
             ensure_ascii=False,
+            allow_nan=False,
             separators=(",", ":"),
             sort_keys=True,
         )
@@ -317,13 +323,12 @@ def _timestamp_to_storage(value: datetime) -> str:
 
 
 def _timestamp_from_storage(value: str, name: str) -> datetime:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None or parsed.utcoffset() is None:
-            raise ValueError("timestamp is not timezone-aware")
-        return parsed.astimezone(timezone.utc)
-    except (AttributeError, TypeError, ValueError, OverflowError) as error:
-        raise StorageError(f"Stored {name} is not a valid aware timestamp") from error
+    if not isinstance(value, str):
+        raise TypeError(f"stored {name} must be a string")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"stored {name} is not timezone-aware")
+    return parsed.astimezone(timezone.utc)
 
 
 def _timestamp_from_input(value: Optional[str], name: str) -> Optional[datetime]:
@@ -350,66 +355,70 @@ def _scope_from_row(row: sqlite3.Row) -> MemoryScope:
     )
 
 
-def _row_to_record(row: sqlite3.Row) -> MemoryRecord:
+def _row_to_record(path: Path, row: sqlite3.Row) -> MemoryRecord:
     try:
         metadata = json.loads(row["metadata_json"])
-    except (TypeError, json.JSONDecodeError) as error:
-        raise StorageError("Stored memory metadata is not valid JSON") from error
-    return MemoryRecord(
-        id=row["id"],
-        scope=_scope_from_row(row),
-        kind=MemoryKind(row["kind"]),
-        content=row["content"],
-        metadata=metadata,
-        status=MemoryStatus(row["status"]),
-        confidence=row["confidence"],
-        observed_at=_timestamp_from_storage(row["observed_at"], "observed_at"),
-        valid_from=(
-            _timestamp_from_storage(row["valid_from"], "valid_from")
-            if row["valid_from"] is not None
-            else None
-        ),
-        valid_to=(
-            _timestamp_from_storage(row["valid_to"], "valid_to")
-            if row["valid_to"] is not None
-            else None
-        ),
-        created_at=_timestamp_from_storage(row["created_at"], "created_at"),
-        updated_at=_timestamp_from_storage(row["updated_at"], "updated_at"),
-    )
+        if not isinstance(metadata, Mapping):
+            raise ValidationError("stored memory metadata must be a mapping")
+        return MemoryRecord(
+            id=row["id"],
+            scope=_scope_from_row(row),
+            kind=MemoryKind(row["kind"]),
+            content=row["content"],
+            metadata=dict(metadata),
+            status=MemoryStatus(row["status"]),
+            confidence=row["confidence"],
+            observed_at=_timestamp_from_storage(row["observed_at"], "observed_at"),
+            valid_from=(
+                _timestamp_from_storage(row["valid_from"], "valid_from")
+                if row["valid_from"] is not None
+                else None
+            ),
+            valid_to=(
+                _timestamp_from_storage(row["valid_to"], "valid_to")
+                if row["valid_to"] is not None
+                else None
+            ),
+            created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+            updated_at=_timestamp_from_storage(row["updated_at"], "updated_at"),
+        )
+    except Exception as error:
+        raise StorageError(f"Failed to hydrate memory row from {path}: {error}") from error
 
 
-def _row_to_event(row: sqlite3.Row) -> MemoryEvent:
+def _row_to_event(path: Path, row: sqlite3.Row) -> MemoryEvent:
     try:
         payload = json.loads(row["payload_json"])
-    except (TypeError, json.JSONDecodeError) as error:
-        raise StorageError("Stored memory event payload is not valid JSON") from error
-    return MemoryEvent(
-        id=row["id"],
-        scope=_scope_from_row(row),
-        event_type=MemoryEventType(row["event_type"]),
-        payload=payload,
-        occurred_at=_timestamp_from_storage(row["occurred_at"], "occurred_at"),
-        created_at=_timestamp_from_storage(row["created_at"], "created_at"),
-        memory_id=row["memory_id"],
-        idempotency_key=row["idempotency_key"],
-    )
+        return MemoryEvent(
+            id=row["id"],
+            scope=_scope_from_row(row),
+            event_type=MemoryEventType(row["event_type"]),
+            payload=payload,
+            occurred_at=_timestamp_from_storage(row["occurred_at"], "occurred_at"),
+            created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+            memory_id=row["memory_id"],
+            idempotency_key=row["idempotency_key"],
+        )
+    except Exception as error:
+        raise StorageError(f"Failed to hydrate memory event from {path}: {error}") from error
 
 
-def _row_to_history(row: sqlite3.Row) -> MemoryHistoryEntry:
+def _row_to_history(path: Path, row: sqlite3.Row) -> MemoryHistoryEntry:
     try:
         details = json.loads(row["details_json"])
-    except (TypeError, json.JSONDecodeError) as error:
-        raise StorageError("Stored memory history details are not valid JSON") from error
-    return MemoryHistoryEntry(
-        id=row["id"],
-        memory_id=row["memory_id"],
-        event_id=row["event_id"],
-        action=MemoryEventType(row["action"]),
-        status=MemoryStatus(row["status"]),
-        details=details,
-        created_at=_timestamp_from_storage(row["created_at"], "created_at"),
-    )
+        if not isinstance(details, Mapping):
+            raise ValidationError("stored memory history details must be a mapping")
+        return MemoryHistoryEntry(
+            id=row["id"],
+            memory_id=row["memory_id"],
+            event_id=row["event_id"],
+            action=MemoryEventType(row["action"]),
+            status=MemoryStatus(row["status"]),
+            details=dict(details),
+            created_at=_timestamp_from_storage(row["created_at"], "created_at"),
+        )
+    except Exception as error:
+        raise StorageError(f"Failed to hydrate memory history from {path}: {error}") from error
 
 
 def _execute_statements(connection: sqlite3.Connection, script: str) -> None:
@@ -577,46 +586,6 @@ def _remember(
     valid_from: Optional[str],
     valid_to: Optional[str],
 ) -> MemoryRecord:
-    now = utc_now()
-    memory_id = uuid4().hex
-    record = MemoryRecord(
-        id=memory_id,
-        scope=scope,
-        kind=kind,
-        content=content,
-        metadata={} if metadata is None else metadata,
-        confidence=confidence,
-        observed_at=_timestamp_from_input(observed_at, "observed_at") or now,
-        valid_from=_timestamp_from_input(valid_from, "valid_from"),
-        valid_to=_timestamp_from_input(valid_to, "valid_to"),
-        created_at=now,
-        updated_at=now,
-    )
-    event = MemoryEvent(
-        id=uuid4().hex,
-        memory_id=memory_id,
-        scope=scope,
-        event_type=MemoryEventType.REMEMBERED,
-        payload={"memory_id": memory_id},
-        idempotency_key=idempotency_key,
-        occurred_at=now,
-        created_at=now,
-    )
-    history_id = uuid4().hex
-    metadata_json = _canonical_json(record.metadata)
-    payload_json = _canonical_json(event.payload)
-    details_json = _canonical_json({})
-    timestamp = _timestamp_to_storage(now)
-    observed_timestamp = _timestamp_to_storage(record.observed_at)
-    valid_from_timestamp = (
-        _timestamp_to_storage(record.valid_from)
-        if record.valid_from is not None
-        else None
-    )
-    valid_to_timestamp = (
-        _timestamp_to_storage(record.valid_to) if record.valid_to is not None else None
-    )
-
     try:
         with closing(_connect(path)) as connection:
             connection.row_factory = sqlite3.Row
@@ -640,8 +609,57 @@ def _remember(
                             raise StorageError(
                                 "Idempotency event refers to a missing memory projection"
                             )
+                        record = _row_to_record(path, existing_record)
                         connection.commit()
-                        return _row_to_record(existing_record)
+                        return record
+
+                try:
+                    normalized_kind = MemoryKind(kind)
+                except (TypeError, ValueError) as error:
+                    raise ValidationError("kind must be a valid MemoryKind") from error
+
+                now = utc_now()
+                memory_id = uuid4().hex
+                record = MemoryRecord(
+                    id=memory_id,
+                    scope=scope,
+                    kind=normalized_kind,
+                    content=content,
+                    metadata={} if metadata is None else metadata,
+                    confidence=confidence,
+                    observed_at=_timestamp_from_input(observed_at, "observed_at")
+                    or now,
+                    valid_from=_timestamp_from_input(valid_from, "valid_from"),
+                    valid_to=_timestamp_from_input(valid_to, "valid_to"),
+                    created_at=now,
+                    updated_at=now,
+                )
+                event = MemoryEvent(
+                    id=uuid4().hex,
+                    memory_id=memory_id,
+                    scope=scope,
+                    event_type=MemoryEventType.REMEMBERED,
+                    payload={"memory_id": memory_id},
+                    idempotency_key=idempotency_key,
+                    occurred_at=now,
+                    created_at=now,
+                )
+                history_id = uuid4().hex
+                metadata_json = _canonical_json(record.metadata)
+                payload_json = _canonical_json(event.payload)
+                details_json = _canonical_json({})
+                timestamp = _timestamp_to_storage(now)
+                observed_timestamp = _timestamp_to_storage(record.observed_at)
+                valid_from_timestamp = (
+                    _timestamp_to_storage(record.valid_from)
+                    if record.valid_from is not None
+                    else None
+                )
+                valid_to_timestamp = (
+                    _timestamp_to_storage(record.valid_to)
+                    if record.valid_to is not None
+                    else None
+                )
 
                 connection.execute(
                     """
@@ -746,7 +764,7 @@ def _get(
         raise StorageError(f"Failed to get memory from {path}: {error}") from error
     if row is None:
         raise MemoryNotFoundError(f"Memory {memory_id!r} was not found in this scope")
-    return _row_to_record(row)
+    return _row_to_record(path, row)
 
 
 def _list(
@@ -772,7 +790,7 @@ def _list(
             rows = connection.execute(sql, parameters).fetchall()
     except sqlite3.Error as error:
         raise StorageError(f"Failed to list memories from {path}: {error}") from error
-    return [_row_to_record(row) for row in rows]
+    return [_row_to_record(path, row) for row in rows]
 
 
 def _history(
@@ -803,7 +821,7 @@ def _history(
             ).fetchall()
     except sqlite3.Error as error:
         raise StorageError(f"Failed to read memory history from {path}: {error}") from error
-    return [_row_to_history(row) for row in rows]
+    return [_row_to_history(path, row) for row in rows]
 
 
 class SQLiteMemoryStore:
