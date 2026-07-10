@@ -987,6 +987,18 @@ def _rebuild(path: Path, scope: MemoryScope) -> int:
                     (scope.scope_key,),
                 ).fetchall()
                 events = [_row_to_event(path, row) for row in rows]
+                for event in events:
+                    if event.scope != scope:
+                        raise StorageError(
+                            f"Event {event.id!r} scope fields do not match requested scope"
+                        )
+                    if event.event_type in {
+                        MemoryEventType.REMEMBERED,
+                        MemoryEventType.FORGOTTEN,
+                    } and event.payload.get("memory_id") != event.memory_id:
+                        raise StorageError(
+                            f"Event {event.id!r} payload memory_id does not match column"
+                        )
                 event_memory_ids = tuple(
                     dict.fromkeys(
                         event.memory_id
@@ -996,6 +1008,18 @@ def _rebuild(path: Path, scope: MemoryScope) -> int:
                 )
                 if event_memory_ids:
                     event_placeholders = ", ".join("?" for _ in event_memory_ids)
+                    foreign_event = connection.execute(
+                        f"""
+                        SELECT id, memory_id FROM memory_events
+                        WHERE memory_id IN ({event_placeholders}) AND scope_key != ?
+                        LIMIT 1
+                        """,
+                        (*event_memory_ids, scope.scope_key),
+                    ).fetchone()
+                    if foreign_event is not None:
+                        raise StorageError(
+                            f"Memory {foreign_event['memory_id']!r} also belongs to a foreign event scope"
+                        )
                     foreign_owner = connection.execute(
                         f"""
                         SELECT id FROM memories

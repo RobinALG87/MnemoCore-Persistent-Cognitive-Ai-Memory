@@ -1061,7 +1061,7 @@ async def test_rebuild_rejects_cross_scope_event_before_any_mutation(tmp_path, s
         )
         conn.commit()
 
-    with pytest.raises(StorageError, match="owned by another scope"):
+    with pytest.raises(StorageError, match="foreign event scope"):
         await store.rebuild(scope)
 
     assert await store.get(foreign_scope, foreign.id) == foreign
@@ -1073,6 +1073,188 @@ async def test_rebuild_rejects_cross_scope_event_before_any_mutation(tmp_path, s
             "SELECT count(*) FROM memory_fts WHERE memory_id IN (?, ?)",
             (foreign.id, "scope-a-orphan"),
         ).fetchone()[0] == 2
+    await store.close()
+
+
+def _scope_database_snapshot(path, target_scope):
+    with closing(sqlite3.connect(path)) as conn:
+        return (
+            conn.execute(
+                "SELECT * FROM memory_events WHERE scope_key = ? ORDER BY id",
+                (target_scope.scope_key,),
+            ).fetchall(),
+            conn.execute(
+                "SELECT * FROM memories WHERE scope_key = ? ORDER BY id",
+                (target_scope.scope_key,),
+            ).fetchall(),
+            conn.execute(
+                """
+                SELECT history.* FROM memory_history AS history
+                JOIN memories AS memory ON memory.id = history.memory_id
+                WHERE memory.scope_key = ? ORDER BY history.id
+                """,
+                (target_scope.scope_key,),
+            ).fetchall(),
+            conn.execute(
+                """
+                SELECT fts.memory_id, fts.content FROM memory_fts AS fts
+                JOIN memories AS memory ON memory.id = fts.memory_id
+                WHERE memory.scope_key = ? ORDER BY fts.memory_id
+                """,
+                (target_scope.scope_key,),
+            ).fetchall(),
+        )
+
+
+def _insert_crafted_remembered_event(
+    path,
+    *,
+    event_id,
+    memory_id,
+    scope_key,
+    denormalized_scope,
+    payload_memory_id,
+    template_payload,
+):
+    payload = json.loads(template_payload)
+    payload["memory_id"] = payload_memory_id
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO memory_events (
+                id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                project_id, session_id, event_type, payload_json,
+                idempotency_key, occurred_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                memory_id,
+                scope_key,
+                denormalized_scope.tenant_id,
+                denormalized_scope.user_id,
+                denormalized_scope.agent_id,
+                denormalized_scope.project_id,
+                denormalized_scope.session_id,
+                "remembered",
+                json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                None,
+                "2026-07-10T10:00:00.000000Z",
+                "2026-07-10T10:00:00.000000Z",
+            ),
+        )
+        conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_rejects_denormalized_event_scope_before_mutation(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    local = await store.remember(scope, "Local projection remains unchanged")
+    foreign_scope = MemoryScope(user_id="other", agent_id="codex")
+    foreign = await store.remember(foreign_scope, "Foreign projection remains unchanged")
+    with closing(sqlite3.connect(path)) as conn:
+        payload = conn.execute(
+            "SELECT payload_json FROM memory_events WHERE memory_id = ?", (local.id,)
+        ).fetchone()[0]
+    _insert_crafted_remembered_event(
+        path,
+        event_id="denormalized-scope-event",
+        memory_id="denormalized-scope-memory",
+        scope_key=scope.scope_key,
+        denormalized_scope=foreign_scope,
+        payload_memory_id="denormalized-scope-memory",
+        template_payload=payload,
+    )
+    before = (
+        _scope_database_snapshot(path, scope),
+        _scope_database_snapshot(path, foreign_scope),
+    )
+
+    with pytest.raises(StorageError, match="scope fields do not match"):
+        await store.rebuild(scope)
+
+    assert _scope_database_snapshot(path, scope) == before[0]
+    assert _scope_database_snapshot(path, foreign_scope) == before[1]
+    assert await store.get(scope, local.id) == local
+    assert await store.get(foreign_scope, foreign.id) == foreign
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_rejects_payload_memory_id_mismatch_before_mutation(
+    tmp_path, scope
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    local = await store.remember(scope, "Local projection remains unchanged")
+    foreign_scope = MemoryScope(user_id="other", agent_id="codex")
+    foreign = await store.remember(foreign_scope, "Foreign projection remains unchanged")
+    with closing(sqlite3.connect(path)) as conn:
+        payload = conn.execute(
+            "SELECT payload_json FROM memory_events WHERE memory_id = ?", (local.id,)
+        ).fetchone()[0]
+    _insert_crafted_remembered_event(
+        path,
+        event_id="payload-mismatch-event",
+        memory_id="column-memory-id",
+        scope_key=scope.scope_key,
+        denormalized_scope=scope,
+        payload_memory_id="different-payload-memory-id",
+        template_payload=payload,
+    )
+    before = (
+        _scope_database_snapshot(path, scope),
+        _scope_database_snapshot(path, foreign_scope),
+    )
+
+    with pytest.raises(StorageError, match="payload memory_id does not match"):
+        await store.rebuild(scope)
+
+    assert _scope_database_snapshot(path, scope) == before[0]
+    assert _scope_database_snapshot(path, foreign_scope) == before[1]
+    assert await store.get(scope, local.id) == local
+    assert await store.get(foreign_scope, foreign.id) == foreign
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_rejects_foreign_ledger_only_memory_id_collision(
+    tmp_path, scope
+):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    local = await store.remember(scope, "Local projection remains unchanged")
+    foreign_scope = MemoryScope(user_id="other", agent_id="codex")
+    foreign = await store.remember(foreign_scope, "Foreign ledger remains unchanged")
+    with closing(sqlite3.connect(path)) as conn:
+        payload = conn.execute(
+            "SELECT payload_json FROM memory_events WHERE memory_id = ?", (foreign.id,)
+        ).fetchone()[0]
+        conn.execute("DELETE FROM memory_history WHERE memory_id = ?", (foreign.id,))
+        conn.execute("DELETE FROM memory_fts WHERE memory_id = ?", (foreign.id,))
+        conn.execute("DELETE FROM memories WHERE id = ?", (foreign.id,))
+        conn.commit()
+    _insert_crafted_remembered_event(
+        path,
+        event_id="foreign-ledger-collision-event",
+        memory_id=foreign.id,
+        scope_key=scope.scope_key,
+        denormalized_scope=scope,
+        payload_memory_id=foreign.id,
+        template_payload=payload,
+    )
+    before = (
+        _scope_database_snapshot(path, scope),
+        _scope_database_snapshot(path, foreign_scope),
+    )
+
+    with pytest.raises(StorageError, match="foreign event scope"):
+        await store.rebuild(scope)
+
+    assert _scope_database_snapshot(path, scope) == before[0]
+    assert _scope_database_snapshot(path, foreign_scope) == before[1]
+    assert await store.get(scope, local.id) == local
     await store.close()
 
 
