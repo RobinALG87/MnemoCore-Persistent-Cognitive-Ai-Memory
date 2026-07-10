@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import math
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Optional
 
 from .errors import ScopeError, ValidationError
@@ -39,6 +41,40 @@ def _normalize_identifier(value: Optional[str], name: str, *, required: bool) ->
     if any(unicodedata.category(character) == "Cc" for character in normalized):
         raise ScopeError(f"{name} must not contain control characters")
     return normalized
+
+
+def _normalize_datetime(value: Any, name: str, *, required: bool = True) -> Optional[datetime]:
+    if value is None:
+        if required:
+            raise ValidationError(f"{name} is required")
+        return None
+    if not isinstance(value, datetime):
+        raise ValidationError(f"{name} must be a datetime")
+    try:
+        offset = value.utcoffset()
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValidationError(f"{name} must be timezone-aware") from error
+    if value.tzinfo is None or offset is None:
+        raise ValidationError(f"{name} must be timezone-aware")
+    try:
+        return value.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValidationError(f"{name} must be a valid timezone-aware datetime") from error
+
+
+def _freeze_json_value(value: Any, name: str) -> Any:
+    if isinstance(value, Mapping):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValidationError(f"{name} keys must be strings")
+            frozen[key] = _freeze_json_value(item, f"{name}.{key}")
+        return MappingProxyType(frozen)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json_value(item, name) for item in value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise ValidationError(f"{name} must contain only JSON-compatible values")
 
 
 class MemoryKind(str, Enum):
@@ -127,6 +163,15 @@ class MemoryRecord:
             confidence_is_valid = False
         if not confidence_is_valid:
             raise ValidationError("confidence must be between 0 and 1")
+        for name, required in (
+            ("observed_at", True),
+            ("valid_from", False),
+            ("valid_to", False),
+            ("created_at", True),
+            ("updated_at", True),
+        ):
+            value = _normalize_datetime(getattr(self, name), name, required=required)
+            object.__setattr__(self, name, value)
         if (
             self.valid_from is not None
             and self.valid_to is not None
@@ -140,11 +185,19 @@ class MemoryEvent:
     id: str
     scope: MemoryScope
     event_type: MemoryEventType
-    payload: dict[str, Any]
+    payload: Mapping[str, Any]
     occurred_at: datetime = field(default_factory=utc_now)
     created_at: datetime = field(default_factory=utc_now)
     memory_id: Optional[str] = None
     idempotency_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.payload, Mapping):
+            raise ValidationError("payload must be a mapping")
+        object.__setattr__(self, "payload", _freeze_json_value(self.payload, "payload"))
+        for name in ("occurred_at", "created_at"):
+            value = _normalize_datetime(getattr(self, name), name)
+            object.__setattr__(self, name, value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +209,9 @@ class MemoryHistoryEntry:
     status: MemoryStatus
     created_at: datetime = field(default_factory=utc_now)
     details: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "created_at", _normalize_datetime(self.created_at, "created_at"))
 
 
 @dataclass(frozen=True, slots=True)

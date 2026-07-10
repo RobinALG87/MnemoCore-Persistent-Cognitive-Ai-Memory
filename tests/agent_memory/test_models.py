@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError, fields
 from datetime import datetime, timedelta, timezone
+from types import MappingProxyType
 
 import pytest
 
@@ -40,6 +41,33 @@ def make_record(**overrides):
     }
     values.update(overrides)
     return MemoryRecord(**values)
+
+
+def make_event(**overrides):
+    now = datetime(2026, 7, 10, tzinfo=timezone.utc)
+    values = {
+        "id": "event-1",
+        "scope": MemoryScope(user_id="robin", agent_id="codex"),
+        "event_type": MemoryEventType.REMEMBERED,
+        "payload": {"content": "Prefer compact public APIs"},
+        "occurred_at": now,
+        "created_at": now,
+    }
+    values.update(overrides)
+    return MemoryEvent(**values)
+
+
+def make_history(**overrides):
+    values = {
+        "id": "history-1",
+        "memory_id": "memory-1",
+        "event_id": "event-1",
+        "action": MemoryEventType.REMEMBERED,
+        "status": MemoryStatus.ACTIVE,
+        "created_at": datetime(2026, 7, 10, tzinfo=timezone.utc),
+    }
+    values.update(overrides)
+    return MemoryHistoryEntry(**values)
 
 
 def test_scope_requires_user_and_agent():
@@ -159,6 +187,99 @@ def test_memory_record_requires_valid_to_after_valid_from(offset):
     valid_from = datetime(2026, 7, 10, tzinfo=timezone.utc)
     with pytest.raises(ValidationError):
         make_record(valid_from=valid_from, valid_to=valid_from + offset)
+
+
+def test_memory_event_payload_rejects_direct_mutation():
+    event = make_event(payload={"direct": 1})
+
+    assert isinstance(event.payload, MappingProxyType)
+    with pytest.raises(TypeError):
+        event.payload["direct"] = 2
+
+
+def test_memory_event_payload_rejects_nested_mutation():
+    event = make_event(payload={"nested": {"items": [1, {"value": 2}]}})
+
+    with pytest.raises(TypeError):
+        event.payload["nested"]["items"][1]["value"] = 3
+    with pytest.raises(AttributeError):
+        event.payload["nested"]["items"].append(3)
+
+
+def test_memory_event_payload_is_detached_from_the_original_mapping():
+    original = {"nested": {"items": ["original"]}}
+
+    event = make_event(payload=original)
+    original["nested"]["items"].append("changed")
+    original["nested"]["new"] = "changed"
+    original["top"] = "changed"
+
+    assert event.payload == {"nested": {"items": ("original",)}}
+
+
+def test_models_normalize_aware_datetimes_to_utc():
+    eastern = timezone(timedelta(hours=2))
+    local_time = datetime(2026, 7, 10, 14, 30, tzinfo=eastern)
+    expected = datetime(2026, 7, 10, 12, 30, tzinfo=timezone.utc)
+
+    record = make_record(
+        observed_at=local_time,
+        valid_from=local_time,
+        valid_to=local_time + timedelta(hours=1),
+        created_at=local_time,
+        updated_at=local_time,
+    )
+    event = make_event(occurred_at=local_time, created_at=local_time)
+    history = make_history(created_at=local_time)
+
+    assert record.observed_at == expected
+    assert record.valid_from == expected
+    assert record.valid_to == expected + timedelta(hours=1)
+    assert record.created_at == expected
+    assert record.updated_at == expected
+    assert event.occurred_at == expected
+    assert event.created_at == expected
+    assert history.created_at == expected
+    for value in (
+        record.observed_at,
+        record.valid_from,
+        record.valid_to,
+        record.created_at,
+        record.updated_at,
+        event.occurred_at,
+        event.created_at,
+        history.created_at,
+    ):
+        assert value.tzinfo is timezone.utc
+
+
+@pytest.mark.parametrize(
+    ("factory", "field_name"),
+    [
+        (make_record, "observed_at"),
+        (make_record, "valid_from"),
+        (make_record, "valid_to"),
+        (make_record, "created_at"),
+        (make_record, "updated_at"),
+        (make_event, "occurred_at"),
+        (make_event, "created_at"),
+        (make_history, "created_at"),
+    ],
+    ids=[
+        "record-observed-at",
+        "record-valid-from",
+        "record-valid-to",
+        "record-created-at",
+        "record-updated-at",
+        "event-occurred-at",
+        "event-created-at",
+        "history-created-at",
+    ],
+)
+@pytest.mark.parametrize("invalid", [datetime(2026, 7, 10), "2026-07-10T00:00:00Z"])
+def test_models_reject_naive_and_non_datetime_values(factory, field_name, invalid):
+    with pytest.raises(ValidationError):
+        factory(**{field_name: invalid})
 
 
 def test_event_history_and_recall_models_are_frozen_and_slotted():
