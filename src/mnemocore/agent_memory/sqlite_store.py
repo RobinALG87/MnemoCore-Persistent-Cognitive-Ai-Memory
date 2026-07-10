@@ -9,7 +9,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, TypeVar
 from uuid import uuid4
@@ -772,6 +772,131 @@ def _get(
     return _row_to_record(path, row)
 
 
+def _forget(
+    path: Path,
+    scope: MemoryScope,
+    memory_id: str,
+    *,
+    reason: Optional[str],
+) -> MemoryRecord:
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                existing = connection.execute(
+                    "SELECT * FROM memories WHERE scope_key = ? AND id = ?",
+                    (scope.scope_key, memory_id),
+                ).fetchone()
+                if existing is None:
+                    raise MemoryNotFoundError(
+                        f"Memory {memory_id!r} was not found in this scope"
+                    )
+
+                record = _row_to_record(path, existing)
+                if record.status is MemoryStatus.FORGOTTEN:
+                    connection.commit()
+                    return record
+                if record.status is not MemoryStatus.ACTIVE:
+                    raise MemoryNotFoundError(
+                        f"Active memory {memory_id!r} was not found in this scope"
+                    )
+
+                now = utc_now()
+                if now <= record.updated_at:
+                    now = record.updated_at + timedelta(microseconds=1)
+                timestamp = _timestamp_to_storage(now)
+                event = MemoryEvent(
+                    id=uuid4().hex,
+                    memory_id=memory_id,
+                    scope=scope,
+                    event_type=MemoryEventType.FORGOTTEN,
+                    payload={"memory_id": memory_id, "reason": reason},
+                    occurred_at=now,
+                    created_at=now,
+                )
+
+                connection.execute(
+                    """
+                    INSERT INTO memory_events (
+                        id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                        project_id, session_id, event_type, payload_json,
+                        idempotency_key, occurred_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.id,
+                        memory_id,
+                        scope.scope_key,
+                        scope.tenant_id,
+                        scope.user_id,
+                        scope.agent_id,
+                        scope.project_id,
+                        scope.session_id,
+                        event.event_type.value,
+                        _canonical_json(event.payload),
+                        None,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                updated = connection.execute(
+                    """
+                    UPDATE memories
+                    SET status = ?, updated_at = ?
+                    WHERE scope_key = ? AND id = ? AND status = ?
+                    """,
+                    (
+                        MemoryStatus.FORGOTTEN.value,
+                        timestamp,
+                        scope.scope_key,
+                        memory_id,
+                        MemoryStatus.ACTIVE.value,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise sqlite3.DatabaseError(
+                        "active memory projection changed during forget"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO memory_history (
+                        id, memory_id, event_id, action, status, details_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        uuid4().hex,
+                        memory_id,
+                        event.id,
+                        event.event_type.value,
+                        MemoryStatus.FORGOTTEN.value,
+                        _canonical_json({"reason": reason}),
+                        timestamp,
+                    ),
+                )
+                connection.execute(
+                    "DELETE FROM memory_fts WHERE memory_id = ?",
+                    (memory_id,),
+                )
+                forgotten = connection.execute(
+                    "SELECT * FROM memories WHERE scope_key = ? AND id = ?",
+                    (scope.scope_key, memory_id),
+                ).fetchone()
+                if forgotten is None:
+                    raise sqlite3.DatabaseError(
+                        "forgotten memory projection disappeared during forget"
+                    )
+                result = _row_to_record(path, forgotten)
+                connection.commit()
+                return result
+            except Exception:
+                connection.rollback()
+                raise
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to forget memory in {path}: {error}") from error
+
+
 def _list(
     path: Path,
     scope: MemoryScope,
@@ -1031,6 +1156,20 @@ class SQLiteMemoryStore:
         memory_id: str,
     ) -> builtins.list[MemoryHistoryEntry]:
         return await self._run(_history, scope, memory_id)
+
+    async def forget(
+        self,
+        scope: MemoryScope,
+        memory_id: str,
+        *,
+        reason: Optional[str] = None,
+    ) -> MemoryRecord:
+        return await self._run(
+            _forget,
+            scope,
+            memory_id,
+            reason=reason,
+        )
 
     async def recall(
         self,

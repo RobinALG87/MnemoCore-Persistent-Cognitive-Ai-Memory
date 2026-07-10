@@ -355,6 +355,122 @@ async def test_crud_is_exact_scope_and_idempotency_is_scope_local(tmp_path, scop
 
 
 @pytest.mark.asyncio
+async def test_forget_tombstones_and_removes_from_recall(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    record = await store.remember(scope, "Never repeat this failed migration")
+
+    forgotten = await store.forget(scope, record.id, reason="incorrect")
+
+    assert forgotten.status is MemoryStatus.FORGOTTEN
+    assert forgotten.updated_at > record.updated_at
+    assert await store.recall(scope, "failed migration") == []
+    with pytest.raises(MemoryNotFoundError):
+        await store.get(scope, record.id)
+    assert await store.get(scope, record.id, include_forgotten=True) == forgotten
+    history = await store.history(scope, record.id)
+    assert [entry.action.value for entry in history] == ["remembered", "forgotten"]
+    assert history[-1].details == {"reason": "incorrect"}
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_forget_is_idempotent_for_an_already_forgotten_memory(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(scope, "Forget exactly once")
+
+    first = await store.forget(scope, record.id, reason="first reason")
+    repeated = await store.forget(scope, record.id, reason="replacement reason")
+
+    assert repeated == first
+    assert [entry.details for entry in await store.history(scope, record.id)] == [
+        {},
+        {"reason": "first reason"},
+    ]
+    await store.close()
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memory_events WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 2
+        assert conn.execute(
+            "SELECT count(*) FROM memory_history WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 2
+
+
+@pytest.mark.asyncio
+async def test_forget_requires_exact_scope_without_side_effects(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(scope, "Private scoped memory")
+    foreign_scope = MemoryScope(
+        user_id="other",
+        agent_id=scope.agent_id,
+        project_id=scope.project_id,
+    )
+
+    with pytest.raises(MemoryNotFoundError):
+        await store.forget(foreign_scope, record.id, reason="not authorized")
+
+    assert (await store.get(scope, record.id)).status is MemoryStatus.ACTIVE
+    assert [result.memory.id for result in await store.recall(scope, "private scoped")] == [
+        record.id
+    ]
+    await store.close()
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memory_events WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT count(*) FROM memory_history WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_forget_rolls_back_ledger_and_projections_on_failure(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(scope, "Remain searchable after rollback")
+    with closing(sqlite3.connect(path)) as conn:
+        conn.executescript(
+            """
+            CREATE TRIGGER fail_forgotten_history_insert
+            BEFORE INSERT ON memory_history
+            WHEN NEW.action = 'forgotten'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced forget failure');
+            END;
+            """
+        )
+
+    with pytest.raises(StorageError, match="forced forget failure") as raised:
+        await store.forget(scope, record.id, reason="must roll back")
+    assert isinstance(raised.value.__cause__, sqlite3.Error)
+    assert (await store.get(scope, record.id)).status is MemoryStatus.ACTIVE
+    assert [result.memory.id for result in await store.recall(scope, "remain searchable")] == [
+        record.id
+    ]
+    await store.close()
+
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memory_events WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT count(*) FROM memory_history WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
 async def test_remember_serializes_immutable_json_and_utc_timestamps(tmp_path, scope):
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
