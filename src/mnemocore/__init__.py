@@ -7,7 +7,10 @@ available as a lazy export so focused subpackages can be imported without
 initializing the legacy engine stack.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ._memory import Memory
 
 __version__ = "2.0.0"
 __all__ = ["Memory", "__version__"]

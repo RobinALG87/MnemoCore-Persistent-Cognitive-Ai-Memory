@@ -173,3 +173,41 @@ assert repr(memory) == "<Memory (lite)>"
         part for part in (source_root, environment.get("PYTHONPATH")) if part
     )
     subprocess.run([sys.executable, "-c", script], check=True, env=environment)
+
+
+def test_subprocess_memory_persists_across_restarts(tmp_path):
+    path = tmp_path / "memory.db"
+    script = r"""
+import asyncio
+import sys
+
+from mnemocore.agent_memory import AgentMemory, MemoryScope
+
+
+async def main():
+    path = sys.argv[1]
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
+    async with await AgentMemory.open(path, scope=scope) as memory:
+        await memory.remember("Persistent across restarts")
+        await memory.remember("A second durable memory")
+    async with await AgentMemory.open(path, scope=scope) as memory:
+        results = await memory.recall("persistent restarts", limit=1)
+        print(results[0].memory.content)
+
+
+asyncio.run(main())
+"""
+    environment = os.environ.copy()
+    source_root = str(Path(__file__).resolve().parents[2] / "src")
+    environment["PYTHONPATH"] = source_root
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert completed.stdout == "Persistent across restarts\n"
+    assert completed.stderr == ""

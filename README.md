@@ -731,6 +731,9 @@ Prometheus metrics endpoint. Requires `X-API-Key` by default unless explicitly e
 
 ## Python Library Usage
 
+For durable SQLite-backed memory with exact agent scopes, async and sync APIs,
+see the [Persistent Agent Memory Quickstart](docs/AGENT_MEMORY_QUICKSTART.md).
+
 ### Lightweight Quickstart (recommended - very light, no Redis/Qdrant)
 
 ```python

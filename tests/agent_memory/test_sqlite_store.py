@@ -330,6 +330,37 @@ async def test_remember_is_persistent_and_idempotent(tmp_path, scope):
 
 
 @pytest.mark.asyncio
+async def test_remember_returns_same_canonical_metadata_on_create_retry_and_reopen(
+    tmp_path, scope
+):
+    path = tmp_path / "memory.db"
+    metadata = MappingProxyType(
+        {"nested": MappingProxyType({"items": ("first", {"answer": 42})})}
+    )
+    store = await SQLiteMemoryStore.open(path)
+
+    created = await store.remember(
+        scope,
+        "Canonical return value",
+        metadata=metadata,
+        idempotency_key="canonical-return",
+    )
+    retried = await store.remember(
+        scope,
+        "Ignored retry payload",
+        idempotency_key="canonical-return",
+    )
+    await store.close()
+
+    reopened = await SQLiteMemoryStore.open(path)
+    restored = await reopened.get(scope, created.id)
+    await reopened.close()
+
+    assert created == retried == restored
+    assert created.metadata == {"nested": {"items": ["first", {"answer": 42}]}}
+
+
+@pytest.mark.asyncio
 async def test_crud_is_exact_scope_and_idempotency_is_scope_local(tmp_path, scope):
     store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
     foreign_scope = MemoryScope(
@@ -356,7 +387,8 @@ async def test_crud_is_exact_scope_and_idempotency_is_scope_local(tmp_path, scop
 
 @pytest.mark.asyncio
 async def test_forget_tombstones_and_removes_from_recall(tmp_path, scope):
-    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
     record = await store.remember(scope, "Never repeat this failed migration")
 
     forgotten = await store.forget(scope, record.id, reason="incorrect")
@@ -371,6 +403,11 @@ async def test_forget_tombstones_and_removes_from_recall(tmp_path, scope):
     assert [entry.action.value for entry in history] == ["remembered", "forgotten"]
     assert history[-1].details == {"reason": "incorrect"}
     await store.close()
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 0
 
 
 @pytest.mark.asyncio

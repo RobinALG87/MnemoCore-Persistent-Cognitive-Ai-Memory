@@ -625,12 +625,13 @@ def _remember(
 
                 now = utc_now()
                 memory_id = uuid4().hex
+                metadata_json = _canonical_json({} if metadata is None else metadata)
                 record = MemoryRecord(
                     id=memory_id,
                     scope=scope,
                     kind=normalized_kind,
                     content=content,
-                    metadata={} if metadata is None else metadata,
+                    metadata=json.loads(metadata_json),
                     confidence=confidence,
                     observed_at=_timestamp_from_input(observed_at, "observed_at")
                     or now,
@@ -650,7 +651,6 @@ def _remember(
                     created_at=now,
                 )
                 history_id = uuid4().hex
-                metadata_json = _canonical_json(record.metadata)
                 payload_json = _canonical_json(event.payload)
                 details_json = _canonical_json({})
                 timestamp = _timestamp_to_storage(now)
