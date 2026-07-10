@@ -254,3 +254,67 @@ class RecallResult:
         if any(not isinstance(event_id, str) or not event_id for event_id in evidence_ids):
             raise ValidationError("evidence_ids must contain non-empty strings")
         object.__setattr__(self, "evidence_ids", evidence_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryReceipt:
+    """Provenance retained when a memory is compiled into agent context."""
+
+    memory_id: str
+    scope: MemoryScope
+    kind: MemoryKind
+    score: float
+    score_components: Mapping[str, Any] = field(default_factory=dict)
+    reason: str = ""
+    evidence_ids: tuple[str, ...] = ()
+    estimated_tokens: int = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.memory_id, str) or not self.memory_id:
+            raise ValidationError("memory_id must be a non-empty string")
+        if not isinstance(self.scope, MemoryScope):
+            raise ValidationError("scope must be a MemoryScope")
+        try:
+            score_is_finite = math.isfinite(self.score)
+        except TypeError:
+            score_is_finite = False
+        if not score_is_finite:
+            raise ValidationError("score must be finite")
+        if not isinstance(self.score_components, Mapping):
+            raise ValidationError("score_components must be a mapping")
+        object.__setattr__(
+            self,
+            "score_components",
+            _freeze_json_value(self.score_components, "score_components"),
+        )
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValidationError("reason must not be blank")
+        if isinstance(self.evidence_ids, (str, bytes)):
+            raise ValidationError("evidence_ids must be a sequence of strings")
+        try:
+            evidence_ids = tuple(self.evidence_ids)
+        except TypeError as error:
+            raise ValidationError("evidence_ids must be a sequence of strings") from error
+        if any(not isinstance(event_id, str) or not event_id for event_id in evidence_ids):
+            raise ValidationError("evidence_ids must contain non-empty strings")
+        object.__setattr__(self, "evidence_ids", evidence_ids)
+        if (
+            not isinstance(self.estimated_tokens, int)
+            or isinstance(self.estimated_tokens, bool)
+            or self.estimated_tokens < 1
+        ):
+            raise ValidationError("estimated_tokens must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class ContextItem:
+    """One context item and the receipt that explains why it was selected."""
+
+    content: str
+    receipt: MemoryReceipt
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.content, str) or not self.content.strip():
+            raise ValidationError("content must not be blank")
+        if not isinstance(self.receipt, MemoryReceipt):
+            raise ValidationError("receipt must be a MemoryReceipt")

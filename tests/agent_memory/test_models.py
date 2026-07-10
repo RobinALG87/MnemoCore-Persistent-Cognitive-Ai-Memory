@@ -7,11 +7,13 @@ import pytest
 from mnemocore.agent_memory import (
     AgentMemoryError,
     ClosedStoreError,
+    ContextItem,
     MemoryEvent,
     MemoryEventType,
     MemoryHistoryEntry,
     MemoryKind,
     MemoryNotFoundError,
+    MemoryReceipt,
     MemoryRecord,
     MemoryScope,
     MemoryStatus,
@@ -121,6 +123,7 @@ def test_enum_values_are_stable():
         "episode",
         "procedure",
         "preference",
+        "decision",
         "summary",
     ]
     assert [status.value for status in MemoryStatus] == [
@@ -387,3 +390,22 @@ def test_exception_hierarchy_is_public_and_stable():
     assert issubclass(StorageError, AgentMemoryError)
     assert issubclass(MemoryNotFoundError, AgentMemoryError)
     assert issubclass(ClosedStoreError, StorageError)
+
+
+def test_context_item_preserves_a_valid_receipt():
+    scope = MemoryScope(user_id="robin", agent_id="codex")
+    receipt = MemoryReceipt(
+        memory_id="memory-1",
+        scope=scope,
+        kind=MemoryKind.PREFERENCE,
+        score=1.0,
+        score_components={"bm25_rank": 1.0},
+        reason="Matched lexical terms",
+        evidence_ids=("event-1",),
+        estimated_tokens=4,
+    )
+
+    item = ContextItem(content="Prefer concise updates", receipt=receipt)
+
+    assert item.receipt.memory_id == "memory-1"
+    assert item.receipt.scope == scope
