@@ -65,7 +65,7 @@ async def test_open_creates_versioned_schema(tmp_path):
     await store.close()
 
     with sqlite3.connect(path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
         tables = {
             row[0]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -436,6 +436,10 @@ async def test_forget_is_idempotent_for_an_already_forgotten_memory(tmp_path, sc
             "SELECT count(*) FROM memory_history WHERE memory_id = ?",
             (record.id,),
         ).fetchone()[0] == 2
+        assert conn.execute(
+            "SELECT count(*) FROM memory_lifecycle WHERE memory_id = ?",
+            (record.id,),
+        ).fetchone()[0] == 2
 
 
 @pytest.mark.asyncio
@@ -507,6 +511,101 @@ async def test_forget_rolls_back_ledger_and_projections_on_failure(tmp_path, sco
             "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
             (record.id,),
         ).fetchone()[0] == 1
+        assert conn.execute(
+            """
+            SELECT status, known_to FROM memory_lifecycle
+            WHERE memory_id = ? ORDER BY known_from
+            """,
+            (record.id,),
+        ).fetchall() == [("active", None)]
+
+
+@pytest.mark.asyncio
+async def test_remember_and_forget_maintain_lifecycle_immediately(tmp_path, scope):
+    path = tmp_path / "memory.db"
+    store = await SQLiteMemoryStore.open(path)
+    record = await store.remember(
+        scope,
+        "Lifecycle projection",
+        valid_from="2026-07-01T00:00:00Z",
+        valid_to="2026-08-01T00:00:00Z",
+    )
+    with closing(sqlite3.connect(path)) as conn:
+        remembered = conn.execute(
+            """
+            SELECT status, known_from, known_to, valid_from, valid_to, event_id,
+                   created_at
+            FROM memory_lifecycle WHERE memory_id = ?
+            """,
+            (record.id,),
+        ).fetchone()
+        remembered_event = conn.execute(
+            """
+            SELECT occurred_at, id, created_at FROM memory_events
+            WHERE memory_id = ? AND event_type = 'remembered'
+            """,
+            (record.id,),
+        ).fetchone()
+    assert remembered == (
+        "active",
+        remembered_event[0],
+        None,
+        "2026-07-01T00:00:00.000000Z",
+        "2026-08-01T00:00:00.000000Z",
+        remembered_event[1],
+        remembered_event[2],
+    )
+
+    await store.forget(scope, record.id, reason="expired")
+    with closing(sqlite3.connect(path)) as conn:
+        lifecycle = conn.execute(
+            """
+            SELECT status, known_from, known_to, valid_from, valid_to, event_id,
+                   created_at
+            FROM memory_lifecycle WHERE memory_id = ? ORDER BY known_from
+            """,
+            (record.id,),
+        ).fetchall()
+        forgotten_event = conn.execute(
+            """
+            SELECT occurred_at, id, created_at FROM memory_events
+            WHERE memory_id = ? AND event_type = 'forgotten'
+            """,
+            (record.id,),
+        ).fetchone()
+    assert lifecycle == [
+        (
+            "active",
+            remembered_event[0],
+            forgotten_event[0],
+            "2026-07-01T00:00:00.000000Z",
+            "2026-08-01T00:00:00.000000Z",
+            remembered_event[1],
+            remembered_event[2],
+        ),
+        (
+            "forgotten",
+            forgotten_event[0],
+            None,
+            "2026-07-01T00:00:00.000000Z",
+            "2026-08-01T00:00:00.000000Z",
+            forgotten_event[1],
+            forgotten_event[2],
+        ),
+    ]
+    before_rebuild = lifecycle
+    assert await store.rebuild(scope) == 1
+    with closing(sqlite3.connect(path)) as conn:
+        after_rebuild = conn.execute(
+            """
+            SELECT status, known_from, known_to, valid_from, valid_to, event_id,
+                   created_at
+            FROM memory_lifecycle WHERE memory_id = ? ORDER BY known_from
+            """,
+            (record.id,),
+        ).fetchall()
+    assert after_rebuild == before_rebuild
+    await store.close()
 
 
 @pytest.mark.asyncio
