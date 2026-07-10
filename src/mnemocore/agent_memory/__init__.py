@@ -1,4 +1,4 @@
-"""Public API for MnemoCore's vNext agent-memory foundation."""
+"""Public API for MnemoCore's persistent bitemporal agent memory."""
 
 from .client import AgentMemory, SyncAgentMemory
 from .errors import (

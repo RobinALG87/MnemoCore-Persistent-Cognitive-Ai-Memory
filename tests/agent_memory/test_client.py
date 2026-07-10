@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import os
 import subprocess
 import sys
@@ -16,7 +17,28 @@ from mnemocore.agent_memory import (
     MemoryScope,
     MemoryStatus,
     SyncAgentMemory,
+    ValidationError,
 )
+
+
+VALID_BEFORE = "2026-07-11T09:30:00.000000Z"
+EFFECTIVE_AT = "2026-07-11T09:30:00.000001Z"
+
+
+def _known_at(record):
+    return record.updated_at.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _without_self(method):
+    signature = inspect.signature(method)
+    return signature.replace(parameters=tuple(signature.parameters.values())[1:])
+
+
+def test_async_and_sync_timeline_methods_have_exact_signatures():
+    for method_name in ("supersede", "recall", "explain"):
+        assert _without_self(getattr(AgentMemory, method_name)) == _without_self(
+            getattr(SyncAgentMemory, method_name)
+        )
 
 
 @pytest.mark.asyncio
@@ -59,6 +81,56 @@ async def test_async_public_round_trip(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_async_timeline_facade_has_supersede_recall_and_explain_parity(tmp_path):
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="timeline")
+    memory = await AgentMemory.open(tmp_path / "memory.db", scope=scope)
+
+    async with memory:
+        source = await memory.remember(
+            "Launch date is July 20",
+            kind=MemoryKind.FACT,
+            valid_from="2026-07-01T00:00:00Z",
+        )
+        replacement = await memory.supersede(
+            source.id,
+            "Launch date is July 27",
+            effective_at=EFFECTIVE_AT,
+            reason="vendor correction",
+            metadata={"source": "vendor"},
+            confidence=0.95,
+            idempotency_key="launch-date-v2",
+        )
+        known_at = _known_at(replacement)
+        before = await memory.recall(
+            "launch date",
+            valid_at=VALID_BEFORE,
+            known_at=known_at,
+        )
+        exact = await memory.recall(
+            "launch date",
+            valid_at=EFFECTIVE_AT,
+            known_at=known_at,
+        )
+        receipt = await memory.explain(
+            replacement.id,
+            valid_at=EFFECTIVE_AT,
+            known_at=known_at,
+        )
+
+        assert [result.memory.id for result in before] == [source.id]
+        assert [result.memory.id for result in exact] == [replacement.id]
+        assert receipt.memory == replacement
+        assert receipt.evidence_memory_ids == (source.id,)
+        assert [relation.target_id for relation in receipt.relations] == [source.id]
+        with pytest.raises(ValidationError, match="as_of and valid_at"):
+            await memory.recall(
+                "launch date",
+                as_of=VALID_BEFORE,
+                valid_at=EFFECTIVE_AT,
+            )
+
+
+@pytest.mark.asyncio
 async def test_async_client_always_uses_its_exact_default_scope(tmp_path):
     path = tmp_path / "memory.db"
     local_scope = MemoryScope(user_id="robin", agent_id="codex")
@@ -85,6 +157,13 @@ async def test_async_close_is_idempotent_and_all_operations_reject_after_close(t
     operations = (
         lambda: memory.remember("closed"),
         lambda: memory.recall("closed"),
+        lambda: memory.recall(
+            "closed", valid_at=VALID_BEFORE, known_at=EFFECTIVE_AT
+        ),
+        lambda: memory.supersede(
+            "missing", "closed", effective_at=EFFECTIVE_AT
+        ),
+        lambda: memory.explain("missing"),
         lambda: memory.get("missing"),
         lambda: memory.list(),
         lambda: memory.history("missing"),
@@ -120,14 +199,85 @@ def test_sync_public_round_trip_reuses_one_private_loop(tmp_path):
     memory.close()
 
 
+def test_sync_timeline_facade_matches_async_and_reuses_one_private_loop(tmp_path):
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="sync-timeline")
+
+    with SyncAgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        private_loop = memory._loop
+        source = memory.remember(
+            "Launch date is July 20",
+            kind=MemoryKind.FACT,
+            valid_from="2026-07-01T00:00:00Z",
+        )
+        replacement = memory.supersede(
+            source.id,
+            "Launch date is July 27",
+            effective_at=EFFECTIVE_AT,
+            reason="vendor correction",
+            metadata={"source": "vendor"},
+            confidence=0.95,
+            idempotency_key="sync-launch-date-v2",
+        )
+        known_at = _known_at(replacement)
+        before = memory.recall(
+            "launch date",
+            valid_at=VALID_BEFORE,
+            known_at=known_at,
+        )
+        exact = memory.recall(
+            "launch date",
+            valid_at=EFFECTIVE_AT,
+            known_at=known_at,
+        )
+        receipt = memory.explain(
+            replacement.id,
+            valid_at=EFFECTIVE_AT,
+            known_at=known_at,
+        )
+
+        assert [result.memory.id for result in before] == [source.id]
+        assert [result.memory.id for result in exact] == [replacement.id]
+        assert receipt.memory == replacement
+        assert receipt.evidence_memory_ids == (source.id,)
+        assert [relation.target_id for relation in receipt.relations] == [source.id]
+        assert memory._loop is private_loop
+        assert not private_loop.is_closed()
+        with pytest.raises(ValidationError, match="as_of and valid_at"):
+            memory.recall(
+                "launch date",
+                as_of=VALID_BEFORE,
+                valid_at=EFFECTIVE_AT,
+            )
+
+    operations = (
+        lambda: memory.recall("closed", valid_at=VALID_BEFORE),
+        lambda: memory.supersede(
+            "missing", "closed", effective_at=EFFECTIVE_AT
+        ),
+        lambda: memory.explain("missing"),
+    )
+    for operation in operations:
+        with pytest.raises(ClosedStoreError):
+            operation()
+
+
 def test_sync_client_refuses_calls_from_async_code_without_becoming_unusable(tmp_path):
     scope = MemoryScope(user_id="robin", agent_id="codex")
     memory = SyncAgentMemory.open(tmp_path / "memory.db", scope=scope)
     stored = memory.remember("Remain usable after rejected async call")
 
     async def call_sync_client():
-        with pytest.raises(AgentMemoryError, match="^Use AgentMemory inside async code$"):
-            memory.get(stored.id)
+        operations = (
+            lambda: memory.get(stored.id),
+            lambda: memory.recall("usable", valid_at=VALID_BEFORE),
+            lambda: memory.supersede(
+                stored.id, "rejected", effective_at=EFFECTIVE_AT
+            ),
+            lambda: memory.explain(stored.id),
+        )
+        for operation in operations:
+            with pytest.raises(AgentMemoryError, match="^Use AgentMemory inside async code$"):
+                operation()
 
     asyncio.run(call_sync_client())
     assert memory.get(stored.id) == stored
@@ -213,4 +363,165 @@ asyncio.run(main())
     )
 
     assert completed.stdout == "Persistent across restarts\n"
+    assert completed.stderr == ""
+
+
+def test_subprocess_v1_timeline_survives_migration_and_restart(tmp_path):
+    path = tmp_path / "v1-timeline.db"
+    script = r'''
+import asyncio
+import json
+import sqlite3
+import sys
+
+from mnemocore.agent_memory import AgentMemory, MemoryScope
+from mnemocore.agent_memory.schema import _AUXILIARY_SCHEMA_V1, _TABLE_SCHEMA_V1
+
+
+PATH = sys.argv[1]
+SCOPE = MemoryScope(user_id="robin", agent_id="codex", project_id="timeline")
+MEMORY_ID = "foundation-fact"
+REMEMBERED_AT = "2026-07-10T10:00:00.000000Z"
+VALID_BEFORE = "2026-07-11T09:30:00.000000Z"
+EFFECTIVE_AT = "2026-07-11T09:30:00.000001Z"
+
+
+def create_v1_database():
+    observation = {
+        "memory_id": MEMORY_ID,
+        "observation": {
+            "kind": "fact",
+            "content": "Launch date is July 20",
+            "metadata": {},
+            "status": "active",
+            "confidence": 1.0,
+            "observed_at": REMEMBERED_AT,
+            "valid_from": "2026-07-01T00:00:00.000000Z",
+            "valid_to": None,
+            "created_at": REMEMBERED_AT,
+            "updated_at": REMEMBERED_AT,
+        },
+    }
+    with sqlite3.connect(PATH) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.executescript(_TABLE_SCHEMA_V1)
+        connection.executescript(_AUXILIARY_SCHEMA_V1)
+        scope_values = (
+            SCOPE.scope_key,
+            SCOPE.tenant_id,
+            SCOPE.user_id,
+            SCOPE.agent_id,
+            SCOPE.project_id,
+            SCOPE.session_id,
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_events (
+                id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                project_id, session_id, event_type, payload_json,
+                idempotency_key, occurred_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "foundation-fact:remembered",
+                MEMORY_ID,
+                *scope_values,
+                "remembered",
+                json.dumps(observation, separators=(",", ":"), sort_keys=True),
+                None,
+                REMEMBERED_AT,
+                REMEMBERED_AT,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO memories (
+                id, scope_key, tenant_id, user_id, agent_id, project_id,
+                session_id, kind, content, metadata_json, status, confidence,
+                observed_at, valid_from, valid_to, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                MEMORY_ID,
+                *scope_values,
+                "fact",
+                "Launch date is July 20",
+                "{}",
+                "active",
+                1.0,
+                REMEMBERED_AT,
+                "2026-07-01T00:00:00.000000Z",
+                None,
+                REMEMBERED_AT,
+                REMEMBERED_AT,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_history (
+                id, memory_id, event_id, action, status, details_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "foundation-fact:remembered:history",
+                MEMORY_ID,
+                "foundation-fact:remembered",
+                "remembered",
+                "active",
+                "{}",
+                REMEMBERED_AT,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+            (MEMORY_ID, "Launch date is July 20"),
+        )
+        connection.execute("PRAGMA user_version=1")
+
+
+async def main():
+    create_v1_database()
+    async with await AgentMemory.open(PATH, scope=SCOPE) as memory:
+        replacement = await memory.supersede(
+            MEMORY_ID,
+            "Launch date is July 27",
+            effective_at=EFFECTIVE_AT,
+            reason="vendor correction",
+        )
+    known_at = replacement.updated_at.isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+    async with await AgentMemory.open(PATH, scope=SCOPE) as memory:
+        before = await memory.recall(
+            "launch date", valid_at=VALID_BEFORE, known_at=known_at
+        )
+        exact = await memory.recall(
+            "launch date", valid_at=EFFECTIVE_AT, known_at=known_at
+        )
+        receipt = await memory.explain(
+            replacement.id, valid_at=EFFECTIVE_AT, known_at=known_at
+        )
+        assert [result.memory.id for result in before] == [MEMORY_ID]
+        assert [result.memory.id for result in exact] == [replacement.id]
+        assert receipt.memory == replacement
+        assert receipt.evidence_memory_ids == (MEMORY_ID,)
+        assert len(receipt.evidence_event_ids) == 2
+        print("Truth timeline survives restart")
+
+
+asyncio.run(main())
+'''
+    environment = os.environ.copy()
+    source_root = str(Path(__file__).resolve().parents[2] / "src")
+    environment["PYTHONPATH"] = source_root
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert completed.stdout == "Truth timeline survives restart\n"
     assert completed.stderr == ""
