@@ -1041,6 +1041,7 @@ class _RebuildPlan:
     relations: list[tuple[Any, ...]]
     memory_ids: set[str]
     relation_ids: set[str]
+    event_ids: set[str]
 
 
 def _build_rebuild_plan(path: Path, scope: MemoryScope, events: list[MemoryEvent]) -> _RebuildPlan:
@@ -1052,8 +1053,10 @@ def _build_rebuild_plan(path: Path, scope: MemoryScope, events: list[MemoryEvent
     active_lifecycle_positions: dict[str, int] = {}
     memory_ids: set[str] = set()
     relation_ids: set[str] = set()
+    event_ids: set[str] = set()
 
     for event in events:
+        event_ids.add(event.id)
         if event.scope != scope:
             raise StorageError(f"Event {event.id!r} scope fields do not match requested scope")
         if (
@@ -1309,16 +1312,77 @@ def _build_rebuild_plan(path: Path, scope: MemoryScope, events: list[MemoryEvent
         relations=relations,
         memory_ids=memory_ids,
         relation_ids=relation_ids,
+        event_ids=event_ids,
     )
+
+
+def _foreign_supersession_claims(
+    connection: sqlite3.Connection,
+    path: Path,
+    scope: MemoryScope,
+) -> tuple[set[str], set[str], set[str]]:
+    memory_ids: set[str] = set()
+    relation_ids: set[str] = set()
+    event_ids: set[str] = set()
+    rows = connection.execute(
+        """
+        SELECT * FROM memory_events
+        WHERE scope_key != ? AND event_type = ?
+        ORDER BY scope_key, occurred_at, created_at, id
+        """,
+        (scope.scope_key, MemoryEventType.SUPERSEDED.value),
+    ).fetchall()
+    for row in rows:
+        event = _row_to_event(path, row)
+        if event.scope.scope_key != row["scope_key"]:
+            raise StorageError(
+                f"Foreign event {event.id!r} scope fields do not match its scope_key in {path}"
+            )
+        replay = parse_superseded_payload(event, path=path)
+        memory_ids.update(
+            {
+                replay.source.id,
+                replay.replacement.id,
+                replay.evidence_memory_id,
+                replay.evidence_source_memory_id,
+            }
+        )
+        relation_ids.add(replay.relation_id)
+        event_ids.add(event.id)
+    return memory_ids, relation_ids, event_ids
 
 
 def _validate_rebuild_ownership(
     connection: sqlite3.Connection,
+    path: Path,
     scope: MemoryScope,
     plan: _RebuildPlan,
     projection_ids: set[str],
 ) -> None:
     owned_ids = plan.memory_ids | projection_ids
+    (
+        foreign_supersession_memory_ids,
+        foreign_supersession_relation_ids,
+        foreign_supersession_event_ids,
+    ) = _foreign_supersession_claims(connection, path, scope)
+    memory_overlap = plan.memory_ids & foreign_supersession_memory_ids
+    if memory_overlap:
+        memory_id = sorted(memory_overlap)[0]
+        raise StorageError(
+            f"Memory {memory_id!r} is claimed by a foreign supersession payload in {path}"
+        )
+    relation_overlap = plan.relation_ids & foreign_supersession_relation_ids
+    if relation_overlap:
+        relation_id = sorted(relation_overlap)[0]
+        raise StorageError(
+            f"Relation {relation_id!r} is claimed by a foreign supersession payload in {path}"
+        )
+    event_overlap = plan.event_ids & foreign_supersession_event_ids
+    if event_overlap:
+        event_id = sorted(event_overlap)[0]
+        raise StorageError(
+            f"Event {event_id!r} is claimed by a foreign supersession payload in {path}"
+        )
     for row in connection.execute(
         "SELECT id, memory_id FROM memory_events WHERE scope_key != ? AND memory_id IS NOT NULL",
         (scope.scope_key,),
@@ -1438,7 +1502,13 @@ def _rebuild(path: Path, scope: MemoryScope) -> int:
                     ).fetchall()
                 )
                 cleanup_ids = tuple(dict.fromkeys((*scope_projection_ids, *plan.memory_ids)))
-                _validate_rebuild_ownership(connection, scope, plan, set(scope_projection_ids))
+                _validate_rebuild_ownership(
+                    connection,
+                    path,
+                    scope,
+                    plan,
+                    set(scope_projection_ids),
+                )
                 connection.execute(
                     "DELETE FROM memory_relations WHERE scope_key = ?",
                     (scope.scope_key,),

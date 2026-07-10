@@ -1484,3 +1484,125 @@ async def test_rebuild_rolls_back_cleanup_when_late_relation_write_fails(tmp_pat
     assert "late relation write" in str(caught.value.__cause__)
     assert _database_snapshot(path) == before
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_rejects_foreign_supersession_payload_claims_without_projections(
+    tmp_path,
+    scope,
+):
+    path = tmp_path / "foreign-supersession-ledger-claims.db"
+    store = await SQLiteMemoryStore.open(path)
+    local_source = await _remember_fact(store, scope, content="Local source")
+    await store.supersede(
+        scope,
+        local_source.id,
+        "Local replacement",
+        effective_at=EFFECTIVE_AT,
+    )
+    foreign_scope = MemoryScope(
+        tenant_id="tenant-b",
+        user_id="mallory",
+        agent_id="codex",
+        project_id="timeline",
+    )
+    foreign_source = await _remember_fact(store, foreign_scope, content="Foreign source")
+    await store.supersede(
+        foreign_scope,
+        foreign_source.id,
+        "Foreign replacement",
+        effective_at=EFFECTIVE_AT,
+    )
+
+    with closing(sqlite3.connect(path)) as connection:
+        local_event_id, local_payload_json = connection.execute(
+            """
+            SELECT id, payload_json FROM memory_events
+            WHERE scope_key = ? AND event_type = 'superseded'
+            """,
+            (scope.scope_key,),
+        ).fetchone()
+        foreign_payload = json.loads(
+            connection.execute(
+                """
+                SELECT payload_json FROM memory_events
+                WHERE scope_key = ? AND event_type = 'superseded'
+                """,
+                (foreign_scope.scope_key,),
+            ).fetchone()[0]
+        )
+        local_payload = json.loads(local_payload_json)
+        foreign_replacement_id = foreign_payload["replacement_memory_id"]
+        local_payload["replacement_memory_id"] = foreign_replacement_id
+        local_payload["replacement"]["id"] = foreign_replacement_id
+        local_payload["evidence"]["memory_id"] = foreign_replacement_id
+        local_payload["relation"]["id"] = foreign_payload["relation"]["id"]
+        local_payload["relation"]["source_id"] = foreign_replacement_id
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET payload_json = ? WHERE id = ?",
+            (
+                json.dumps(local_payload, separators=(",", ":"), sort_keys=True),
+                local_event_id,
+            ),
+        )
+        connection.commit()
+
+    _delete_scope_projections(path, foreign_scope)
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="foreign supersession payload"):
+        await store.rebuild(scope)
+
+    assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_fails_closed_on_corrupt_foreign_supersession_payload(
+    tmp_path,
+    scope,
+):
+    path = tmp_path / "corrupt-foreign-supersession-ledger.db"
+    store = await SQLiteMemoryStore.open(path)
+    await _remember_fact(store, scope, content="Local projection remains unchanged")
+    foreign_scope = MemoryScope(
+        tenant_id="tenant-b",
+        user_id="mallory",
+        agent_id="codex",
+        project_id="timeline",
+    )
+    foreign_source = await _remember_fact(store, foreign_scope, content="Foreign source")
+    await store.supersede(
+        foreign_scope,
+        foreign_source.id,
+        "Foreign replacement",
+        effective_at=EFFECTIVE_AT,
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        event_id, payload_json = connection.execute(
+            """
+            SELECT id, payload_json FROM memory_events
+            WHERE scope_key = ? AND event_type = 'superseded'
+            """,
+            (foreign_scope.scope_key,),
+        ).fetchone()
+        payload = json.loads(payload_json)
+        del payload["replacement"]
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload, separators=(",", ":"), sort_keys=True), event_id),
+        )
+        connection.commit()
+
+    _delete_scope_projections(path, foreign_scope)
+    before = _database_snapshot(path)
+
+    with pytest.raises(StorageError, match="replacement") as caught:
+        await store.rebuild(scope)
+
+    assert str(path.resolve()) in str(caught.value)
+    assert isinstance(caught.value.__cause__, ValidationError)
+    assert _database_snapshot(path) == before
+    await store.close()
