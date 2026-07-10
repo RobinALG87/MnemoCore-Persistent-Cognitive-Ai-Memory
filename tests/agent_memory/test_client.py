@@ -299,6 +299,19 @@ async def test_session_start_finish_roundtrip_and_session_scoped_recall(tmp_path
         assert all(r.memory.scope.session_id is None for r in base_results)
 
 
+@pytest.mark.asyncio
+async def test_session_finish_is_idempotent(tmp_path):
+    scope = MemoryScope(user_id="robin", agent_id="codex")
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        session = await memory.start_session(goal="Complete a task")
+
+        first = await session.finish(outcome="success", reward=1.0)
+        second = await session.finish(outcome="success", reward=1.0)
+
+        assert second == first
+        assert await session.list(kind=MemoryKind.EPISODE) == [first]
+
+
 def test_sync_session_start_finish(tmp_path):
     """Sync counterpart for MemorySession via SyncAgentMemory."""
     base_scope = MemoryScope(user_id="robin", agent_id="codex")

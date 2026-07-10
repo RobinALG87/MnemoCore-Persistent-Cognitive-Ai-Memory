@@ -81,6 +81,8 @@ AGENT_MASTER_PLAN.md
 .claude/
 .worktrees/
 .superpowers/
+mcps/
+terminals/
 
 # Runtime artifacts
 error_log.txt

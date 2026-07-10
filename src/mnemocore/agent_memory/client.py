@@ -399,6 +399,7 @@ class MemorySession:
         self.goal = goal
         self.session_id = scope.session_id
         self._finished = False
+        self._final_episode: Optional[MemoryRecord] = None
 
     async def remember(
         self,
@@ -522,10 +523,8 @@ class MemorySession:
 
         The EPISODE is stored in the *session* scope.
         """
-        if self._finished:
-            # Idempotent-ish: still allow re-finish but don't duplicate?
-            # For minimal, just record again or return last? Here we proceed.
-            pass
+        if self._final_episode is not None:
+            return self._final_episode
         meta: dict[str, Any] = {
             "goal": self.goal,
             "outcome": outcome,
@@ -539,6 +538,7 @@ class MemorySession:
             kind=MemoryKind.EPISODE,
             metadata=meta,
         )
+        self._final_episode = rec
         self._finished = True
         return rec
 

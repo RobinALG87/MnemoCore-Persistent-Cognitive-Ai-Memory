@@ -916,7 +916,7 @@ async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_pat
             scope, "durable observation", as_of="2026-07-10T12:00:00Z"
         )
     ] == [active.id]
-    assert await store.recall(scope, "forgotten observation") == []
+    assert await store.recall(scope, "forgotten") == []
     assert await store.get(foreign_scope, foreign.id) == foreign
     with closing(sqlite3.connect(path)) as conn:
         assert conn.execute(

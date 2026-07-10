@@ -256,6 +256,58 @@ class RecallResult:
         object.__setattr__(self, "evidence_ids", evidence_ids)
 
 
+def _validate_finite_score(score: Any) -> None:
+    try:
+        score_is_finite = math.isfinite(score)
+    except TypeError:
+        score_is_finite = False
+    if not score_is_finite:
+        raise ValidationError("score must be finite")
+
+
+def _freeze_score_components(value: Any) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("score_components must be a mapping")
+    return _freeze_json_value(value, "score_components")
+
+
+def _normalize_evidence_ids(value: Any) -> tuple[str, ...]:
+    if isinstance(value, (str, bytes)):
+        raise ValidationError("evidence_ids must be a sequence of strings")
+    try:
+        evidence_ids = tuple(value)
+    except TypeError as error:
+        raise ValidationError("evidence_ids must be a sequence of strings") from error
+    if any(not isinstance(event_id, str) or not event_id for event_id in evidence_ids):
+        raise ValidationError("evidence_ids must contain non-empty strings")
+    return evidence_ids
+
+
+def _validate_non_negative_integer(value: Any, name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValidationError(f"{name} must be a non-negative integer")
+
+
+def _normalize_context_items(
+    value: Any,
+    name: str,
+    seen_memory_ids: set[str],
+) -> tuple["ContextItem", ...]:
+    if isinstance(value, (str, bytes)):
+        raise ValidationError(f"{name} must be a sequence of ContextItem")
+    try:
+        items = tuple(value)
+    except TypeError as error:
+        raise ValidationError(f"{name} must be a sequence of ContextItem") from error
+    if any(not isinstance(item, ContextItem) for item in items):
+        raise ValidationError(f"{name} must contain only ContextItem")
+    for item in items:
+        if item.receipt.memory_id in seen_memory_ids:
+            raise ValidationError("context items must not repeat a memory_id")
+        seen_memory_ids.add(item.receipt.memory_id)
+    return items
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryReceipt:
     """Provenance retained when a memory is compiled into agent context."""
@@ -274,35 +326,17 @@ class MemoryReceipt:
             raise ValidationError("memory_id must be a non-empty string")
         if not isinstance(self.scope, MemoryScope):
             raise ValidationError("scope must be a MemoryScope")
-        try:
-            score_is_finite = math.isfinite(self.score)
-        except TypeError:
-            score_is_finite = False
-        if not score_is_finite:
-            raise ValidationError("score must be finite")
-        if not isinstance(self.score_components, Mapping):
-            raise ValidationError("score_components must be a mapping")
+        _validate_finite_score(self.score)
         object.__setattr__(
             self,
             "score_components",
-            _freeze_json_value(self.score_components, "score_components"),
+            _freeze_score_components(self.score_components),
         )
         if not isinstance(self.reason, str) or not self.reason.strip():
             raise ValidationError("reason must not be blank")
-        if isinstance(self.evidence_ids, (str, bytes)):
-            raise ValidationError("evidence_ids must be a sequence of strings")
-        try:
-            evidence_ids = tuple(self.evidence_ids)
-        except TypeError as error:
-            raise ValidationError("evidence_ids must be a sequence of strings") from error
-        if any(not isinstance(event_id, str) or not event_id for event_id in evidence_ids):
-            raise ValidationError("evidence_ids must contain non-empty strings")
-        object.__setattr__(self, "evidence_ids", evidence_ids)
-        if (
-            not isinstance(self.estimated_tokens, int)
-            or isinstance(self.estimated_tokens, bool)
-            or self.estimated_tokens < 1
-        ):
+        object.__setattr__(self, "evidence_ids", _normalize_evidence_ids(self.evidence_ids))
+        _validate_non_negative_integer(self.estimated_tokens, "estimated_tokens")
+        if self.estimated_tokens < 1:
             raise ValidationError("estimated_tokens must be a positive integer")
 
 
@@ -336,27 +370,15 @@ class ContextPack:
     def __post_init__(self) -> None:
         if not isinstance(self.query, str) or not self.query.strip():
             raise ValidationError("query must not be blank")
-        for name in ("token_budget", "estimated_tokens"):
-            value = getattr(self, name)
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                raise ValidationError(f"{name} must be a non-negative integer")
+        _validate_non_negative_integer(self.token_budget, "token_budget")
+        _validate_non_negative_integer(self.estimated_tokens, "estimated_tokens")
         if self.token_budget < 1:
             raise ValidationError("token_budget must be a positive integer")
         if self.estimated_tokens > self.token_budget:
             raise ValidationError("estimated_tokens must not exceed token_budget")
         seen_memory_ids: set[str] = set()
         for name in ("core", "working", "episodic", "semantic", "procedural"):
-            value = getattr(self, name)
-            if isinstance(value, (str, bytes)):
-                raise ValidationError(f"{name} must be a sequence of ContextItem")
-            try:
-                items = tuple(value)
-            except TypeError as error:
-                raise ValidationError(f"{name} must be a sequence of ContextItem") from error
-            if any(not isinstance(item, ContextItem) for item in items):
-                raise ValidationError(f"{name} must contain only ContextItem")
-            for item in items:
-                if item.receipt.memory_id in seen_memory_ids:
-                    raise ValidationError("context items must not repeat a memory_id")
-                seen_memory_ids.add(item.receipt.memory_id)
+            items = _normalize_context_items(
+                getattr(self, name), name, seen_memory_ids
+            )
             object.__setattr__(self, name, items)
