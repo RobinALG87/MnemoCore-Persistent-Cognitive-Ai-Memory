@@ -1,6 +1,8 @@
 from pathlib import Path
 import tomllib
 
+import pytest
+
 import tests.conftest as harness
 
 
@@ -67,6 +69,48 @@ def test_service_probes_run_once_when_integration_is_requested(monkeypatch):
     assert calls == {"redis": 1, "qdrant": 1}
 
 
+def test_single_service_marker_only_probes_that_service(monkeypatch):
+    calls = {"redis": 0}
+
+    def redis_probe():
+        calls["redis"] += 1
+        return True
+
+    def unexpected_qdrant_probe():
+        raise AssertionError("Redis-only tests must not probe Qdrant")
+
+    monkeypatch.setattr(harness, "_check_redis_available", redis_probe)
+    monkeypatch.setattr(
+        harness, "_check_qdrant_available", unexpected_qdrant_probe
+    )
+
+    harness.pytest_collection_modifyitems(
+        _Config(run_integration=True),
+        [_Item("integration", "requires_redis")],
+    )
+
+    assert calls == {"redis": 1}
+
+
+def test_service_requirement_without_integration_marker_is_rejected():
+    with pytest.raises(pytest.UsageError, match="requires_redis.*integration"):
+        harness.pytest_collection_modifyitems(
+            _Config(run_integration=True), [_Item("requires_redis")]
+        )
+
+
+def test_offline_integration_file_has_no_service_requirements():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "tests" / "test_integration_store_query_cycle.py").read_text(
+        encoding="utf-8"
+    )
+
+    module_markers = source.split("import numpy", 1)[0]
+    assert "pytest.mark.integration" in module_markers
+    assert "pytest.mark.requires_redis" not in module_markers
+    assert "pytest.mark.requires_qdrant" not in module_markers
+
+
 def test_clean_lane_does_not_require_legacy_hardware_mocks():
     root = Path(__file__).resolve().parents[1]
 
@@ -78,4 +122,18 @@ def test_clean_lane_does_not_require_legacy_hardware_mocks():
     )
     assert harness._requires_legacy_hardware_mocks(
         [root / "tests" / "test_engine.py"]
+    )
+
+
+def test_clean_lane_does_not_require_legacy_config_reset():
+    root = Path(__file__).resolve().parents[1]
+
+    assert not harness._requires_legacy_config_reset(
+        root / "tests" / "agent_memory" / "test_client.py"
+    )
+    assert not harness._requires_legacy_config_reset(
+        root / "tests" / "integrations" / "test_agent_memory_integrations.py"
+    )
+    assert harness._requires_legacy_config_reset(
+        root / "tests" / "test_engine.py"
     )

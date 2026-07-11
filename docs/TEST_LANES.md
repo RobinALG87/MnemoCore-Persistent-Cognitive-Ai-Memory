@@ -13,11 +13,11 @@ python -m pytest tests/agent_memory -q
 # Legacy unit tests; service integration and stress cases stay out
 python -m pytest tests --ignore=tests/agent_memory --ignore=tests/integrations --ignore=tests/test_integration_store_query_cycle.py -m "not integration and not slow" -q
 
-# Offline integration adapters (no Redis or Qdrant probes)
-python -m pytest tests/integrations -q
+# Offline/local integration (adapters plus the mocked store/query lifecycle)
+python -m pytest tests/integrations tests/test_integration_store_query_cycle.py --run-integration -q
 
-# Service integration (start Redis on :6379 and Qdrant on :6333 first)
-python -m pytest tests/test_integration_store_query_cycle.py --run-integration -m "integration and not slow" -q
+# Service integration; each test declares only the service(s) it actually needs
+python -m pytest tests --run-integration -m "integration and (requires_redis or requires_qdrant) and not slow" -q
 
 # Benchmark harness contracts and smoke coverage, without the performance suite
 python -m pytest benchmarks/test_agent_memory_baseline.py benchmarks/test_benchmark_smoke.py -q
@@ -35,10 +35,15 @@ python -m pytest benchmarks/pytest_benchmarks.py -m slo -q
 Slow service stress tests are a separate opt-in extension:
 
 ```bash
-python -m pytest tests/test_integration_store_query_cycle.py --run-integration --run-slow -m "integration and slow" -q
+python -m pytest tests --run-integration --run-slow -m "integration and (requires_redis or requires_qdrant) and slow" -q
 ```
 
 `--run-integration` controls external service discovery. Without it, collection
 does not connect to Redis or Qdrant. Availability is checked at most once per
 pytest process when a selected test declares `requires_redis` or
 `requires_qdrant`.
+
+An integration test without either service marker is offline/local. A service
+marker without `integration` is rejected during collection so service tests
+cannot become orphaned from the opt-in lane. The service lane may therefore
+collect zero tests in a checkout that has no genuine external-service tests.

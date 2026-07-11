@@ -11,7 +11,7 @@ from mnemocore.agent_memory.fingerprint import _FINGERPRINT_BYTES, fingerprint_s
 from mnemocore.agent_memory import sqlite_store
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_fingerprint_similarity_is_exact_bounded_and_repeatable():

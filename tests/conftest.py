@@ -56,6 +56,19 @@ def pytest_collection_modifyitems(config, items):
     run_integration = config.getoption("--run-integration", default=False)
     run_slow = config.getoption("--run-slow", default=False)
 
+    orphaned_requirements = [
+        marker
+        for item in items
+        if "integration" not in item.keywords
+        for marker in ("requires_redis", "requires_qdrant")
+        if marker in item.keywords
+    ]
+    if orphaned_requirements:
+        markers = ", ".join(sorted(set(orphaned_requirements)))
+        raise pytest.UsageError(
+            f"{markers} markers must also declare the integration marker"
+        )
+
     needs_redis = run_integration and any(
         "requires_redis" in item.keywords for item in items
     )
@@ -253,6 +266,11 @@ def _requires_legacy_hardware_mocks(paths) -> bool:
     return False
 
 
+def _requires_legacy_config_reset(path) -> bool:
+    """Return whether a test uses the legacy global core configuration."""
+    return _requires_legacy_hardware_mocks([path])
+
+
 @pytest.fixture(scope="session", autouse=True)
 def mock_hardware_dependencies(request):
     """Globally mock Qdrant and Redis to prevent hangs during testing."""
@@ -363,8 +381,12 @@ def mock_hardware_dependencies(request):
 
 
 @pytest.fixture(autouse=True)
-def clean_config():
+def clean_config(request):
     """Reset config state between tests."""
+    if not _requires_legacy_config_reset(request.node.path):
+        yield
+        return
+
     from mnemocore.core.config import reset_config
     reset_config()
     yield
