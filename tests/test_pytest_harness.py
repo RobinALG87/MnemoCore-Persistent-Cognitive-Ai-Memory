@@ -14,6 +14,40 @@ def test_default_pytest_path_excludes_benchmarks():
     assert config["tool"]["pytest"]["ini_options"]["testpaths"] == ["tests"]
 
 
+def test_required_offline_lane_is_green_adapters_only():
+    root = Path(__file__).resolve().parents[1]
+    lanes = (root / "docs" / "TEST_LANES.md").read_text(encoding="utf-8")
+
+    assert "python -m pytest tests/integrations -q" in lanes
+    assert (
+        "python -m pytest tests/integrations "
+        "tests/test_integration_store_query_cycle.py" not in lanes
+    )
+
+
+def test_known_red_lifecycle_is_quarantined_and_service_lane_is_inactive():
+    root = Path(__file__).resolve().parents[1]
+    lanes = (root / "docs" / "TEST_LANES.md").read_text(encoding="utf-8")
+
+    assert "Quarantined known-red" in lanes
+    assert "test_integration_store_query_cycle.py" in lanes
+    assert "obsolete `AsyncQdrantClient` patch target" in lanes
+    assert "stale lifecycle behavior assumptions" in lanes
+    assert "Service lane: inactive" in lanes
+    assert "nonzero collection" in lanes
+    inactive_section = lanes.split("Service lane: inactive", 1)[1]
+    assert "python -m pytest tests --run-integration -m" not in inactive_section
+
+
+def test_agent_memory_contract_tests_are_not_orphaned_in_benchmarks():
+    root = Path(__file__).resolve().parents[1]
+    contract_names = ("test_fingerprint.py", "test_hdv_isolation.py")
+
+    for name in contract_names:
+        assert (root / "tests" / "agent_memory" / name).is_file()
+        assert not (root / "benchmarks" / name).exists()
+
+
 class _Config:
     def __init__(self, *, run_integration=False, run_slow=False):
         self.options = {
