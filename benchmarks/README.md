@@ -41,13 +41,15 @@ python -m benchmarks.agent_memory_baseline --smoke \
 ```
 
 The JSON contains every raw latency sample for remember, lexical hit/miss and
-selectivity, bitemporal recall, and context compilation. It also records
-checkpointed SQLite main/WAL/SHM bytes and worker-process RSS baseline, sampled
-peak, and delta. The manifest pins the corpus hash and seed, operation counts,
+selectivity, separate before/after bitemporal recalls, and context compilation.
+It also records checkpoint status, checkpointed SQLite main/WAL/SHM bytes, and
+worker-process RSS baseline, sampled peak, and delta. Cross-run resource
+aggregates preserve min/mean/median/max alongside the raw runs. The manifest
+pins the corpus hash and seed, operation counts,
 repository SHA/dirty state, Python/platform/CPU, SQLite version and PRAGMAs, and
 dependency hashes. Compare results only when the relevant manifest fields and
 benchmark configuration match; RSS peaks are sampled process measurements, not
-allocator-level accounting.
+allocator-level accounting. The worker denies DNS and outbound socket connects.
 
 ### Run All Benchmarks
 

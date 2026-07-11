@@ -1,8 +1,14 @@
 import json
+import socket
 from pathlib import Path
+
+import pytest
 
 from benchmarks.agent_memory_baseline import (
     BenchmarkConfig,
+    _set_network_denial,
+    _nearest_rank,
+    _validate_checkpoint,
     build_corpus,
     corpus_sha256,
     run_baseline,
@@ -25,6 +31,41 @@ def test_baseline_defaults_to_at_least_five_fresh_repetitions():
 
     assert config.repetitions >= 5
     assert config.seed == 1729
+
+
+@pytest.mark.parametrize(
+    ("values", "percentile", "expected"),
+    [
+        ([1, 2, 3, 4], 0.50, 2),
+        ([1, 2, 3, 4], 0.95, 4),
+        (list(range(1, 101)), 0.95, 95),
+        (list(range(1, 101)), 0.99, 99),
+    ],
+)
+def test_nearest_rank_uses_ceil_n_times_p_minus_one(values, percentile, expected):
+    assert _nearest_rank(values, percentile) == expected
+
+
+def test_worker_network_denial_rejects_outbound_socket_connect():
+    _set_network_denial(True)
+    try:
+        with socket.socket() as client:
+            with pytest.raises(RuntimeError, match="Network access is disabled"):
+                client.connect(("127.0.0.1", 9))
+    finally:
+        _set_network_denial(False)
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        {"busy": 1, "log": 4, "checkpointed": 4},
+        {"busy": 0, "log": 4, "checkpointed": 3},
+    ],
+)
+def test_checkpoint_validation_fails_busy_or_incomplete(checkpoint):
+    with pytest.raises(RuntimeError, match="Incomplete SQLite WAL checkpoint"):
+        _validate_checkpoint(checkpoint)
 
 
 def test_smoke_result_has_reproducible_schema_and_raw_samples(tmp_path):
@@ -52,7 +93,8 @@ def test_smoke_result_has_reproducible_schema_and_raw_samples(tmp_path):
         "lexical_hit",
         "lexical_miss",
         "lexical_selectivity",
-        "timeline_recall",
+        "timeline_before",
+        "timeline_after",
         "context_compile",
     }
     assert all(run["latency_ms"][name] for name in run["latency_ms"])
@@ -74,3 +116,16 @@ def test_smoke_result_has_reproducible_schema_and_raw_samples(tmp_path):
     assert result["manifest"]["telemetry"] == "disabled"
     assert result["manifest"]["engine"] == "AgentMemory"
     assert result["manifest"]["sqlite_pragmas"] == run["sqlite_pragmas"]
+    assert run["sqlite_pragmas"]["foreign_keys"] == 1
+    assert run["sqlite_checkpoint"] == {"busy": 0, "log": 0, "checkpointed": 0}
+    assert set(result["resource_summary"]) == {"rss_bytes", "sqlite_bytes"}
+    assert set(result["resource_summary"]["rss_bytes"]) == {"baseline", "peak", "delta"}
+    assert set(result["resource_summary"]["sqlite_bytes"]) == {
+        "main",
+        "wal",
+        "shm",
+        "total",
+    }
+    for family in result["resource_summary"].values():
+        for metric in family.values():
+            assert set(metric) == {"samples", "min", "mean", "median", "max"}

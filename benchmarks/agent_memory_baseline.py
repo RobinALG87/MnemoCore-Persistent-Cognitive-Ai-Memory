@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import sqlite3
@@ -70,6 +71,24 @@ def build_corpus(count: int, seed: int = SEED) -> list[str]:
 def corpus_sha256(corpus: list[str]) -> str:
     encoded = json.dumps(corpus, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+_NETWORK_DENIAL_ENABLED = False
+_NETWORK_AUDIT_INSTALLED = False
+
+
+def _network_audit_hook(event: str, _args: tuple[Any, ...]) -> None:
+    if _NETWORK_DENIAL_ENABLED and event in {"socket.connect", "socket.getaddrinfo"}:
+        raise RuntimeError("Network access is disabled for AgentMemory benchmarks")
+
+
+def _set_network_denial(enabled: bool) -> None:
+    """Deny DNS and outbound socket connects without blocking asyncio internals."""
+    global _NETWORK_AUDIT_INSTALLED, _NETWORK_DENIAL_ENABLED
+    if not _NETWORK_AUDIT_INSTALLED:
+        sys.addaudithook(_network_audit_hook)
+        _NETWORK_AUDIT_INSTALLED = True
+    _NETWORK_DENIAL_ENABLED = enabled
 
 
 def _hash_files(paths: list[Path]) -> str:
@@ -162,12 +181,22 @@ async def _timed(operation: Any) -> tuple[float, Any]:
     return (time.perf_counter_ns() - started) / 1_000_000, result
 
 
-def _pragma_manifest(path: Path) -> dict[str, Any]:
+def _validate_checkpoint(checkpoint: dict[str, int]) -> None:
+    if checkpoint["busy"] != 0 or checkpoint["checkpointed"] != checkpoint["log"]:
+        raise RuntimeError(f"Incomplete SQLite WAL checkpoint: {checkpoint}")
+
+
+def _checkpoint_and_pragmas(path: Path) -> tuple[dict[str, Any], dict[str, int]]:
     with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=10000")
         names = ("journal_mode", "synchronous", "foreign_keys", "page_size", "cache_size")
         values = {name: connection.execute(f"PRAGMA {name}").fetchone()[0] for name in names}
-        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-    return values
+        checkpoint_row = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    checkpoint = dict(zip(("busy", "log", "checkpointed"), map(int, checkpoint_row)))
+    _validate_checkpoint(checkpoint)
+    return values, checkpoint
 
 
 def _sqlite_sizes(path: Path) -> dict[str, int]:
@@ -195,7 +224,8 @@ async def _worker(config: BenchmarkConfig) -> dict[str, Any]:
             "lexical_hit",
             "lexical_miss",
             "lexical_selectivity",
-            "timeline_recall",
+            "timeline_before",
+            "timeline_after",
             "context_compile",
         )
     }
@@ -244,20 +274,22 @@ async def _worker(config: BenchmarkConfig) -> dict[str, Any]:
             )
             timeline_ok = True
             for _ in range(config.recall_operations):
-                started = time.perf_counter_ns()
-                before = await memory.recall(
-                    "timelinesignal",
-                    valid_at="2026-01-15T00:00:00Z",
-                    known_at=known_after,
+                elapsed, before = await _timed(
+                    memory.recall(
+                        "timelinesignal",
+                        valid_at="2026-01-15T00:00:00Z",
+                        known_at=known_after,
+                    )
                 )
-                after = await memory.recall(
-                    "timelinesignal",
-                    valid_at="2026-02-15T00:00:00Z",
-                    known_at=known_after,
+                latencies["timeline_before"].append(elapsed)
+                elapsed, after = await _timed(
+                    memory.recall(
+                        "timelinesignal",
+                        valid_at="2026-02-15T00:00:00Z",
+                        known_at=known_after,
+                    )
                 )
-                latencies["timeline_recall"].append(
-                    (time.perf_counter_ns() - started) / 1_000_000
-                )
+                latencies["timeline_after"].append(elapsed)
                 timeline_ok &= [item.memory.id for item in before] == [source.id]
                 timeline_ok &= [item.memory.id for item in after] == [replacement.id]
 
@@ -285,7 +317,7 @@ async def _worker(config: BenchmarkConfig) -> dict[str, Any]:
                 ),
             }
         await memory.close()
-        pragmas = _pragma_manifest(path)
+        pragmas, checkpoint = _checkpoint_and_pragmas(path)
         sizes = _sqlite_sizes(path)
         await asyncio.get_running_loop().shutdown_default_executor()
         return {
@@ -303,22 +335,53 @@ async def _worker(config: BenchmarkConfig) -> dict[str, Any]:
                 "delta": max(0, rss.peak - rss.baseline),
             },
             "sqlite_pragmas": pragmas,
+            "sqlite_checkpoint": checkpoint,
         }
+
+
+async def _network_denied_worker(config: BenchmarkConfig) -> dict[str, Any]:
+    """Install denial after asyncio has created its private wakeup socket."""
+    _set_network_denial(True)
+    return await _worker(config)
+
+
+def _nearest_rank(values: list[float] | list[int], percentile: float) -> float | int:
+    if not values:
+        raise ValueError("values must not be empty")
+    if not 0 < percentile <= 1:
+        raise ValueError("percentile must be in (0, 1]")
+    ordered = sorted(values)
+    return ordered[math.ceil(len(ordered) * percentile) - 1]
 
 
 def _summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     for scenario in runs[0]["latency_ms"]:
         values = [sample for run in runs for sample in run["latency_ms"][scenario]]
-        ordered = sorted(values)
         summary[scenario] = {
             "samples": len(values),
             "mean_ms": mean(values),
             "median_ms": median(values),
-            "p95_ms": ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))],
-            "p99_ms": ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))],
+            "p95_ms": _nearest_rank(values, 0.95),
+            "p99_ms": _nearest_rank(values, 0.99),
         }
     return summary
+
+
+def _resource_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for family in ("rss_bytes", "sqlite_bytes"):
+        result[family] = {}
+        for metric in runs[0][family]:
+            values = [run[family][metric] for run in runs]
+            result[family][metric] = {
+                "samples": len(values),
+                "min": min(values),
+                "mean": mean(values),
+                "median": median(values),
+                "max": max(values),
+            }
+    return result
 
 
 def run_baseline(config: BenchmarkConfig, *, output_path: Path | None = None) -> dict[str, Any]:
@@ -349,6 +412,7 @@ def run_baseline(config: BenchmarkConfig, *, output_path: Path | None = None) ->
         "manifest": manifest,
         "runs": runs,
         "summary": _summary(runs),
+        "resource_summary": _resource_summary(runs),
     }
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -365,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.worker:
         config = BenchmarkConfig(**json.loads(sys.stdin.read()))
-        print(json.dumps(asyncio.run(_worker(config)), separators=(",", ":")))
+        print(json.dumps(asyncio.run(_network_denied_worker(config)), separators=(",", ":")))
         return 0
     config = (
         BenchmarkConfig(

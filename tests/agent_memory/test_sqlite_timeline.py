@@ -48,6 +48,11 @@ async def _remember_fact(store, scope, *, content="The launch date is July 20"):
     )
 
 
+async def _wait_until_after(timestamp):
+    while datetime.now(timezone.utc) <= timestamp:
+        await asyncio.sleep(0)
+
+
 @pytest.mark.asyncio
 async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenance(tmp_path):
     path = tmp_path / "ancestor-timeline.db"
@@ -70,6 +75,7 @@ async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenan
     known_before_supersessions = child_source.updated_at.isoformat(
         timespec="microseconds"
     ).replace("+00:00", "Z")
+    await _wait_until_after(child_source.updated_at)
     parent_replacement = await store.supersede(
         parent_scope,
         parent_source.id,
@@ -79,6 +85,7 @@ async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenan
     known_between_supersessions = parent_replacement.updated_at.isoformat(
         timespec="microseconds"
     ).replace("+00:00", "Z")
+    await _wait_until_after(parent_replacement.updated_at)
     child_replacement = await store.supersede(
         child_scope,
         child_source.id,
