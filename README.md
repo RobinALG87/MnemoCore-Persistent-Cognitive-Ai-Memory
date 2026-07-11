@@ -731,8 +731,11 @@ Prometheus metrics endpoint. Requires `X-API-Key` by default unless explicitly e
 
 ## Python Library Usage
 
-For durable SQLite-backed memory with exact agent scopes, async and sync APIs,
-see the [Persistent Agent Memory Quickstart](docs/AGENT_MEMORY_QUICKSTART.md).
+For durable SQLite-backed memory with exact agent scopes, async/sync APIs,
+bitemporal recall, supersession, and evidence receipts, see the
+[Persistent Agent Memory Quickstart](docs/AGENT_MEMORY_QUICKSTART.md). Retrieval
+in this foundation is SQLite FTS5 lexical search only; it is not semantic or
+embedding retrieval.
 
 ### Lightweight Quickstart (recommended - very light, no Redis/Qdrant)
 

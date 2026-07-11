@@ -1,9 +1,10 @@
-"""Public API for MnemoCore's vNext agent-memory foundation."""
+"""Public API for MnemoCore's persistent bitemporal agent memory."""
 
 from .client import AgentMemory, MemorySession, SyncAgentMemory, SyncMemorySession
 from .errors import (
     AgentMemoryError,
     ClosedStoreError,
+    MemoryConflictError,
     MemoryNotFoundError,
     ScopeError,
     StorageError,
@@ -18,6 +19,7 @@ from .models import (
     MemoryKind,
     MemoryRecord,
     MemoryReceipt,
+    MemoryRelation,
     MemoryScope,
     MemoryStatus,
     RecallResult,
@@ -30,6 +32,7 @@ __all__ = [
     "ClosedStoreError",
     "ContextItem",
     "ContextPack",
+    "MemoryConflictError",
     "MemoryEvent",
     "MemoryEventType",
     "MemoryHistoryEntry",
@@ -37,6 +40,7 @@ __all__ = [
     "MemoryNotFoundError",
     "MemoryRecord",
     "MemoryReceipt",
+    "MemoryRelation",
     "MemoryScope",
     "MemoryStatus",
     "RecallResult",

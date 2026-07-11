@@ -16,6 +16,7 @@ from .models import (
     MemoryHistoryEntry,
     MemoryKind,
     MemoryRecord,
+    MemoryReceipt,
     MemoryScope,
     MemoryStatus,
     RecallResult,
@@ -103,6 +104,8 @@ class AgentMemory:
         use_hdv_rerank: bool = False,
         embedder: Optional[Callable[[str], Any]] = None,
         include_ancestors: bool = False,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
     ) -> builtins.list[RecallResult]:
         self._ensure_open()
         return await self._store.recall(
@@ -114,6 +117,46 @@ class AgentMemory:
             use_hdv_rerank=use_hdv_rerank,
             embedder=embedder,
             include_ancestors=include_ancestors,
+            valid_at=valid_at,
+            known_at=known_at,
+        )
+
+    async def supersede(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        effective_at: str,
+        reason: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        confidence: float = 1.0,
+        idempotency_key: Optional[str] = None,
+    ) -> MemoryRecord:
+        self._ensure_open()
+        return await self._store.supersede(
+            self._scope,
+            memory_id,
+            content,
+            effective_at=effective_at,
+            reason=reason,
+            metadata=metadata,
+            confidence=confidence,
+            idempotency_key=idempotency_key,
+        )
+
+    async def explain(
+        self,
+        memory_id: str,
+        *,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
+    ) -> MemoryReceipt:
+        self._ensure_open()
+        return await self._store.explain(
+            self._scope,
+            memory_id,
+            valid_at=valid_at,
+            known_at=known_at,
         )
 
     async def get(
@@ -284,6 +327,8 @@ class SyncAgentMemory:
         use_hdv_rerank: bool = False,
         embedder: Optional[Callable[[str], Any]] = None,
         include_ancestors: bool = False,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
     ) -> builtins.list[RecallResult]:
         return self._run(
             lambda: self._client.recall(
@@ -294,6 +339,46 @@ class SyncAgentMemory:
                 use_hdv_rerank=use_hdv_rerank,
                 embedder=embedder,
                 include_ancestors=include_ancestors,
+                valid_at=valid_at,
+                known_at=known_at,
+            )
+        )
+
+    def supersede(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        effective_at: str,
+        reason: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        confidence: float = 1.0,
+        idempotency_key: Optional[str] = None,
+    ) -> MemoryRecord:
+        return self._run(
+            lambda: self._client.supersede(
+                memory_id,
+                content,
+                effective_at=effective_at,
+                reason=reason,
+                metadata=metadata,
+                confidence=confidence,
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    def explain(
+        self,
+        memory_id: str,
+        *,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
+    ) -> MemoryReceipt:
+        return self._run(
+            lambda: self._client.explain(
+                memory_id,
+                valid_at=valid_at,
+                known_at=known_at,
             )
         )
 
@@ -435,6 +520,8 @@ class MemorySession:
         use_hdv_rerank: bool = False,
         embedder: Optional[Callable[[str], Any]] = None,
         include_ancestors: bool = True,  # sessions benefit from project/agent level knowledge by default
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
     ) -> builtins.list[RecallResult]:
         return await self._store.recall(
             self._scope,
@@ -445,6 +532,8 @@ class MemorySession:
             use_hdv_rerank=use_hdv_rerank,
             embedder=embedder,
             include_ancestors=include_ancestors,
+            valid_at=valid_at,
+            known_at=known_at,
         )
 
     async def get(
@@ -593,6 +682,8 @@ class SyncMemorySession:
         use_hdv_rerank: bool = False,
         embedder: Optional[Callable[[str], Any]] = None,
         include_ancestors: bool = True,
+        valid_at: Optional[str] = None,
+        known_at: Optional[str] = None,
     ) -> builtins.list[RecallResult]:
         return self._run(
             lambda: self._session.recall(
@@ -603,6 +694,8 @@ class SyncMemorySession:
                 use_hdv_rerank=use_hdv_rerank,
                 embedder=embedder,
                 include_ancestors=include_ancestors,
+                valid_at=valid_at,
+                known_at=known_at,
             )
         )
 
