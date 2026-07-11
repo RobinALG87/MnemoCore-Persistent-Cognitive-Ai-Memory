@@ -67,28 +67,28 @@ async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenan
     store = await SQLiteMemoryStore.open(path)
     parent_source = await _remember_fact(store, parent_scope, content="Shared launch window")
     child_source = await _remember_fact(store, child_scope, content="Shared launch window")
+    known_before_supersessions = child_source.updated_at.isoformat(
+        timespec="microseconds"
+    ).replace("+00:00", "Z")
     parent_replacement = await store.supersede(
         parent_scope,
         parent_source.id,
         "Shared launch window parent corrected",
         effective_at="2026-07-10T00:00:00Z",
     )
+    known_between_supersessions = parent_replacement.updated_at.isoformat(
+        timespec="microseconds"
+    ).replace("+00:00", "Z")
     child_replacement = await store.supersede(
         child_scope,
         child_source.id,
         "Shared launch window child corrected",
         effective_at="2026-07-12T00:00:00Z",
     )
-    known_at = child_replacement.updated_at.isoformat(timespec="microseconds").replace(
+    known_after_supersessions = child_replacement.updated_at.isoformat(
+        timespec="microseconds"
+    ).replace(
         "+00:00", "Z"
-    )
-
-    results = await store.recall(
-        child_scope,
-        "shared launch window",
-        include_ancestors=True,
-        valid_at="2026-07-11T00:00:00Z",
-        known_at=known_at,
     )
     parent_history = await store.history(parent_scope, parent_source.id)
     child_history = await store.history(child_scope, child_source.id)
@@ -105,20 +105,51 @@ async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenan
         entry.event_id for entry in child_history if entry.action.value == "superseded"
     )
 
-    by_scope = {result.memory.scope.scope_key: result for result in results}
-    assert set(by_scope) == {parent_scope.scope_key, child_scope.scope_key}
-    assert by_scope[parent_scope.scope_key].memory.id == parent_replacement.id
-    assert by_scope[child_scope.scope_key].memory.id == child_source.id
-    assert by_scope[parent_scope.scope_key].evidence_ids == (
+    async def recall_by_scope(known_at):
+        results = await store.recall(
+            child_scope,
+            "shared launch window",
+            include_ancestors=True,
+            valid_at="2026-07-11T00:00:00Z",
+            known_at=known_at,
+        )
+        assert len(results) == 2
+        assert [result.memory.scope.scope_key for result in results].count(
+            parent_scope.scope_key
+        ) == 1
+        assert [result.memory.scope.scope_key for result in results].count(
+            child_scope.scope_key
+        ) == 1
+        return {result.memory.scope.scope_key: result for result in results}
+
+    before = await recall_by_scope(known_before_supersessions)
+    assert before[parent_scope.scope_key].memory.id == parent_source.id
+    assert before[parent_scope.scope_key].evidence_ids == (parent_remembered_event,)
+    assert before[child_scope.scope_key].memory.id == child_source.id
+    assert before[child_scope.scope_key].evidence_ids == (child_remembered_event,)
+
+    between = await recall_by_scope(known_between_supersessions)
+    assert between[parent_scope.scope_key].memory.id == parent_replacement.id
+    assert between[parent_scope.scope_key].evidence_ids == (
         parent_remembered_event,
         parent_superseded_event,
     )
-    assert by_scope[child_scope.scope_key].evidence_ids == (
+    assert between[child_scope.scope_key].memory.id == child_source.id
+    assert between[child_scope.scope_key].evidence_ids == (child_remembered_event,)
+
+    after = await recall_by_scope(known_after_supersessions)
+    assert after[parent_scope.scope_key].memory.id == parent_replacement.id
+    assert after[parent_scope.scope_key].evidence_ids == (
+        parent_remembered_event,
+        parent_superseded_event,
+    )
+    assert after[child_scope.scope_key].memory.id == child_source.id
+    assert after[child_scope.scope_key].evidence_ids == (
         child_remembered_event,
         child_superseded_event,
     )
-    assert set(by_scope[parent_scope.scope_key].evidence_ids).isdisjoint(
-        by_scope[child_scope.scope_key].evidence_ids
+    assert set(after[parent_scope.scope_key].evidence_ids).isdisjoint(
+        after[child_scope.scope_key].evidence_ids
     )
 
     child_only = await store.recall(
@@ -126,7 +157,7 @@ async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenan
         "shared launch window",
         include_ancestors=False,
         valid_at="2026-07-11T00:00:00Z",
-        known_at=known_at,
+        known_at=known_after_supersessions,
     )
     assert [result.memory.id for result in child_only] == [child_source.id]
     await store.close()

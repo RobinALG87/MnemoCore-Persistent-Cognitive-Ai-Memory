@@ -36,6 +36,42 @@ def _without_self(method):
     return signature.replace(parameters=tuple(signature.parameters.values())[1:])
 
 
+def _public_callable_names(client_type):
+    return {
+        name
+        for name, value in inspect.getmembers(client_type)
+        if not name.startswith("_") and callable(value)
+    }
+
+
+@pytest.mark.parametrize(
+    ("async_type", "sync_type", "factory_exceptions"),
+    [
+        (AgentMemory, SyncAgentMemory, {"open", "start_session"}),
+        (MemorySession, SyncMemorySession, set()),
+    ],
+)
+def test_public_callable_name_sets_have_async_sync_parity(
+    async_type,
+    sync_type,
+    factory_exceptions,
+):
+    async_names = _public_callable_names(async_type)
+    sync_names = _public_callable_names(sync_type)
+
+    assert async_names == sync_names
+    assert factory_exceptions <= async_names
+
+
+@pytest.mark.parametrize(
+    ("async_name", "sync_name"),
+    [("__aenter__", "__enter__"), ("__aexit__", "__exit__")],
+)
+def test_client_lifecycle_name_differences_are_explicit(async_name, sync_name):
+    assert callable(getattr(AgentMemory, async_name))
+    assert callable(getattr(SyncAgentMemory, sync_name))
+
+
 @pytest.mark.parametrize(
     ("async_type", "sync_type", "method_name"),
     [
