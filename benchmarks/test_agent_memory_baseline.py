@@ -1,5 +1,7 @@
 import json
 import socket
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -52,6 +54,42 @@ def test_worker_network_denial_rejects_outbound_socket_connect():
         with socket.socket() as client:
             with pytest.raises(RuntimeError, match="Network access is disabled"):
                 client.connect(("127.0.0.1", 9))
+    finally:
+        _set_network_denial(False)
+
+
+def test_worker_network_denial_rejects_udp_sendto():
+    _set_network_denial(True)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+            with pytest.raises(RuntimeError, match="Network access is disabled"):
+                client.sendto(b"probe", ("127.0.0.1", 9))
+    finally:
+        _set_network_denial(False)
+
+
+@pytest.mark.parametrize(
+    "resolver",
+    [
+        lambda: socket.gethostbyname("localhost"),
+        lambda: socket.gethostbyaddr("127.0.0.1"),
+        lambda: socket.getnameinfo(("127.0.0.1", 80), 0),
+    ],
+)
+def test_worker_network_denial_rejects_dns_resolution(resolver):
+    _set_network_denial(True)
+    try:
+        with pytest.raises(RuntimeError, match="Network access is disabled"):
+            resolver()
+    finally:
+        _set_network_denial(False)
+
+
+def test_worker_containment_rejects_nested_subprocess():
+    _set_network_denial(True)
+    try:
+        with pytest.raises(RuntimeError, match="Subprocess creation is disabled"):
+            subprocess.run([sys.executable, "-c", "pass"], check=True)
     finally:
         _set_network_denial(False)
 

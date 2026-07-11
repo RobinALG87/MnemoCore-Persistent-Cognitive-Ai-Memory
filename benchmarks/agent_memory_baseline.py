@@ -78,12 +78,23 @@ _NETWORK_AUDIT_INSTALLED = False
 
 
 def _network_audit_hook(event: str, _args: tuple[Any, ...]) -> None:
-    if _NETWORK_DENIAL_ENABLED and event in {"socket.connect", "socket.getaddrinfo"}:
+    if not _NETWORK_DENIAL_ENABLED:
+        return
+    if event in {
+        "socket.connect",
+        "socket.sendto",
+        "socket.getaddrinfo",
+        "socket.gethostbyname",
+        "socket.gethostbyaddr",
+        "socket.getnameinfo",
+    }:
         raise RuntimeError("Network access is disabled for AgentMemory benchmarks")
+    if event == "subprocess.Popen":
+        raise RuntimeError("Subprocess creation is disabled inside benchmark workers")
 
 
 def _set_network_denial(enabled: bool) -> None:
-    """Deny DNS and outbound socket connects without blocking asyncio internals."""
+    """Deny network and nested processes without blocking asyncio internals."""
     global _NETWORK_AUDIT_INSTALLED, _NETWORK_DENIAL_ENABLED
     if not _NETWORK_AUDIT_INSTALLED:
         sys.addaudithook(_network_audit_hook)
