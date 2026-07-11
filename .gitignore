@@ -63,6 +63,7 @@ deps/
 # Benchmarks and ad-hoc outputs
 results*.txt
 benchmark_results.txt
+benchmark_results/
 
 # OS
 .DS_Store

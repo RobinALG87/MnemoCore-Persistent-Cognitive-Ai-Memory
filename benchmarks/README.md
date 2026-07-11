@@ -24,6 +24,31 @@ pip install pytest-benchmark psutil
 
 ## Quick Start
 
+### Reproducible AgentMemory SQLite baseline
+
+This benchmark is separate from the HAIMEngine tier benchmarks. Every repetition
+runs in a fresh Python subprocess against a fresh AgentMemory SQLite database.
+It uses a fixed generic corpus and performs no network calls or telemetry.
+
+```bash
+# Baseline profile: five fresh-process repetitions by default
+python -m benchmarks.agent_memory_baseline \
+  --output benchmark_results/agent_memory.json
+
+# Fast contract/smoke run: one small repetition
+python -m benchmarks.agent_memory_baseline --smoke \
+  --output benchmark_results/agent_memory-smoke.json
+```
+
+The JSON contains every raw latency sample for remember, lexical hit/miss and
+selectivity, bitemporal recall, and context compilation. It also records
+checkpointed SQLite main/WAL/SHM bytes and worker-process RSS baseline, sampled
+peak, and delta. The manifest pins the corpus hash and seed, operation counts,
+repository SHA/dirty state, Python/platform/CPU, SQLite version and PRAGMAs, and
+dependency hashes. Compare results only when the relevant manifest fields and
+benchmark configuration match; RSS peaks are sampled process measurements, not
+allocator-level accounting.
+
 ### Run All Benchmarks
 
 ```bash
