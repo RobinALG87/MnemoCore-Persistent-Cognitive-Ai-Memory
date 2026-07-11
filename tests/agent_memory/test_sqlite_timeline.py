@@ -48,6 +48,90 @@ async def _remember_fact(store, scope, *, content="The launch date is July 20"):
     )
 
 
+@pytest.mark.asyncio
+async def test_recall_combines_ancestors_bitemporal_scope_isolation_and_provenance(tmp_path):
+    path = tmp_path / "ancestor-timeline.db"
+    parent_scope = MemoryScope(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        agent_id="codex",
+        project_id="timeline",
+    )
+    child_scope = MemoryScope(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        agent_id="codex",
+        project_id="timeline",
+        session_id="session-a",
+    )
+    store = await SQLiteMemoryStore.open(path)
+    parent_source = await _remember_fact(store, parent_scope, content="Shared launch window")
+    child_source = await _remember_fact(store, child_scope, content="Shared launch window")
+    parent_replacement = await store.supersede(
+        parent_scope,
+        parent_source.id,
+        "Shared launch window parent corrected",
+        effective_at="2026-07-10T00:00:00Z",
+    )
+    child_replacement = await store.supersede(
+        child_scope,
+        child_source.id,
+        "Shared launch window child corrected",
+        effective_at="2026-07-12T00:00:00Z",
+    )
+    known_at = child_replacement.updated_at.isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+
+    results = await store.recall(
+        child_scope,
+        "shared launch window",
+        include_ancestors=True,
+        valid_at="2026-07-11T00:00:00Z",
+        known_at=known_at,
+    )
+    parent_history = await store.history(parent_scope, parent_source.id)
+    child_history = await store.history(child_scope, child_source.id)
+    parent_remembered_event = next(
+        entry.event_id for entry in parent_history if entry.action.value == "remembered"
+    )
+    parent_superseded_event = next(
+        entry.event_id for entry in parent_history if entry.action.value == "superseded"
+    )
+    child_remembered_event = next(
+        entry.event_id for entry in child_history if entry.action.value == "remembered"
+    )
+    child_superseded_event = next(
+        entry.event_id for entry in child_history if entry.action.value == "superseded"
+    )
+
+    by_scope = {result.memory.scope.scope_key: result for result in results}
+    assert set(by_scope) == {parent_scope.scope_key, child_scope.scope_key}
+    assert by_scope[parent_scope.scope_key].memory.id == parent_replacement.id
+    assert by_scope[child_scope.scope_key].memory.id == child_source.id
+    assert by_scope[parent_scope.scope_key].evidence_ids == (
+        parent_remembered_event,
+        parent_superseded_event,
+    )
+    assert by_scope[child_scope.scope_key].evidence_ids == (
+        child_remembered_event,
+        child_superseded_event,
+    )
+    assert set(by_scope[parent_scope.scope_key].evidence_ids).isdisjoint(
+        by_scope[child_scope.scope_key].evidence_ids
+    )
+
+    child_only = await store.recall(
+        child_scope,
+        "shared launch window",
+        include_ancestors=False,
+        valid_at="2026-07-11T00:00:00Z",
+        known_at=known_at,
+    )
+    assert [result.memory.id for result in child_only] == [child_source.id]
+    await store.close()
+
+
 def _database_snapshot(path):
     with closing(sqlite3.connect(path)) as connection:
         connection.row_factory = sqlite3.Row

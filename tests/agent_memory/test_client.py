@@ -36,11 +36,74 @@ def _without_self(method):
     return signature.replace(parameters=tuple(signature.parameters.values())[1:])
 
 
-def test_async_and_sync_timeline_methods_have_exact_signatures():
-    for method_name in ("supersede", "recall", "explain"):
-        assert _without_self(getattr(AgentMemory, method_name)) == _without_self(
-            getattr(SyncAgentMemory, method_name)
-        )
+@pytest.mark.parametrize(
+    ("async_type", "sync_type", "method_name"),
+    [
+        *(
+            (AgentMemory, SyncAgentMemory, method_name)
+            for method_name in (
+                "remember",
+                "recall",
+                "supersede",
+                "explain",
+                "get",
+                "compile_context",
+                "list",
+                "history",
+                "forget",
+                "rebuild",
+                "start_session",
+                "close",
+            )
+        ),
+        *(
+            (MemorySession, SyncMemorySession, method_name)
+            for method_name in (
+                "remember",
+                "recall",
+                "get",
+                "compile_context",
+                "list",
+                "history",
+                "forget",
+                "observe",
+                "finish",
+            )
+        ),
+    ],
+)
+def test_public_operational_async_sync_methods_have_parameter_parity(
+    async_type,
+    sync_type,
+    method_name,
+):
+    async_signature = _without_self(getattr(async_type, method_name))
+    sync_signature = _without_self(getattr(sync_type, method_name))
+
+    assert tuple(async_signature.parameters.values()) == tuple(
+        sync_signature.parameters.values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("async_type", "sync_type", "method_name"),
+    [
+        (AgentMemory, SyncAgentMemory, "open"),
+        (AgentMemory, SyncAgentMemory, "start_session"),
+    ],
+)
+def test_async_sync_factories_preserve_parameters_with_mapped_return_types(
+    async_type,
+    sync_type,
+    method_name,
+):
+    async_signature = inspect.signature(getattr(async_type, method_name))
+    sync_signature = inspect.signature(getattr(sync_type, method_name))
+
+    assert tuple(async_signature.parameters.values()) == tuple(
+        sync_signature.parameters.values()
+    )
+    assert async_signature.return_annotation != sync_signature.return_annotation
 
 
 @pytest.mark.asyncio
