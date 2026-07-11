@@ -1,6 +1,7 @@
 import sys
 import os
 import asyncio
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Generator, AsyncGenerator
 
@@ -55,9 +56,14 @@ def pytest_collection_modifyitems(config, items):
     run_integration = config.getoption("--run-integration", default=False)
     run_slow = config.getoption("--run-slow", default=False)
 
-    # Check for Docker services availability
-    redis_available = _check_redis_available()
-    qdrant_available = _check_qdrant_available()
+    needs_redis = run_integration and any(
+        "requires_redis" in item.keywords for item in items
+    )
+    needs_qdrant = run_integration and any(
+        "requires_qdrant" in item.keywords for item in items
+    )
+    redis_available = _check_redis_available() if needs_redis else None
+    qdrant_available = _check_qdrant_available() if needs_qdrant else None
 
     skip_integration = pytest.mark.skip(
         reason="Integration test skipped. Use --run-integration to run."
@@ -82,13 +88,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_slow)
 
         # Handle service-specific markers
-        if "requires_redis" in item.keywords and not redis_available:
+        if (
+            run_integration
+            and "requires_redis" in item.keywords
+            and not redis_available
+        ):
             item.add_marker(skip_redis)
 
-        if "requires_qdrant" in item.keywords and not qdrant_available:
+        if (
+            run_integration
+            and "requires_qdrant" in item.keywords
+            and not qdrant_available
+        ):
             item.add_marker(skip_qdrant)
 
 
+@lru_cache(maxsize=1)
 def _check_redis_available() -> bool:
     """Check if Redis is available for integration tests."""
     try:
@@ -101,6 +116,7 @@ def _check_redis_available() -> bool:
         return False
 
 
+@lru_cache(maxsize=1)
 def _check_qdrant_available() -> bool:
     """Check if Qdrant is available for integration tests."""
     try:
@@ -223,9 +239,28 @@ def engine(qdrant_store, redis_storage):
 # Legacy Mock Fixtures (for backward compatibility)
 # =============================================================================
 
+def _requires_legacy_hardware_mocks(paths) -> bool:
+    """Return whether a collected lane includes legacy core tests."""
+    clean_lane_directories = {"agent_memory", "integrations"}
+    for path in paths:
+        candidate = Path(path).resolve()
+        try:
+            relative = candidate.relative_to(ROOT / "tests")
+        except ValueError:
+            return True
+        if not relative.parts or relative.parts[0] not in clean_lane_directories:
+            return True
+    return False
+
+
 @pytest.fixture(scope="session", autouse=True)
-def mock_hardware_dependencies():
+def mock_hardware_dependencies(request):
     """Globally mock Qdrant and Redis to prevent hangs during testing."""
+    collected_paths = [item.path for item in request.session.items]
+    if not _requires_legacy_hardware_mocks(collected_paths):
+        yield None
+        return
+
     # Ensure modules are imported so patch can find them in mnemocore.core
     import mnemocore.core.async_storage
     import mnemocore.core.qdrant_store

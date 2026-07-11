@@ -118,7 +118,7 @@ include = [
 
 # ── Pytest ─────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
-testpaths = ["tests", "benchmarks"]
+testpaths = ["tests"]
 python_files = ["test_*.py", "bench_*.py", "*_benchmarks.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -129,6 +129,9 @@ markers = [
     "regression: marks tests as regression tests",
     "slo: marks tests as SLO (Service Level Objective) tests",
     "integration: marks tests requiring external services (Redis, Qdrant)",
+    "slow: marks tests as slow-running (enable with '--run-slow')",
+    "requires_redis: marks tests requiring a running Redis instance",
+    "requires_qdrant: marks tests requiring a running Qdrant instance",
 ]
 
 # ── Coverage ───────────────────────────────────────────────────────────────────

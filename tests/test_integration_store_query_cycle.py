@@ -23,6 +23,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.requires_redis,
+    pytest.mark.requires_qdrant,
+]
 import numpy as np
 
 from mnemocore.core.engine import HAIMEngine

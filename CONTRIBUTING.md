@@ -60,6 +60,10 @@ pytest -v tests/
 pytest -v -m "not slow" tests/
 ```
 
+For the reproducible CI split between AgentMemory, legacy unit tests, offline
+adapters, service integration, and scheduled benchmarks, see
+[`docs/TEST_LANES.md`](docs/TEST_LANES.md).
+
 ### Test Requirements
 
 - All new features must include unit tests
