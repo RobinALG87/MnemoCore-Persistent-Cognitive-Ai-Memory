@@ -47,6 +47,7 @@ from .sqlite_codecs import (
     _timestamp_from_storage,
     _timestamp_to_storage,
 )
+from .fingerprint import fingerprint_similarity
 from .timeline import (
     build_superseded_payload,
     normalize_timeline_query,
@@ -1683,11 +1684,7 @@ def _rows_to_recall_results(
         reason = "Matched lexical terms in the authorized scope"
         if use_hdv_rerank and query:
             try:
-                # Lazy import to keep clean deps; cheap fingerprint rerank signal
-                from ..core.binary_hdv import BinaryHDV
-                q_vec = BinaryHDV.from_seed(query or "")
-                c_vec = BinaryHDV.from_seed(str(row["content"] or ""))
-                hdv_sim = q_vec.similarity(c_vec)
+                hdv_sim = fingerprint_similarity(query, str(row["content"] or ""))
                 score_components["hdv"] = float(hdv_sim)
                 bm25_raw = float(row["bm25_raw"])
                 bm25_contrib = 1.0 / (1.0 + max(0.0, bm25_raw))
@@ -1788,21 +1785,17 @@ def _apply_hdv_rerank(
     query: str,
     rows: list[sqlite3.Row],
 ) -> list[sqlite3.Row]:
-    """HDV rerank signal using cheap deterministic fingerprint (BinaryHDV.from_seed).
+    """HDV rerank signal using AgentMemory's local deterministic fingerprint.
 
     Provides 'hdv' similarity on top candidates; used for reranking when hook enabled.
-    Falls back silently to preserve FTS behavior if import/encode issue.
+    Falls back silently to preserve FTS behavior if fingerprinting fails.
     """
     if not rows or not query:
         return rows
     try:
-        # Relative import kept inside hook; no top-level dep on core for agent_memory
-        from ..core.binary_hdv import BinaryHDV
-        q_vec = BinaryHDV.from_seed(query or "")
         scored: list[tuple[float, sqlite3.Row]] = []
         for row in rows:
-            c_vec = BinaryHDV.from_seed(str(row["content"] or ""))
-            sim = q_vec.similarity(c_vec)
+            sim = fingerprint_similarity(query, str(row["content"] or ""))
             scored.append((sim, row))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [r for _, r in scored]
