@@ -29,7 +29,7 @@ SOURCE_VALID_TO = "2026-08-01T00:00:00Z"
 def scope():
     return MemoryScope(
         tenant_id="tenant-a",
-        user_id="robin",
+        user_id="user-a",
         agent_id="codex",
         project_id="timeline",
     )
@@ -278,7 +278,7 @@ async def test_supersede_retry_returns_replacement_after_it_is_later_superseded(
 async def test_supersede_rejects_foreign_id_as_not_found_without_mutation(tmp_path, scope):
     path = tmp_path / "timeline.db"
     store = await SQLiteMemoryStore.open(path)
-    foreign_scope = MemoryScope(user_id="mallory", agent_id="codex", project_id="timeline")
+    foreign_scope = MemoryScope(user_id="user-b", agent_id="codex", project_id="timeline")
     foreign = await _remember_fact(store, foreign_scope)
     before = _database_snapshot(path)
 
@@ -786,7 +786,7 @@ async def test_explain_returns_deterministic_same_scope_supersession_receipt(tmp
 @pytest.mark.asyncio
 async def test_explain_hides_foreign_scope_ids_like_missing_ids(tmp_path, scope):
     store = await SQLiteMemoryStore.open(tmp_path / "timeline.db")
-    foreign_scope = MemoryScope(user_id="mallory", agent_id="codex", project_id="timeline")
+    foreign_scope = MemoryScope(user_id="user-b", agent_id="codex", project_id="timeline")
     foreign = await _remember_fact(store, foreign_scope)
 
     errors = []
@@ -1126,7 +1126,7 @@ async def test_provenance_dag_corruption_raises_storage_error(
     )
     if corruption == "foreign":
         foreign_scope = MemoryScope(
-            user_id="mallory",
+            user_id="user-b",
             agent_id="codex",
             project_id="timeline",
         )
@@ -1241,7 +1241,7 @@ async def _superseded_rebuild_fixture(path, scope):
     )
     foreign_scope = MemoryScope(
         tenant_id="tenant-b",
-        user_id="mallory",
+        user_id="user-b",
         agent_id="codex",
         project_id="timeline",
     )
@@ -1348,6 +1348,39 @@ async def test_rebuild_preflights_superseded_event_order_before_cleanup(tmp_path
         await store.rebuild(scope)
 
     assert _database_snapshot(path) == before
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_orders_events_chronologically_across_offsets(tmp_path, scope):
+    path = tmp_path / "mixed-offset-rebuild.db"
+    store = await SQLiteMemoryStore.open(path)
+    memory = await _remember_fact(store, scope)
+    await store.forget(scope, memory.id)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            "UPDATE memory_events SET occurred_at = ? WHERE event_type = 'remembered'",
+            ("2026-01-01T00:00:00+02:00",),
+        )
+        connection.execute(
+            "UPDATE memory_events SET occurred_at = ? WHERE event_type = 'forgotten'",
+            ("2025-12-31T23:00:00Z",),
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER trg_memory_events_immutable_update
+            BEFORE UPDATE ON memory_events
+            BEGIN
+                SELECT RAISE(ABORT, 'memory_events is immutable');
+            END
+            """
+        )
+        connection.commit()
+
+    assert await store.rebuild(scope) == 1
+    rebuilt = await store.get(scope, memory.id, include_forgotten=True)
+    assert rebuilt.status is MemoryStatus.FORGOTTEN
     await store.close()
 
 
@@ -1502,7 +1535,7 @@ async def test_rebuild_rejects_foreign_supersession_payload_claims_without_proje
     )
     foreign_scope = MemoryScope(
         tenant_id="tenant-b",
-        user_id="mallory",
+        user_id="user-b",
         agent_id="codex",
         project_id="timeline",
     )
@@ -1568,7 +1601,7 @@ async def test_rebuild_fails_closed_on_corrupt_foreign_supersession_payload(
     await _remember_fact(store, scope, content="Local projection remains unchanged")
     foreign_scope = MemoryScope(
         tenant_id="tenant-b",
-        user_id="mallory",
+        user_id="user-b",
         agent_id="codex",
         project_id="timeline",
     )

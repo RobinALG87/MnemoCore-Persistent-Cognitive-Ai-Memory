@@ -33,7 +33,7 @@ def _observation(memory_id, content, timestamp):
 
 
 def _create_v1_database(path):
-    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="timeline")
+    scope = MemoryScope(user_id="user-a", agent_id="codex", project_id="timeline")
     active_at = "2026-07-10T10:00:00.000000Z"
     forgotten_at = "2026-07-10T11:00:00.000000Z"
     forget_at = "2026-07-10T12:00:00.000000Z"
@@ -296,6 +296,48 @@ async def test_open_migrates_v1_and_preserves_foundation_state(tmp_path):
         scope.scope_key,
         "supports",
     )
+
+
+@pytest.mark.asyncio
+async def test_open_migrates_v1_events_in_chronological_order_across_offsets(tmp_path):
+    path = tmp_path / "mixed-offset-memory.db"
+    scope = _create_v1_database(path)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER trg_memory_events_immutable_update")
+        connection.execute(
+            """
+            UPDATE memory_events SET occurred_at = ?
+            WHERE id = 'forgotten-memory:remembered'
+            """,
+            ("2026-01-01T00:00:00+02:00",),
+        )
+        connection.execute(
+            """
+            UPDATE memory_events SET occurred_at = ?
+            WHERE id = 'forgotten-memory:forgotten'
+            """,
+            ("2025-12-31T23:00:00Z",),
+        )
+        _restore_immutable_update_trigger(connection)
+        connection.commit()
+
+    store = await SQLiteMemoryStore.open(path)
+
+    forgotten = await store.get(scope, "forgotten-memory", include_forgotten=True)
+    assert forgotten.status is MemoryStatus.FORGOTTEN
+    with closing(sqlite3.connect(path)) as connection:
+        lifecycle = connection.execute(
+            """
+            SELECT status, known_from, known_to
+            FROM memory_lifecycle WHERE memory_id = 'forgotten-memory'
+            ORDER BY known_from
+            """
+        ).fetchall()
+    assert lifecycle == [
+        ("active", "2025-12-31T22:00:00.000000Z", "2025-12-31T23:00:00.000000Z"),
+        ("forgotten", "2025-12-31T23:00:00.000000Z", None),
+    ]
+    await store.close()
 
 
 @pytest.mark.asyncio

@@ -760,9 +760,18 @@ def _migration_plan(connection: sqlite3.Connection) -> tuple[list[tuple], list[t
         memory_id = _validate_stored_id(row["id"], "memory id")
         _scope_from_row(row, f"memory {memory_id!r}")
         memory_rows[memory_id] = row
-    events = connection.execute(
-        "SELECT * FROM memory_events ORDER BY scope_key, occurred_at, created_at, id"
-    ).fetchall()
+    events = connection.execute("SELECT * FROM memory_events").fetchall()
+
+    def event_sort_key(event: sqlite3.Row) -> tuple[str, datetime, datetime, str]:
+        event_id = _validate_stored_id(event["id"], "event id")
+        return (
+            event["scope_key"],
+            _parse_timestamp(event["occurred_at"], "occurred_at", event_id),
+            _parse_timestamp(event["created_at"], "created_at", event_id),
+            event_id,
+        )
+
+    events.sort(key=event_sort_key)
     owners: dict[str, str] = {}
     active: dict[str, tuple] = {}
     completed: set[str] = set()

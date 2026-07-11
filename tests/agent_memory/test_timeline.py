@@ -28,7 +28,7 @@ BOUNDARY = datetime(2026, 7, 11, 9, 30, 0, 1, tzinfo=timezone.utc)
 def _scope(**overrides):
     values = {
         "tenant_id": "tenant-a",
-        "user_id": "robin",
+        "user_id": "user-a",
         "agent_id": "codex",
         "project_id": "timeline",
         "session_id": None,
@@ -189,7 +189,7 @@ def test_supersede_payload_normalizes_reason_and_contains_complete_snapshots(rea
         assert snapshot["scope"] == {
             "scope_key": record.scope.scope_key,
             "tenant_id": "tenant-a",
-            "user_id": "robin",
+            "user_id": "user-a",
             "agent_id": "codex",
             "project_id": "timeline",
             "session_id": None,
@@ -241,8 +241,8 @@ def test_supersede_payload_parser_detaches_and_validates_complete_payload():
     [
         (lambda payload: payload.pop("replacement"), "replacement"),
         (lambda payload: payload["source"].pop("content"), "source"),
-        (lambda payload: payload["source"]["scope"].update(user_id="mallory"), "scope"),
-        (lambda payload: payload["source"]["scope"].update(user_id=" robin "), "scope"),
+        (lambda payload: payload["source"]["scope"].update(user_id="user-b"), "scope"),
+        (lambda payload: payload["source"]["scope"].update(user_id=" user-a "), "scope"),
         (lambda payload: payload.update(scope_key="foreign"), "scope"),
         (lambda payload: payload.update(source_memory_id="other"), "source_memory_id"),
         (

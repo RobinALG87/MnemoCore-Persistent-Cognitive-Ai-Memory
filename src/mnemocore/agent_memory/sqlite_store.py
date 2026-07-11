@@ -1487,11 +1487,11 @@ def _rebuild(path: Path, scope: MemoryScope) -> int:
                     """
                     SELECT * FROM memory_events
                     WHERE scope_key = ?
-                    ORDER BY occurred_at ASC, created_at ASC, id ASC
                     """,
                     (scope.scope_key,),
                 ).fetchall()
                 events = [_row_to_event(path, row) for row in rows]
+                events.sort(key=lambda event: (event.occurred_at, event.created_at, event.id))
                 plan = _build_rebuild_plan(path, scope, events)
 
                 scope_projection_ids = tuple(
