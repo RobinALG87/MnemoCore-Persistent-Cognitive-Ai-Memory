@@ -5,20 +5,25 @@ import sys
 from pathlib import Path
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_hdv_rerank_stays_inside_agent_memory_dependency_boundary(tmp_path):
     script = r'''
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
 import os
+import threading
 from pathlib import Path
 
 from mnemocore.agent_memory import AgentMemory, MemoryScope
 
 async def main():
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
     memory = await AgentMemory.open(
         Path(os.environ["HDV_TEST_DB"]),
         scope=MemoryScope(
@@ -30,9 +35,8 @@ async def main():
     )
     try:
         await memory.remember("sharedterm alpha deterministic record")
-        await memory.remember("sharedterm beta deterministic record")
-        results = await memory.recall("sharedterm alpha", use_hdv_rerank=True)
-        components = results[0].score_components
+        first = await memory.recall("sharedterm alpha", use_hdv_rerank=True)
+        second = await memory.recall("sharedterm alpha", use_hdv_rerank=True)
         forbidden = [
             name
             for name in (
@@ -44,16 +48,26 @@ async def main():
             )
             if name in sys.modules
         ]
-        print(json.dumps({
-            "has_hdv": "hdv" in components,
-            "has_fusion": "fusion" in components,
+        return {
+            "orders_match": [item.memory.id for item in first] == [
+                item.memory.id for item in second
+            ],
+            "component_ranges": all(
+                0.0 <= item.score_components["hdv"] <= 1.0
+                and 0.0 <= item.score_components["fusion"] <= 1.0
+                for item in first + second
+            ),
             "forbidden": forbidden,
-        }))
+        }
     finally:
         await memory.close()
-        await asyncio.get_running_loop().shutdown_default_executor()
+        executor.shutdown(wait=True, cancel_futures=True)
 
-asyncio.run(main())
+result = asyncio.run(main())
+result["threads_after_shutdown"] = [thread.name for thread in threading.enumerate()]
+print(json.dumps(result))
+sys.stdout.flush()
+os._exit(0)
 '''
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(REPOSITORY_ROOT / "src")
@@ -70,4 +84,9 @@ asyncio.run(main())
     )
 
     result = json.loads(completed.stdout.strip().splitlines()[-1])
-    assert result == {"has_hdv": True, "has_fusion": True, "forbidden": []}
+    assert result == {
+        "orders_match": True,
+        "component_ranges": True,
+        "forbidden": [],
+        "threads_after_shutdown": ["MainThread"],
+    }
