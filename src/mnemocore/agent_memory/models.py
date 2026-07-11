@@ -262,8 +262,10 @@ class MemoryRelation:
             ("valid_to", False),
             ("created_at", True),
         ):
-            value = _normalize_datetime(getattr(self, name), name, required=required)
-            object.__setattr__(self, name, value)
+            normalized_relation_datetime = _normalize_datetime(
+                getattr(self, name), name, required=required
+            )
+            object.__setattr__(self, name, normalized_relation_datetime)
         if self.valid_to is not None and self.valid_to <= self.valid_from:
             raise ValidationError("valid_to must be after valid_from")
 
@@ -309,7 +311,10 @@ def _validate_finite_score(score: Any) -> None:
 def _freeze_score_components(value: Any) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValidationError("score_components must be a mapping")
-    return _freeze_json_value(value, "score_components")
+    frozen = _freeze_json_value(value, "score_components")
+    if not isinstance(frozen, Mapping):
+        raise ValidationError("score_components must be a mapping")
+    return frozen
 
 
 def _normalize_evidence_ids(value: Any) -> tuple[str, ...]:

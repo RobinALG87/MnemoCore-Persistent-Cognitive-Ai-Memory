@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import unicodedata
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -580,7 +581,7 @@ def _validate_indexes(connection: sqlite3.Connection, expected: dict[str, tuple]
 
 def _validate_auto_indexes(
     connection: sqlite3.Connection,
-    expected: dict[str, tuple[tuple[str, bool, str], ...]],
+    expected: Mapping[str, tuple[tuple[str, bool, str], ...]],
 ) -> None:
     for name, expected_columns in expected.items():
         actual_columns = tuple(

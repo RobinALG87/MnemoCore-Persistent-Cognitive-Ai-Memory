@@ -2343,9 +2343,9 @@ def _explain(
                 receipt = MemoryReceipt(
                     memory=memory,
                     evidence_event_ids=ordered_event_ids,
-                    evidence_memory_ids=evidence_memory_ids,
-                    relations=relations,
-                    history=history,
+                    evidence_memory_ids=tuple(evidence_memory_ids),
+                    relations=tuple(relations),
+                    history=tuple(history),
                     explanation=_receipt_explanation(
                         memory,
                         relations,

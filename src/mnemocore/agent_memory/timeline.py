@@ -290,6 +290,13 @@ def _parse_stored_timestamp(value: Any, name: str, *, optional: bool = False) ->
     return parsed
 
 
+def _parse_required_stored_timestamp(value: Any, name: str) -> datetime:
+    parsed = _parse_stored_timestamp(value, name)
+    if parsed is None:
+        raise ValidationError(f"{name} must not be null")
+    return parsed
+
+
 def _hydrate_scope(snapshot: Any, name: str) -> MemoryScope:
     value = _require_mapping(snapshot, name)
     _require_exact_keys(value, _SCOPE_KEYS, name)
@@ -323,13 +330,19 @@ def _hydrate_record(snapshot: Any, name: str) -> MemoryRecord:
         metadata=metadata,
         status=MemoryStatus(value["status"]),
         confidence=value["confidence"],
-        observed_at=_parse_stored_timestamp(value["observed_at"], f"{name}.observed_at"),
+        observed_at=_parse_required_stored_timestamp(
+            value["observed_at"], f"{name}.observed_at"
+        ),
         valid_from=_parse_stored_timestamp(
             value["valid_from"], f"{name}.valid_from", optional=True
         ),
         valid_to=_parse_stored_timestamp(value["valid_to"], f"{name}.valid_to", optional=True),
-        created_at=_parse_stored_timestamp(value["created_at"], f"{name}.created_at"),
-        updated_at=_parse_stored_timestamp(value["updated_at"], f"{name}.updated_at"),
+        created_at=_parse_required_stored_timestamp(
+            value["created_at"], f"{name}.created_at"
+        ),
+        updated_at=_parse_required_stored_timestamp(
+            value["updated_at"], f"{name}.updated_at"
+        ),
     )
 
 
