@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -88,8 +89,30 @@ def test_worker_network_denial_rejects_dns_resolution(resolver):
 def test_worker_containment_rejects_nested_subprocess():
     _set_network_denial(True)
     try:
-        with pytest.raises(RuntimeError, match="Subprocess creation is disabled"):
+        with pytest.raises(RuntimeError, match="Process creation is disabled"):
             subprocess.run([sys.executable, "-c", "pass"], check=True)
+    finally:
+        _set_network_denial(False)
+
+
+def test_worker_containment_rejects_os_system():
+    _set_network_denial(True)
+    try:
+        with pytest.raises(RuntimeError, match="Process creation is disabled"):
+            os.system("exit 0")
+    finally:
+        _set_network_denial(False)
+
+
+def test_worker_containment_rejects_spawn_without_starting_a_process():
+    _set_network_denial(True)
+    try:
+        with pytest.raises(RuntimeError, match="Process creation is disabled"):
+            os.spawnv(
+                os.P_NOWAIT,
+                r"Z:\does-not-exist\python.exe",
+                ["python.exe", "-c", "pass"],
+            )
     finally:
         _set_network_denial(False)
 

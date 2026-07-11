@@ -75,22 +75,38 @@ def corpus_sha256(corpus: list[str]) -> str:
 
 _NETWORK_DENIAL_ENABLED = False
 _NETWORK_AUDIT_INSTALLED = False
-
-
-def _network_audit_hook(event: str, _args: tuple[Any, ...]) -> None:
-    if not _NETWORK_DENIAL_ENABLED:
-        return
-    if event in {
+_NETWORK_AUDIT_EVENTS = frozenset(
+    {
         "socket.connect",
         "socket.sendto",
         "socket.getaddrinfo",
         "socket.gethostbyname",
         "socket.gethostbyaddr",
         "socket.getnameinfo",
-    }:
+    }
+)
+_PROCESS_AUDIT_EVENTS = frozenset(
+    {
+        "subprocess.Popen",
+        "os.system",
+        "os.spawn",
+        "os.posix_spawn",
+        "os.exec",
+        "os.fork",
+        "os.forkpty",
+        "os.startfile",
+        "os.startfile/2",
+    }
+)
+
+
+def _network_audit_hook(event: str, _args: tuple[Any, ...]) -> None:
+    if not _NETWORK_DENIAL_ENABLED:
+        return
+    if event in _NETWORK_AUDIT_EVENTS:
         raise RuntimeError("Network access is disabled for AgentMemory benchmarks")
-    if event == "subprocess.Popen":
-        raise RuntimeError("Subprocess creation is disabled inside benchmark workers")
+    if event in _PROCESS_AUDIT_EVENTS:
+        raise RuntimeError("Process creation is disabled inside benchmark workers")
 
 
 def _set_network_denial(enabled: bool) -> None:
