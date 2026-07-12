@@ -16,11 +16,58 @@
 - Private runtime policies, formulas, thresholds, paths, prompts, and datasets remain outside the public repository.
 - No new mandatory database or service is introduced.
 
+## Current status
+
+The single-node prototype is functioning and reproducible. This is not a
+production-readiness claim: full security closure, exhaustive erasure
+durability, legacy/service coverage, recovery exercises, supported-Python
+artifact validation, and target-cluster evidence remain open.
+
 ## Tasks
 
-- [ ] Packaging/version: inventory release evidence, centralize version resolution, repair CLI entrypoints, split optional extras, and add clean-wheel tests.
-- [ ] Docker/API: install the wheel in the image, correct the Uvicorn target, add readiness semantics, align metrics exposure, and test persistence reopen.
-- [ ] CI: include Docker and cancellation/skipped states in fail-closed summary checks; add wheel and runtime smoke lanes.
-- [ ] Compose/Helm: lock dependencies, remove accepted placeholder secrets, align ports/probes/ServiceMonitor, and add render/lint smoke tests.
-- [ ] Security/lifecycle: replace plaintext secret persistence and specify physical-erasure behavior with WAL/SHM, crash, rollback, and rebuild tests.
-- [ ] Documentation/release: update runbooks, stability/product boundary, baseline, deployment instructions, and release evidence.
+- [x] Packaging/version prototype: central version resolution, repaired console
+  entrypoints, compatibility-preserving optional extras, wheel boundaries, and
+  packaging contracts are implemented. Clean wheel/sdist validation across the
+  full supported Python matrix remains a release gate.
+- [x] Docker/API prototype: the image builds and installs the wheel, uses
+  `mnemocore.api.main:app`, supports command overrides, runs unprivileged, and
+  exposes `/health`, `/ready`, and canonical `/metrics/` on port 8100.
+- [x] CI prototype gates: packaging and Docker runtime lanes are included in the
+  fail-closed summary, and the image import plus public runtime endpoints are
+  exercised.
+- [x] Compose/Helm prototype: placeholder secrets are rejected, ports and probes
+  are aligned, Helm defaults are explicitly single-node, optional embedded
+  services are disabled by default, and static render/contract checks exist.
+- [x] Persistent webhook hardening: persisted signing material is `secret_ref`
+  only; inline/legacy plaintext and persistent custom headers fail closed;
+  mutations are serialized and atomically replaced.
+- [x] Physical-erasure prototype: exact scope, explicit supersession cascade,
+  dependent-row cleanup, integrity checks, and a content-free receipt are
+  implemented under a cooperative sidecar-lock contract.
+- [x] Public prototype documentation: README, deployment guide, platform status,
+  and release checklist reflect the implemented runtime and remaining gaps.
+
+## Runtime evidence
+
+On 2026-07-13, after commit `7e82a93`, a clean Docker Compose recreate/build
+completed successfully. Redis and Qdrant became healthy, the API became healthy,
+and direct checks returned HTTP 200 from `/health`, `/ready`, and `/metrics/`;
+the metrics response contained Prometheus `HELP` exposition. This proves the
+local Compose prototype path, not production durability or scale.
+
+## Remaining production gates
+
+- [ ] Resolve or explicitly accept fresh Bandit and dependency-audit findings,
+  then complete the final public security review.
+- [ ] Extend erasure verification beyond cooperating `SQLiteMemoryStore`
+  clients to power-loss/failure injection, backup deletion, external derived
+  artifacts, and documented recovery behavior.
+- [ ] Migrate or retire the quarantined lifecycle tests, make the legacy lane
+  terminate reliably, and add non-zero Redis/Qdrant service-lane coverage.
+- [ ] Build and install wheel/sdist artifacts on every supported Python version
+  without unexpected skips.
+- [ ] Exercise Compose persistence/restart, backup/restore, upgrade/rollback,
+  load, and soak scenarios.
+- [ ] Validate Helm secrets, storage classes, rollback, disruption, recovery,
+  and observability on the actual target cluster before any multi-node claim.
+- [ ] Publish versioned benchmark evidence and complete release/tag review.
