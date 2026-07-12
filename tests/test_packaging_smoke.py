@@ -51,6 +51,22 @@ def test_build_config_includes_benchmark_console_target() -> None:
     assert "benchmarks/" in sdist_include
 
 
+def test_benchmark_entrypoint_help_smoke() -> None:
+    code = (
+        "import sys; sys.argv=['mnemocore-benchmark', '--help']; "
+        "from benchmarks.entrypoint import main; main()"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**environ, "PYTHONPATH": str(Path(__file__).parents[1])},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "MnemoCore Benchmark Suite" in result.stdout
+
+
 @pytest.mark.skipif(
     not _WHEEL_BUILD_AVAILABLE,
     reason="wheel smoke requires the optional build and hatchling packages",
