@@ -95,6 +95,10 @@ class WebhookPersistenceError(RuntimeError):
     """Raised when webhook persistence cannot be safely read or committed."""
 
 
+class WebhookPersistenceCommittedError(WebhookPersistenceError):
+    """Raised after replace when directory durability could not be confirmed."""
+
+
 class UnsafeWebhookPersistenceError(WebhookPersistenceError):
     """Raised when persisted webhook configuration contains secret material."""
 
@@ -439,6 +443,8 @@ class WebhookManager:
 
     Persistence:
         Webhook configurations are persisted to disk for recovery after restart.
+        Persistent custom headers are rejected because they may contain credentials.
+        A future header_ref resolver contract is required before storing them safely.
 
     Example:
         ```python
@@ -465,7 +471,6 @@ class WebhookManager:
         max_history_size: int = 10000,
         http_session: Optional[aiohttp.ClientSession] = None,
         secret_resolver: Optional[WebhookSecretResolver] = None,
-        sensitive_header_names: Optional[set[str]] = None,
     ):
         """
         Initialize WebhookManager.
@@ -475,7 +480,6 @@ class WebhookManager:
             max_history_size: Maximum delivery records to keep
             http_session: Optional aiohttp session for HTTP requests
             secret_resolver: Callable that resolves an opaque secret reference
-            sensitive_header_names: Additional header names forbidden in persistence
         """
         self._persistence_path = Path(persistence_path) if persistence_path else None
         self._max_history_size = max_history_size
@@ -483,15 +487,6 @@ class WebhookManager:
             secret_resolver or resolve_webhook_secret_from_environment
         )
         self._persistence_lock = asyncio.Lock()
-        self._sensitive_header_names = {
-            "authorization",
-            "proxy-authorization",
-            "x-api-key",
-            "api-key",
-            "cookie",
-            "set-cookie",
-            *(name.casefold() for name in (sensitive_header_names or set())),
-        }
 
         # Webhook storage
         self._webhooks: Dict[str, WebhookConfig] = {}
@@ -564,12 +559,9 @@ class WebhookManager:
     def _validate_persistent_headers(self, headers: Dict[str, str]) -> None:
         if not self._persistence_path:
             return
-        sensitive = {
-            name for name in headers if name.casefold() in self._sensitive_header_names
-        }
-        if sensitive:
+        if headers:
             raise SensitiveWebhookHeaderError(
-                "Sensitive persistent webhook headers require secret references"
+                "Persistent custom headers require resolver-backed secret references"
             )
 
     @staticmethod
@@ -611,10 +603,15 @@ class WebhookManager:
         """
         webhook_id = f"wh_{uuid.uuid4().hex[:12]}"
 
-        if self._persistence_path and not secret_ref:
-            raise ValueError(
-                "Persistent webhooks require secret_ref; inline secrets are memory-only"
-            )
+        if self._persistence_path:
+            if secret is not None:
+                raise ValueError(
+                    "Persistent webhooks reject inline secrets; use secret_ref only"
+                )
+            if not secret_ref:
+                raise ValueError(
+                    "Persistent webhooks require secret_ref; inline secrets are memory-only"
+                )
 
         if secret is None and not secret_ref:
             # Auto-generate secure random secret
@@ -639,6 +636,8 @@ class WebhookManager:
             self._history[webhook_id] = []
             try:
                 await self._save_webhooks()
+            except WebhookPersistenceCommittedError:
+                raise
             except Exception:
                 self._webhooks.pop(webhook_id, None)
                 self._history.pop(webhook_id, None)
@@ -678,10 +677,9 @@ class WebhookManager:
         Returns:
             Updated WebhookConfig or None if not found
         """
-        if webhook_id not in self._webhooks:
-            return None
-
         async with self._persistence_lock:
+            if webhook_id not in self._webhooks:
+                return None
             previous = self._webhooks[webhook_id]
             config = copy.deepcopy(previous)
 
@@ -690,6 +688,10 @@ class WebhookManager:
             if events is not None:
                 config.events = events
             if secret is not None:
+                if self._persistence_path:
+                    raise ValueError(
+                        "Persistent webhooks reject inline secrets; use secret_ref only"
+                    )
                 config.secret = secret
             if secret_ref is not None:
                 config.secret_ref = secret_ref
@@ -705,6 +707,8 @@ class WebhookManager:
             self._webhooks[webhook_id] = config
             try:
                 await self._save_webhooks()
+            except WebhookPersistenceCommittedError:
+                raise
             except Exception:
                 self._webhooks[webhook_id] = previous
                 raise
@@ -723,14 +727,15 @@ class WebhookManager:
         Returns:
             True if webhook was deleted
         """
-        if webhook_id not in self._webhooks:
-            return False
-
         async with self._persistence_lock:
+            if webhook_id not in self._webhooks:
+                return False
             config = self._webhooks.pop(webhook_id)
             history = self._history.pop(webhook_id)
             try:
                 await self._save_webhooks()
+            except WebhookPersistenceCommittedError:
+                raise
             except Exception:
                 self._webhooks[webhook_id] = config
                 self._history[webhook_id] = history
@@ -1341,6 +1346,12 @@ class WebhookManager:
             return
 
         try:
+            for webhook in self._webhooks.values():
+                self._validate_persistent_headers(webhook.headers)
+                if webhook.secret:
+                    raise WebhookPersistenceError(
+                        "Persistent webhook state contains an inline secret"
+                    )
             data = {
                 "version": "2.0",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1355,6 +1366,11 @@ class WebhookManager:
             }
 
             await asyncio.to_thread(self._atomic_write, json.dumps(data, indent=2))
+        except WebhookPersistenceCommittedError:
+            logger.error(
+                "[WebhookManager] Persistence committed but durability is uncertain"
+            )
+            raise
         except Exception as exc:
             logger.error("[WebhookManager] Failed to save webhook configuration")
             raise WebhookPersistenceError(
@@ -1368,6 +1384,8 @@ class WebhookManager:
         destination = self._persistence_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        directory_fd = self._open_directory_for_sync(destination.parent)
+        committed = False
         try:
             with temporary.open("x", encoding="utf-8", newline="\n") as handle:
                 if os.name != "nt":
@@ -1376,17 +1394,39 @@ class WebhookManager:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, destination)
-            if os.name != "nt":
-                directory_fd = os.open(destination.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+            committed = True
+            if directory_fd is not None:
+                self._fsync_directory(directory_fd)
+        except Exception as exc:
+            if committed:
+                raise WebhookPersistenceCommittedError(
+                    "Webhook persistence committed but directory durability failed"
+                ) from exc
+            raise
         finally:
+            if directory_fd is not None:
+                self._close_directory_for_sync(directory_fd)
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    @staticmethod
+    def _open_directory_for_sync(path: Path) -> Optional[int]:
+        if os.name == "nt":
+            return None
+        return os.open(path, os.O_RDONLY)
+
+    @staticmethod
+    def _fsync_directory(directory_fd: int) -> None:
+        os.fsync(directory_fd)
+
+    @staticmethod
+    def _close_directory_for_sync(directory_fd: int) -> None:
+        try:
+            os.close(directory_fd)
+        except OSError:
+            pass
 
     # ======================================================================
     # Metrics
