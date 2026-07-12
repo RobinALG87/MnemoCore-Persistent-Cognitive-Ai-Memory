@@ -94,3 +94,18 @@ def test_helm_deployment_has_no_dead_secret_template_checksum() -> None:
     assert "checksum/secret" not in deployment
     assert 'Template.BasePath "/secret.yaml"' not in deployment
     assert 'Template.BasePath "/configmap.yaml"' in deployment
+
+
+def test_helm_ignore_uses_only_supported_patterns() -> None:
+    helmignore = read("helm/mnemocore/.helmignore")
+
+    assert "negation" not in helmignore
+    assert not any(line.startswith("!") for line in helmignore.splitlines())
+
+
+def test_embedded_deployment_gates_close_before_next_document() -> None:
+    for template in ("deployment-redis.yaml", "deployment-qdrant.yaml"):
+        content = read(f"helm/mnemocore/templates/{template}")
+        deployment_document = content.split("\n---", 1)[0]
+
+        assert deployment_document.rstrip().endswith("{{- end }}")

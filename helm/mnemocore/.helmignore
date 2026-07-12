@@ -1,6 +1,6 @@
 # Patterns to ignore when building packages.
-# This supports shell glob matching, relative path matching, and
-# negation (prefixed with !). Only one pattern per line.
+# This supports shell glob matching and relative path matching.
+# Only one pattern per line.
 
 # Common VCS dirs
 .git/
@@ -31,7 +31,6 @@ tests/
 
 # Documentation
 *.md
-!README.md
 
 # CI/CD files
 .github/

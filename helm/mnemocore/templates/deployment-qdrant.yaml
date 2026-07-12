@@ -82,6 +82,7 @@ spec:
         - name: storage
           emptyDir: {}
         {{- end }}
+{{- end }}
 ---
 {{/*
 Qdrant PVC

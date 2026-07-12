@@ -86,6 +86,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+{{- end }}
 ---
 {{/*
 Redis PVC
