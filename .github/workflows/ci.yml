@@ -336,9 +336,11 @@ jobs:
   # DOCKER BUILD - Validate image builds correctly
   # ===========================================================================
   docker:
-    name: Docker Build
+    name: Docker Build & Runtime Smoke
     runs-on: ubuntu-latest
     needs: [lint]
+    env:
+      CONTAINER_NAME: mnemocore-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -352,6 +354,40 @@ jobs:
             -e HAIM_API_KEY=ci-test-key \
             mnemocore:ci-${{ github.sha }} \
             python -c "from mnemocore.core.engine import HAIMEngine; print('Import OK')"
+
+      - name: Start prototype container
+        run: |
+          docker run --detach \
+            --name "$CONTAINER_NAME" \
+            --publish 127.0.0.1:8100:8100 \
+            --env HAIM_API_KEY=ci-test-key \
+            mnemocore:ci-${{ github.sha }}
+
+      - name: Verify runtime endpoints
+        run: |
+          wait_for_endpoint() {
+            endpoint="$1"
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error "http://127.0.0.1:8100${endpoint}" >/dev/null; then
+                return 0
+              fi
+              sleep 2
+            done
+            echo "Endpoint did not become available: ${endpoint}"
+            return 1
+          }
+
+          wait_for_endpoint /health
+          wait_for_endpoint /ready
+          wait_for_endpoint /metrics
+
+      - name: Dump prototype container logs
+        if: always()
+        run: docker logs "$CONTAINER_NAME" || true
+
+      - name: Stop prototype container
+        if: always()
+        run: docker rm --force "$CONTAINER_NAME" || true
 
   # ===========================================================================
   # BUILD STATUS - Summary Job

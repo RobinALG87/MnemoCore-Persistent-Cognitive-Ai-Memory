@@ -17,6 +17,21 @@ def test_ci_summary_is_fail_closed_for_all_required_jobs() -> None:
     assert 'if [ "$job" != "success" ]' in summary
 
 
+def test_ci_docker_job_runs_the_prototype_and_checks_public_endpoints() -> None:
+    workflow = read(".github/workflows/ci.yml")
+    docker_job = workflow.split("  docker:", 1)[1].split("  build-status:", 1)[0]
+
+    assert "docker run --rm" in docker_job
+    assert "docker run --detach" in docker_job
+    assert "--publish 127.0.0.1:8100:8100" in docker_job
+    assert "wait_for_endpoint /health" in docker_job
+    assert "wait_for_endpoint /ready" in docker_job
+    assert "wait_for_endpoint /metrics" in docker_job
+    assert docker_job.count("if: always()") >= 2
+    assert 'docker logs "$CONTAINER_NAME" || true' in docker_job
+    assert 'docker rm --force "$CONTAINER_NAME" || true' in docker_job
+
+
 def test_compose_requires_secrets_and_uses_api_port_for_metrics() -> None:
     compose = read("docker-compose.yml")
 
