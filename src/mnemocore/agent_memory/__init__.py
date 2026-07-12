@@ -1,6 +1,7 @@
 """Public API for MnemoCore's persistent bitemporal agent memory."""
 
 from .client import AgentMemory, MemorySession, SyncAgentMemory, SyncMemorySession
+from .erasure import ErasureReceipt
 from .errors import (
     AgentMemoryError,
     ClosedStoreError,
@@ -30,6 +31,7 @@ __all__ = [
     "AgentMemory",
     "AgentMemoryError",
     "ClosedStoreError",
+    "ErasureReceipt",
     "ContextItem",
     "ContextPack",
     "MemoryConflictError",

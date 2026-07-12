@@ -47,6 +47,7 @@ from .sqlite_codecs import (
     _timestamp_from_storage,
     _timestamp_to_storage,
 )
+from .erasure import ErasureReceipt, database_operation_lock, physically_erase
 from .fingerprint import fingerprint_similarity
 from .timeline import (
     build_superseded_payload,
@@ -123,8 +124,9 @@ def _record_observation_payload(record: MemoryRecord) -> dict[str, Any]:
 def _initialize_schema(path: Path) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(_connect(path)) as connection:
-            initialize_or_migrate(connection, path)
+        with database_operation_lock(path):
+            with closing(_connect(path)) as connection:
+                initialize_or_migrate(connection, path)
     except (OSError, sqlite3.Error) as error:
         raise StorageError(f"Failed to initialize SQLite database at {path}: {error}") from error
 
@@ -2418,9 +2420,11 @@ class SQLiteMemoryStore:
         async with self._lifecycle_lock:
             if self._closed:
                 raise ClosedStoreError("SQLite memory store is closed")
-            worker_task = asyncio.create_task(
-                asyncio.to_thread(worker, self._path, *args, **kwargs)
-            )
+            def run_locked() -> _T:
+                with database_operation_lock(self._path):
+                    return worker(self._path, *args, **kwargs)
+
+            worker_task = asyncio.create_task(asyncio.to_thread(run_locked))
             try:
                 return await asyncio.shield(worker_task)
             except asyncio.CancelledError as cancellation:
@@ -2542,6 +2546,20 @@ class SQLiteMemoryStore:
 
     async def rebuild(self, scope: MemoryScope) -> int:
         return await self._run(_rebuild, scope)
+
+    async def erase(
+        self,
+        scope: MemoryScope,
+        memory_ids: Sequence[str],
+        *,
+        cascade: bool = False,
+    ) -> ErasureReceipt:
+        return await self._run(
+            physically_erase,
+            scope.scope_key,
+            memory_ids,
+            cascade=cascade,
+        )
 
     async def recall(
         self,
