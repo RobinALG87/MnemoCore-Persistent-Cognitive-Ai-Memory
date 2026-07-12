@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tomllib
+import importlib.util
+import tempfile
 from os import environ
 from pathlib import Path
+
+import pytest
+
+
+_WHEEL_BUILD_AVAILABLE = (
+    importlib.util.find_spec("hatchling") is not None
+    and importlib.util.find_spec("build") is not None
+)
 
 
 def test_agent_memory_import_does_not_load_optional_integrations() -> None:
@@ -25,3 +36,71 @@ def test_agent_memory_import_does_not_load_optional_integrations() -> None:
         },
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_build_config_includes_benchmark_console_target() -> None:
+    project_root = Path(__file__).parents[1]
+    with (project_root / "pyproject.toml").open("rb") as handle:
+        config = tomllib.load(handle)
+
+    scripts = config["project"]["scripts"]
+    wheel_packages = config["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"]
+    sdist_include = config["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
+    assert scripts["mnemocore-benchmark"] == "benchmarks.entrypoint:main"
+    assert "benchmarks" in wheel_packages
+    assert "benchmarks/" in sdist_include
+
+
+@pytest.mark.skipif(
+    not _WHEEL_BUILD_AVAILABLE,
+    reason="wheel smoke requires the optional build and hatchling packages",
+)
+def test_built_wheel_installs_core_surface_in_clean_venv() -> None:
+    project_root = Path(__file__).parents[1]
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        wheel_dir = root / "dist"
+        build_result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "build",
+                "--wheel",
+                "--no-isolation",
+                "--outdir",
+                str(wheel_dir),
+            ],
+            cwd=project_root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert build_result.returncode == 0, build_result.stderr
+        wheel = next(wheel_dir.glob("*.whl"))
+
+        venv_dir = root / "venv"
+        subprocess.run(
+            [sys.executable, "-m", "venv", str(venv_dir)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        venv_python = venv_dir / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        install_result = subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "--no-deps", str(wheel)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert install_result.returncode == 0, install_result.stderr
+        smoke = subprocess.run(
+            [
+                str(venv_python),
+                "-c",
+                "import mnemocore.agent_memory; import mnemocore; print(mnemocore.__version__)",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert smoke.returncode == 0, smoke.stderr

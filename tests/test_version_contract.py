@@ -8,6 +8,7 @@ import mnemocore
 from mnemocore.api.entrypoint import main as server_main
 from mnemocore.api.version import get_version
 from mnemocore.cli.entrypoint import main as cli_main
+from benchmarks.entrypoint import main as benchmark_main
 
 
 def test_version_is_single_source_and_public() -> None:
@@ -26,4 +27,4 @@ def test_installed_metadata_matches_public_version_when_available() -> None:
 def test_optional_console_entrypoints_are_real_callables() -> None:
     assert callable(server_main)
     assert callable(cli_main)
-
+    assert callable(benchmark_main)
