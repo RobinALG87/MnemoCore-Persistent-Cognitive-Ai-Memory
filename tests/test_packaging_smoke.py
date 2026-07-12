@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
-import tomllib
-import importlib.util
 import tempfile
+import tomllib
+import zipfile
 from os import environ
 from pathlib import Path
 
@@ -17,6 +18,26 @@ _WHEEL_BUILD_AVAILABLE = (
     importlib.util.find_spec("hatchling") is not None
     and importlib.util.find_spec("build") is not None
 )
+
+_BENCHMARK_RUNTIME_FILES = {
+    "benchmarks/__init__.py",
+    "benchmarks/base.py",
+    "benchmarks/comparison.py",
+    "benchmarks/entrypoint.py",
+    "benchmarks/latency.py",
+    "benchmarks/memory_footprint.py",
+    "benchmarks/regression.py",
+    "benchmarks/run_benchmarks.py",
+    "benchmarks/runner.py",
+    "benchmarks/throughput.py",
+}
+
+_BENCHMARK_WHEEL_EXCLUDES = {
+    "benchmarks/agent_memory_baseline.py",
+    "benchmarks/bench_*.py",
+    "benchmarks/pytest_benchmarks.py",
+    "benchmarks/test_*.py",
+}
 
 
 def test_agent_memory_import_does_not_load_optional_integrations() -> None:
@@ -44,11 +65,24 @@ def test_build_config_includes_benchmark_console_target() -> None:
         config = tomllib.load(handle)
 
     scripts = config["project"]["scripts"]
-    wheel_packages = config["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"]
+    wheel_config = config["tool"]["hatch"]["build"]["targets"]["wheel"]
     sdist_include = config["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
     assert scripts["mnemocore-benchmark"] == "benchmarks.entrypoint:main"
-    assert "benchmarks" in wheel_packages
+    assert "benchmarks" in wheel_config["packages"]
+    assert set(wheel_config["exclude"]) == _BENCHMARK_WHEEL_EXCLUDES
     assert "benchmarks/" in sdist_include
+
+
+def test_benchmark_runtime_manifest_matches_source_tree() -> None:
+    project_root = Path(__file__).parents[1]
+    benchmark_files = {
+        path.relative_to(project_root).as_posix()
+        for path in (project_root / "benchmarks").glob("*.py")
+        if not path.name.startswith("test_")
+        and not path.name.startswith("bench_")
+        and path.name not in {"agent_memory_baseline.py", "pytest_benchmarks.py"}
+    }
+    assert benchmark_files == _BENCHMARK_RUNTIME_FILES
 
 
 def test_benchmark_entrypoint_help_smoke() -> None:
@@ -93,6 +127,11 @@ def test_built_wheel_installs_core_surface_in_clean_venv() -> None:
         )
         assert build_result.returncode == 0, build_result.stderr
         wheel = next(wheel_dir.glob("*.whl"))
+        with zipfile.ZipFile(wheel) as archive:
+            packaged_benchmarks = {
+                name for name in archive.namelist() if name.startswith("benchmarks/")
+            }
+        assert packaged_benchmarks == _BENCHMARK_RUNTIME_FILES
 
         venv_dir = root / "venv"
         subprocess.run(

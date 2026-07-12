@@ -18,4 +18,3 @@ def main() -> int:
 
 
 __all__ = ["main"]
-

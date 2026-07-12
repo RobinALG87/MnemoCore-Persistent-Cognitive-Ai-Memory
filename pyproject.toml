@@ -185,6 +185,12 @@ path = "src/mnemocore/_version.py"
 # ── Hatchling build configuration ─────────────────────────────────────────────
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnemocore", "benchmarks"]
+exclude = [
+    "benchmarks/agent_memory_baseline.py",
+    "benchmarks/bench_*.py",
+    "benchmarks/pytest_benchmarks.py",
+    "benchmarks/test_*.py",
+]
 
 [tool.hatch.build.targets.sdist]
 include = [
