@@ -20,7 +20,7 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir --upgrade pip build
 
-COPY pyproject.toml README.md LICENSE CHANGELOG.md config.yaml ./
+COPY pyproject.toml README.md LICENSE config.yaml ./
 COPY src/ ./src/
 COPY benchmarks/ ./benchmarks/
 RUN pip wheel --no-cache-dir --wheel-dir /wheels .
@@ -74,7 +74,6 @@ USER mnemocore
 # Environment variables (defaults, can be overridden)
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HAIM_API_KEY="" \
     REDIS_URL="redis://redis:6379/0" \
     QDRANT_URL="http://qdrant:6333" \
     LOG_LEVEL="INFO" \
