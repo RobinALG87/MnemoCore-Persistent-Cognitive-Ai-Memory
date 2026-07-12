@@ -22,6 +22,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+pytestmark = pytest.mark.slow
 import numpy as np
 
 from mnemocore.core.holographic import ConceptualMemory

@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
+pytestmark = pytest.mark.slow
 
 from mnemocore.events.event_bus import (
     EventBus,

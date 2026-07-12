@@ -91,9 +91,9 @@ def test_security_middleware_fallback(mock_deps):
     mock_conf_no_sec.security = mock_security_no_key
     mock_conf_no_sec.dimensionality = 1024
 
-    with patch("mnemocore.api.main.get_config", return_value=mock_conf_no_sec), \
-         patch("mnemocore.api.main.HAIMEngine", return_value=mock_engine2), \
-         patch("mnemocore.api.main.build_container", return_value=mock_container2), \
+    with patch("mnemocore.core.config.get_config", return_value=mock_conf_no_sec), \
+         patch("mnemocore.core.engine.HAIMEngine", return_value=mock_engine2), \
+         patch("mnemocore.core.container.build_container", return_value=mock_container2), \
          patch.dict(os.environ, {"HAIM_API_KEY": "env-secret-key"}, clear=False):
 
         # Re-import to get fresh app with new patches applied

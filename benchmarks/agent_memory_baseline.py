@@ -30,6 +30,13 @@ SEED = 1729
 SCHEMA_VERSION = 1
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
+_WORKER_ENV_ALLOWLIST = frozenset({
+    "PATH", "SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC",
+    "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE",
+    "LANG", "LC_ALL", "LC_CTYPE",
+    "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
+})
+
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkConfig:
@@ -414,7 +421,11 @@ def _resource_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
 def run_baseline(config: BenchmarkConfig, *, output_path: Path | None = None) -> dict[str, Any]:
     corpus = build_corpus(config.corpus_size, config.seed)
     runs = []
-    worker_environment = dict(os.environ)
+    worker_environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key in _WORKER_ENV_ALLOWLIST or key.startswith("PYTHON")
+    }
     worker_environment["MNEMOCORE_TELEMETRY"] = "0"
     worker_environment["PYTHONDONTWRITEBYTECODE"] = "1"
     worker_environment["PYTHONIOENCODING"] = "utf-8"

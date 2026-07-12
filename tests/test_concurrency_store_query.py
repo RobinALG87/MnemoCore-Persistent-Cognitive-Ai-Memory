@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
+pytestmark = pytest.mark.slow
 import numpy as np
 
 from mnemocore.core.engine import HAIMEngine

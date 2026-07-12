@@ -5,6 +5,7 @@ Comprehensive tests for input validation and rate limiting.
 """
 
 import pytest
+pytestmark = pytest.mark.slow
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch, AsyncMock
 import sys

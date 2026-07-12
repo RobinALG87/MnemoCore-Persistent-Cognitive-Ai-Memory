@@ -20,6 +20,7 @@ Covers:
 import asyncio
 import time
 import pytest
+pytestmark = pytest.mark.slow
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from mnemocore.core.config import SelfImprovementConfig

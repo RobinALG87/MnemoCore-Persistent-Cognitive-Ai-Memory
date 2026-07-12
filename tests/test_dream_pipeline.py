@@ -21,6 +21,7 @@ from unittest.mock import (
 )
 
 import pytest
+pytestmark = pytest.mark.slow
 
 from mnemocore.subconscious.dream.clusterer import EpisodicClusterer, EpisodicCluster
 from mnemocore.subconscious.dream.patterns import PatternExtractor

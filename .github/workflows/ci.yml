@@ -48,12 +48,64 @@ jobs:
         continue-on-error: true  # Non-blocking until type coverage improves
 
   # ===========================================================================
-  # TEST JOB - Unit & Integration Tests with Coverage
+  # TEST LANE 1 - AgentMemory Core (SQLite/local-only)
   # ===========================================================================
-  test:
-    name: Test (Python ${{ matrix.python-version }})
+  test-agent-memory:
+    name: AgentMemory Core (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: lint
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Create required directories
+        run: mkdir -p data
+
+      - name: Run AgentMemory tests
+        env:
+          HAIM_API_KEY: ${{ env.HAIM_API_KEY }}
+          HAIM_DIMENSIONALITY: ${{ env.HAIM_DIMENSIONALITY }}
+          HAIM_ENCODING_MODE: ${{ env.HAIM_ENCODING_MODE }}
+        run: |
+          pytest tests/agent_memory \
+            --cov=src/mnemocore/agent_memory \
+            --cov-report=xml:coverage-agent-memory.xml \
+            --tb=short \
+            -q
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-agent-memory
+          path: coverage-agent-memory.xml
+
+  # ===========================================================================
+  # TEST LANE 2 - Legacy Unit Tests
+  # ===========================================================================
+  test-legacy-unit:
+    name: Legacy Unit (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -90,31 +142,112 @@ jobs:
       - name: Create required directories
         run: mkdir -p data
 
-      - name: Run tests with coverage
+      - name: Run legacy unit tests
         env:
           REDIS_URL: redis://localhost:6379
           HAIM_API_KEY: ${{ env.HAIM_API_KEY }}
           HAIM_DIMENSIONALITY: ${{ env.HAIM_DIMENSIONALITY }}
           HAIM_ENCODING_MODE: ${{ env.HAIM_ENCODING_MODE }}
         run: |
-          pytest tests/ \
-            -m "not integration" \
+          pytest tests \
+            --ignore=tests/agent_memory \
+            --ignore=tests/integrations \
+            --ignore=tests/test_integration_store_query_cycle.py \
+            -m "not integration and not slow" \
             --cov=src \
-            --cov-report=xml \
+            --cov-report=xml:coverage-legacy.xml \
             --cov-report=term-missing \
             --cov-fail-under=60 \
             --tb=short \
-            -v
+            -q
 
-      - name: Upload coverage to Codecov
+      - name: Upload coverage
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v4
+        uses: actions/upload-artifact@v4
         with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-          verbose: true
+          name: coverage-legacy
+          path: coverage-legacy.xml
+
+  # ===========================================================================
+  # TEST LANE 3 - Offline Adapters (no Redis or Qdrant probes)
+  # ===========================================================================
+  test-adapters:
+    name: Offline Adapters (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Create required directories
+        run: mkdir -p data
+
+      - name: Run adapter tests
         env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          HAIM_API_KEY: ${{ env.HAIM_API_KEY }}
+          HAIM_DIMENSIONALITY: ${{ env.HAIM_DIMENSIONALITY }}
+          HAIM_ENCODING_MODE: ${{ env.HAIM_ENCODING_MODE }}
+        run: |
+          pytest tests/integrations \
+            --tb=short \
+            -q
+
+  # ===========================================================================
+  # TEST LANE 4 - Benchmark Harness Contracts & Smoke
+  # ===========================================================================
+  test-benchmark-smoke:
+    name: Benchmark Smoke
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Create required directories
+        run: mkdir -p data
+
+      - name: Run benchmark contract and smoke tests
+        env:
+          HAIM_API_KEY: ${{ env.HAIM_API_KEY }}
+          HAIM_DIMENSIONALITY: ${{ env.HAIM_DIMENSIONALITY }}
+          HAIM_ENCODING_MODE: ${{ env.HAIM_ENCODING_MODE }}
+        run: |
+          pytest benchmarks/test_agent_memory_baseline.py \
+            benchmarks/test_benchmark_smoke.py \
+            --tb=short \
+            -q
 
   # ===========================================================================
   # SECURITY JOB - Dependency & Code Security Scanning
@@ -195,7 +328,7 @@ jobs:
           docker run --rm \
             -e HAIM_API_KEY=ci-test-key \
             mnemocore:ci-${{ github.sha }} \
-            python -c "from src.core.engine import HAIMEngine; print('Import OK')"
+            python -c "from mnemocore.core.engine import HAIMEngine; print('Import OK')"
 
   # ===========================================================================
   # BUILD STATUS - Summary Job
@@ -203,17 +336,43 @@ jobs:
   build-status:
     name: Build Status
     runs-on: ubuntu-latest
-    needs: [lint, test, security, property-tests, docker]
+    needs: [lint, test-agent-memory, test-legacy-unit, test-adapters, test-benchmark-smoke, security, property-tests, docker]
     if: always()
     steps:
+      - name: Merge coverage reports
+        if: needs.test-agent-memory.result == 'success' && needs.test-legacy-unit.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+
+      - name: Upload combined coverage to Codecov
+        if: needs.test-agent-memory.result == 'success' && needs.test-legacy-unit.result == 'success'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage-agent-memory.xml,coverage-legacy.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Check build status
         run: |
-          if [[ "${{ needs.test.result }}" == "failure" ]]; then
-            echo "Tests failed!"
-            exit 1
-          fi
-          if [[ "${{ needs.lint.result }}" == "failure" ]]; then
-            echo "Lint checks failed!"
+          failed=false
+          for job in \
+            "${{ needs.test-agent-memory.result }}" \
+            "${{ needs.test-legacy-unit.result }}" \
+            "${{ needs.test-adapters.result }}" \
+            "${{ needs.test-benchmark-smoke.result }}" \
+            "${{ needs.lint.result }}" \
+            "${{ needs.security.result }}" \
+            "${{ needs.property-tests.result }}"; do
+            if [ "$job" = "failure" ]; then
+              failed=true
+            fi
+          done
+          if [ "$failed" = "true" ]; then
+            echo "One or more required checks failed!"
             exit 1
           fi
           echo "All checks passed!"

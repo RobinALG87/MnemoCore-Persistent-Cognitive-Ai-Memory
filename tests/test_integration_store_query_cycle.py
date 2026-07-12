@@ -1,12 +1,25 @@
 """
-Integration Tests for Store/Query Cycle
-======================================
+Integration Tests for Store/Query Cycle (QUARANTINED)
+=====================================================
 
-End-to-end integration tests for the complete store/query lifecycle.
-Tests the full workflow from storing memories through querying, updating,
-deleting, and round-trip operations.
+> [!WARNING]
+> This suite is QUARANTINED and excluded from active CI pipelines. Do not include
+> in required green lanes until the issues below are resolved.
 
-Test Categories:
+This module is quarantined due to:
+1. Stale API assumptions targeting an obsolete HAIMEngine monolith interface
+   (e.g., store, query, get_memory, delete_memory instead of the updated
+   AgentMemory interface).
+2. Obsolete mock patching targets (AsyncQdrantClient).
+3. Outdated expectations for the working memory and association spreading lifecycles.
+
+UNQUARANTINE CHECKLIST:
+- [ ] Migrate HAIMEngine initialization to use AgentMemory client interface.
+- [ ] Align assertions with AgentMemory.remember(), recall(), and fact supersession behaviors.
+- [ ] Align working memory checks with WorkingMemoryService API.
+- [ ] Verify execution passes offline and locally before removing quarantine flags.
+
+Original Categories:
     - Full lifecycle: store -> query -> update -> query -> delete
     - Store with associations -> query with association spreading -> verify links
     - Store -> dream -> verify dream results in store

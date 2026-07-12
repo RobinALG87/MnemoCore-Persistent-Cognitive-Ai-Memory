@@ -35,7 +35,13 @@ python -m pytest benchmarks/pytest_benchmarks.py -m slo -q
 module, but it is not part of required CI. It is quarantined because its fixture
 still uses an obsolete `AsyncQdrantClient` patch target and several assertions
 encode stale lifecycle behavior assumptions. Keep it discoverable, but do not
-add it to a required green lane until those failures are repaired and verified.
+add it to a required green lane.
+
+**Unquarantine Requirements:**
+1. Migrate engine initialization and operations (e.g. `.store()`, `.query()`) from `HAIMEngine` to the modern `AgentMemory` interface.
+2. Fix obsolete client/mock patching targets (e.g. `AsyncQdrantClient`).
+3. Align all assertions with the updated bitemporal timelines and working memory service properties.
+4. Ensure the entire file passes when running `pytest tests/test_integration_store_query_cycle.py`.
 
 ## Service lane: inactive
 

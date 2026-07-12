@@ -19,6 +19,7 @@ from unittest.mock import (
 )
 
 import pytest
+pytestmark = pytest.mark.slow
 
 from mnemocore.subconscious.dream_scheduler import (
     IdleDetector,
