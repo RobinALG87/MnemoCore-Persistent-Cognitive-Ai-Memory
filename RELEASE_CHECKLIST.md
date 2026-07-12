@@ -1,127 +1,76 @@
-# MnemoCore Release Checklist — baseline triage
+# MnemoCore release checklist
 
-## Status: NOT RELEASE-READY
+## Status: working prototype, not production-ready
 
-> The authoritative current-state evidence is [Platform baseline — 2026-07-12](docs/status/2026-07-12-platform-baseline.md).
-> [PRODUCTION_REMEDIATION_PROGRESS.md](PRODUCTION_REMEDIATION_PROGRESS.md) is
-> retained as historical context and is not a current green-status claim.
+The authoritative evidence is recorded in
+[the platform status](docs/status/2026-07-12-platform-baseline.md). Historical
+remediation documents are context, not green release evidence.
 
-### Current gate summary
+## Verified prototype gates
 
-| Gate | Status | Evidence |
-|---|---|---|
-| AgentMemory core | PASS | 304 focused tests pass |
-| Offline adapters | PASS | 6 tests pass |
-| Benchmark contracts/smoke | PASS | 18 tests pass |
-| Legacy platform | TIMEOUT | Documented lane did not complete within the baseline window |
-| Lifecycle integration | QUARANTINED | 16 tests skipped pending migration |
-| Docker | NOT RUN | Daemon unavailable during baseline |
-| Security/dependency scans | FAIL | Existing Bandit and pip-audit findings remain |
-| Release decision | BLOCKED | Do not publish a release claim until the baseline gates are reviewed |
+- [x] AgentMemory core baseline: 304 focused tests passed.
+- [x] Offline adapters: 6 tests passed.
+- [x] Benchmark contracts/smoke: 18 tests passed.
+- [x] Packaging/runtime contract batch: 16 passed, 2 skipped because the local
+  build-backend metadata prerequisite was unavailable.
+- [x] Docker image builds a wheel and installs the package.
+- [x] A real container starts `mnemocore.api.main:app` as a non-root user.
+- [x] Container smoke returned `/health` (live/degraded without Redis), `/ready`
+  (`ready`), and Prometheus output from `/metrics/` on port 8100.
+- [x] Compose requires `HAIM_API_KEY`, `REDIS_PASSWORD`, and `QDRANT_API_KEY`.
+- [x] CI includes Docker in its fail-closed summary and exercises the runtime
+  endpoints.
+- [x] Helm defaults are aligned to the single-node prototype and port 8100.
 
----
+## Release blockers
 
-## ✅ Completed
+- [ ] Resolve or explicitly accept current Bandit and dependency-audit findings.
+- [ ] Prove physical erasure from SQLite, WAL/SHM, FTS, projections, backups,
+  and derived artifacts, including interrupted-operation recovery.
+- [ ] Migrate or retire the quarantined lifecycle integration file.
+- [ ] Make the legacy unit lane terminate reliably and record its result.
+- [ ] Add non-zero Redis/Qdrant service-lane coverage.
+- [ ] Run the full supported Python matrix and build wheel/sdist from a clean
+  environment without skipped packaging assertions.
+- [ ] Validate Compose persistence/restart and backup/restore.
+- [ ] Validate Helm dependency locking, secrets, storage, rollback, and recovery
+  on a target cluster.
+- [ ] Run load/soak tests and compare published benchmark artifacts against the
+  accepted regression threshold.
+- [ ] Complete a final public security review and secret-pattern scan.
 
-- [x] LICENSE file (MIT)
-- [x] .gitignore hardened (temp files, debug artifacts, build outputs)
-- [x] data/memory.jsonl removed (no stored memories)
-- [x] No leaked API keys or credentials
-- [ ] **2,200+ unit tests defined** — 133 failures remain (see [PRODUCTION_REMEDIATION_PROGRESS.md](PRODUCTION_REMEDIATION_PROGRESS.md))
-- [x] Test suite import paths fixed (`src.` → `mnemocore.`)
-- [x] Critical TODOs addressed or verified as safe
-- [x] Config-service field alignment verified (no silent fallback-to-default bugs)
-- [x] Thread safety audit completed (all mutations under locks)
-- [x] Unused imports cleaned across all service files
-- [x] Obsolete files and temp directories removed
-- [x] Documentation updated (CHANGELOG, ARCHITECTURE, ROADMAP, README)
-
----
-
-## 🔧 Resolved/Verified Items
-
-The following items were previously listed as known limitations but have been verified as resolved or robustly handled:
-
-1. **Qdrant Consolidation:** `src/core/tier_manager.py` implements `consolidate_warm_to_cold` with full Qdrant batch scrolling.
-2. **Qdrant Search:** `src/core/engine.py` query pipeline correctly delegates to `TierManager.search` which queries Qdrant for WARM tier results.
-3. **LLM Integration:** `src/llm_integration.py` includes `_mock_llm_response` fallbacks when no provider is configured, ensuring stability even without API keys.
-
----
-
-## 📝 Remaining Roadmap Items (Non-Blocking)
-
-### 1. `src/llm_integration.py` - Advanced LLM Features
-- **Status:** Functional with generic providers.
-- **Task:** Implement specific "OpenClaw" or "Gemini 3 Pro" adapters if required in future. Current implementation supports generic OpenAI/Anthropic/Gemini/Ollama clients.
-
-### 2. Full Notion Integration
-- **Status:** Not currently present in `src/mnemocore`.
-- **Task:** Re-introduce `nightlab` or similar module if Notion support is needed in Phase 5.
-
----
-
-## 📋 Pre-Release Actions
-
-### Before git push:
+## Candidate verification sequence
 
 ```bash
-# 1. Clean build artifacts
-rm -rf .pytest_cache __pycache__ */__pycache__ *.pyc
-
-# 2. Verify tests pass
-# Note: Ensure you are in the environment where mnemocore is installed
-python -m pytest
-
-# 3. Verify import works
-python -c "from mnemocore.core.engine import HAIMEngine; print('OK')"
-
-# 4. Check for secrets (should return nothing)
-grep -r "sk-" src/ --include="*.py"
-grep -r "api_key.*=" src/ --include="*.py" | grep -v "api_key=\"\""
-
-# 5. Initialize fresh data files
-# Ensure data directory exists
-mkdir -p data
-touch data/memory.jsonl data/codebook.json data/concepts.json data/synapses.json
+python -m build
+python -m pytest tests/agent_memory tests/integrations \
+  benchmarks/test_agent_memory_baseline.py benchmarks/test_benchmark_smoke.py -q
+python -m pytest tests/test_version_contract.py tests/test_packaging_smoke.py \
+  tests/test_api_health_runtime.py tests/test_docker_runtime_contract.py \
+  tests/deployment/test_deployment_contracts.py -q
+ruff check src tests benchmarks
+bandit -r src/mnemocore -q
+pip-audit -l
+docker build -t mnemocore:release-candidate .
+docker compose config
+helm dependency build helm/mnemocore
+helm lint helm/mnemocore
 ```
 
-### Update README.md:
+Then run a container and require successful responses from `/health`, `/ready`,
+and `/metrics/` on port 8100. A release is not green merely because the focused
+prototype checks pass; every blocker above needs direct evidence or a recorded
+risk acceptance.
 
-- [x] Add: "Beta Release - See RELEASE_CHECKLIST.md for known limitations"
-- [x] Add: "Installation" section with `pip install -r requirements.txt`
-- [x] Add: "Quick Start" example
-- [x] Add: "Roadmap" section linking TODOs above
+## Publication gate
 
----
+Before tagging or publishing:
 
-## 🚀 Release Command Sequence
-
-```bash
-# Verify clean state
-git status
-
-# Stage public files
-git add LICENSE .gitignore RELEASE_CHECKLIST.md
-git add src/ tests/ config.yaml requirements.txt pytest.ini pyproject.toml
-git add README.md docker-compose.yml
-git add data/.gitkeep  # If exists
-
-# Commit
-git commit -m "Release Candidate: All tests passing, critical TODOs resolved.
-
-- Fixed test suite import paths (src -> mnemocore)
-- Verified Qdrant consolidation and search implementation
-- Confirmed LLM integration fallbacks"
-
-# Tag
-git tag -a v2.0.0 -m "Release v2.0.0"
-
-# Push (safe, validates remote/version before push)
-./scripts/ops/push_v2_safe.ps1
-./scripts/ops/push_v2_safe.ps1 -DoPush
-./scripts/ops/push_v2_safe.ps1 -DoPush -TagName v2.0.0
-```
-
----
-
-*Updated: 2026-02-18*
+- [ ] Worktree and version authority are clean and intentional.
+- [ ] Release notes distinguish stable AgentMemory from legacy/experimental
+  surfaces.
+- [ ] No real credentials, private runtime policies, or internal paths are in
+  the public diff or artifacts.
+- [ ] Upgrade, rollback, backup, restore, and erasure procedures are rehearsed.
+- [ ] CI is green without unexpected skips.
+- [ ] Image digest and Python artifacts are recorded and scanned.

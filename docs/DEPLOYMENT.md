@@ -1,423 +1,133 @@
-# MnemoCore Deployment Guide
+# MnemoCore prototype deployment
 
-> **Version**: 5.1.0
+This guide describes the currently verified single-node prototype. It is a
+working deployment baseline, not a production-readiness claim. AgentMemory can
+also be used directly as a local SQLite-backed Python library without running
+the REST service, Redis, or Qdrant.
 
-This guide covers deploying MnemoCore in development, Docker, and Kubernetes environments.
+## Local API
 
----
-
-## Table of Contents
-
-- [Prerequisites](#prerequisites)
-- [Local Development](#local-development)
-- [Docker Deployment](#docker-deployment)
-- [Docker Compose (Recommended)](#docker-compose-recommended)
-- [Kubernetes / Helm](#kubernetes--helm)
-- [Environment Variables](#environment-variables)
-- [Health Checks](#health-checks)
-- [Monitoring & Observability](#monitoring--observability)
-- [Production Checklist](#production-checklist)
-
----
-
-## Prerequisites
-
-| Component | Required Version | Purpose |
-|-----------|-----------------|---------|
-| Python | 3.11+ | Runtime |
-| Redis | 7.x | Warm tier storage, streams |
-| Qdrant | 1.12+ | Vector search, cold tier |
-| Docker | 24+ | Container runtime (optional) |
-| Helm | 3.x | Kubernetes deployment (optional) |
-
----
-
-## Local Development
-
-### Quick Start
+Install the project, provide a non-default API key, and bind to loopback while
+developing:
 
 ```bash
-# Clone and setup
-git clone https://github.com/your-org/mnemocore.git
-cd mnemocore
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-.venv\Scripts\Activate.ps1  # Windows PowerShell
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt  # for testing
-
-# Copy and edit config
-cp config.yaml config.local.yaml
-# Edit config.local.yaml with your settings
-
-# Run the API server
-uvicorn src.mnemocore.api.main:app --host 127.0.0.1 --port 8100 --reload
+pip install -e .
+export HAIM_API_KEY="replace-with-a-long-random-value"
+uvicorn mnemocore.api.main:app --host 127.0.0.1 --port 8100
 ```
 
-### Running Without External Services
+The supported runtime endpoints are:
 
-MnemoCore works in standalone mode without Redis or Qdrant. It uses in-memory storage for the hot tier and filesystem for warm/cold:
+- `GET /health` — liveness and dependency diagnostics. A local-only runtime can
+  report `degraded` when Redis is unavailable and still remain live.
+- `GET /ready` — readiness of the initialized local runtime. It returns
+  `ready` when the engine/container are initialized; Redis is diagnostic rather
+  than mandatory for this prototype.
+- `GET /metrics/` — Prometheus exposition on the API listener, port 8100. The
+  trailing slash is canonical.
 
-```yaml
-# config.yaml for standalone mode
-tiers:
-  hot:
-    max_memories: 2000
-    storage_backend: memory
-  warm:
-    storage_backend: mmap
-  cold:
-    storage_backend: filesystem
-```
+## Docker
 
-### Running Tests
+The image builds a wheel, installs it into the runtime stage, runs as an
+unprivileged user, and starts `mnemocore.api.main:app`:
 
 ```bash
-# Full test suite
-pytest tests/ -q --timeout=30
-
-# Specific test modules
-pytest tests/test_cognitive_services.py -v
-
-# With coverage
-pytest tests/ --cov=src/mnemocore --cov-report=html
+docker build -t mnemocore:prototype .
+docker run --rm \
+  --publish 127.0.0.1:8100:8100 \
+  --env HAIM_API_KEY="replace-with-a-long-random-value" \
+  --volume mnemocore-data:/app/data \
+  mnemocore:prototype
 ```
 
----
-
-## Docker Deployment
-
-### Building the Image
+Smoke check:
 
 ```bash
-docker build -t mnemocore:latest .
+curl --fail http://127.0.0.1:8100/health
+curl --fail http://127.0.0.1:8100/ready
+curl --fail http://127.0.0.1:8100/metrics/
 ```
 
-The Dockerfile uses a multi-stage build:
+`HAIM_API_KEY` is required by the container entrypoint. Do not expose port 8100
+directly to the internet; terminate TLS and enforce network policy at a trusted
+reverse proxy or ingress.
 
-1. **Builder stage**: `python:3.11.8-slim-bookworm` — installs dependencies in a venv
-2. **Production stage**: Copies only the venv and source, runs as non-root user (`mnemocore:1000`)
+## Docker Compose
 
-### Running Standalone
+Compose starts MnemoCore, Redis, and Qdrant. It fails during interpolation
+unless all three secrets are explicitly supplied:
 
 ```bash
-docker run -d \
-  --name mnemocore-api \
-  -p 8100:8100 \
-  -p 9090:9090 \
-  -v mnemocore-data:/app/data \
-  -e HAIM_API_KEY="your-secret-key" \
-  -e LOG_LEVEL=INFO \
-  mnemocore:latest
+cp .env.example .env
+# Set HAIM_API_KEY, REDIS_PASSWORD, and QDRANT_API_KEY in .env.
+docker compose config
+docker compose up --build -d
 ```
 
-### Image Details
+Only the API is published, on `127.0.0.1:8100`. Redis and Qdrant stay on the
+internal Compose network. Metrics use `http://127.0.0.1:8100/metrics/`; there is
+no separate port 9090 listener.
 
-| Property | Value |
-|----------|-------|
-| Base Image | `python:3.11.8-slim-bookworm` |
-| User | `mnemocore` (UID 1000) |
-| Working Dir | `/app` |
-| Ports | `8100` (API), `9090` (metrics) |
-| Entrypoint | `uvicorn src.api.main:app` |
-| Healthcheck | `python /app/scripts/ops/healthcheck.py` |
-| Memory Limit | 2G (recommended) |
-
----
-
-## Docker Compose (Recommended)
-
-The included `docker-compose.yml` deploys MnemoCore with all dependencies:
-
-### Services
-
-| Service | Image | Purpose | Ports |
-|---------|-------|---------|-------|
-| `mnemocore` | Custom build | API server | `8100`, `9090` |
-| `redis` | `redis:7.2-alpine` | Caching, streams | `6379` (internal) |
-| `qdrant` | `qdrant/qdrant:v1.12.1` | Vector search | `6333` (internal) |
-
-### Setup
-
-1. **Create an `.env` file**:
-
-```env
-HAIM_API_KEY=your-secure-api-key
-REDIS_PASSWORD=a-strong-redis-password
-QDRANT_API_KEY=a-strong-qdrant-key
-LOG_LEVEL=INFO
-```
-
-2. **Start all services**:
+Operational commands:
 
 ```bash
-docker compose up -d
+docker compose ps
+docker compose logs --follow mnemocore
+docker compose down
 ```
 
-3. **Verify**:
-
-```bash
-# Check health
-curl http://localhost:8100/health
-
-# Check logs
-docker compose logs mnemocore -f
-```
-
-4. **Stop**:
-
-```bash
-docker compose down          # Stop services
-docker compose down -v       # Stop and remove volumes
-```
-
-### Resource Limits
-
-| Service | Memory Limit | Memory Reserved |
-|---------|-------------|-----------------|
-| MnemoCore | 2 GB | 512 MB |
-| Redis | 512 MB | — |
-| Qdrant | 4 GB | — |
-
-### Volumes
-
-| Volume | Mount | Purpose |
-|--------|-------|---------|
-| `mnemocore-data` | `/app/data` | Memory files, dream reports, audit logs |
-| `mnemocore-redis-data` | `/data` (Redis) | Redis persistence |
-| `mnemocore-qdrant-storage` | `/qdrant/storage` | Qdrant vector data |
-
----
+Avoid `docker compose down -v` unless irreversible deletion of local prototype
+volumes is intended.
 
 ## Kubernetes / Helm
 
-A Helm chart is provided in `helm/mnemocore/`.
+The checked-in Helm defaults describe a single-node prototype:
 
-### Chart Structure
+- one MnemoCore replica;
+- API and metrics share container/service port 8100;
+- liveness uses `/health`, readiness uses `/ready`;
+- ServiceMonitor scrapes `/metrics/`;
+- bundled Redis and Qdrant are single-replica dependencies.
 
-```
-helm/mnemocore/
-├── Chart.yaml
-├── values.yaml
-├── templates/
-│   ├── deployment.yaml          # MnemoCore API
-│   ├── deployment-redis.yaml    # Redis
-│   ├── deployment-qdrant.yaml   # Qdrant
-│   ├── service.yaml
-│   ├── ingress.yaml
-│   ├── configmap.yaml
-│   ├── secret.yaml
-│   ├── pvc.yaml
-│   ├── hpa.yaml                 # Horizontal Pod Autoscaler
-│   ├── pdb.yaml                 # Pod Disruption Budget
-│   ├── networkpolicy.yaml
-│   ├── serviceaccount.yaml
-│   ├── servicemonitor.yaml      # Prometheus ServiceMonitor
-│   └── _helpers.tpl
-```
-
-### Installation
+Render and validate before applying:
 
 ```bash
-# Install with defaults
-helm install mnemocore ./helm/mnemocore
-
-# Install with custom values
-helm install mnemocore ./helm/mnemocore \
-  --set api.replicaCount=3 \
-  --set api.image.tag=5.1.0 \
-  --set secrets.apiKey="your-key" \
-  --set qdrant.storage.size=50Gi
-
-# Upgrade
-helm upgrade mnemocore ./helm/mnemocore -f custom-values.yaml
-
-# Uninstall
-helm uninstall mnemocore
+helm dependency build helm/mnemocore
+helm lint helm/mnemocore
+helm template mnemo helm/mnemocore --namespace mnemocore > rendered.yaml
 ```
 
-### Key Values
+Use an externally managed Kubernetes Secret or the chart's explicit secret
+inputs. Never commit real secret values. Multi-replica durability, coordinated
+background work, external backing services, disruption budgets, backup/restore,
+and disaster recovery are not yet verified and must not be inferred from the
+chart.
 
-```yaml
-# values.yaml highlights
-api:
-  replicaCount: 2
-  image:
-    repository: mnemocore
-    tag: "5.1.0"
-  resources:
-    requests:
-      memory: 512Mi
-      cpu: 250m
-    limits:
-      memory: 2Gi
-      cpu: "1"
+## Persistence and operations
 
-redis:
-  enabled: true
-  storage:
-    size: 5Gi
+- Mount `/app/data` on durable storage for local files.
+- Back up data only while following a SQLite-aware procedure that includes WAL
+  state; a copy of the main database file alone is not a proven restore.
+- Exercise restore and rollback in the target environment before relying on
+  backups.
+- Alert separately on liveness, readiness, and dependency degradation.
+- Treat logs and metrics as potentially sensitive operational metadata.
 
-qdrant:
-  enabled: true
-  storage:
-    size: 50Gi
+## Remaining production gates
 
-ingress:
-  enabled: false
-  className: nginx
-  hosts:
-    - host: mnemocore.example.com
-      paths:
-        - path: /
-          pathType: Prefix
+The prototype is intentionally not labelled production-ready until all of the
+following are evidenced:
 
-autoscaling:
-  enabled: false
-  minReplicas: 2
-  maxReplicas: 10
-  targetCPUUtilization: 70
-```
+- security and dependency findings are resolved or explicitly accepted;
+- physical erasure covers SQLite, WAL/SHM, FTS, projections, backups, and
+  derived artifacts with failure-injection tests;
+- the quarantined lifecycle test and legacy lane are migrated or retired with
+  an explicit compatibility decision;
+- real Redis/Qdrant service tests, backup/restore, upgrade/rollback, load, and
+  soak tests pass;
+- Helm dependencies, secret delivery, storage classes, and recovery behavior
+  are validated on the target cluster.
 
-### Features
-
-- **HPA**: Auto-scale API pods based on CPU/memory
-- **PDB**: Ensures minimum available pods during disruptions
-- **NetworkPolicy**: Restricts traffic between components
-- **ServiceMonitor**: Prometheus auto-discovery for metrics
-- **TLS**: Ingress TLS termination support
-
----
-
-## Environment Variables
-
-All sensitive configuration should be passed via environment variables:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `HAIM_API_KEY` | Yes (prod) | — | API authentication key |
-| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection string |
-| `REDIS_PASSWORD` | No | — | Redis password |
-| `QDRANT_URL` | No | `http://localhost:6333` | Qdrant URL |
-| `QDRANT_API_KEY` | No | — | Qdrant API key |
-| `LOG_LEVEL` | No | `INFO` | Logging level |
-| `HOST` | No | `0.0.0.0` | API bind host |
-| `PORT` | No | `8100` | API bind port |
-
-See [CONFIGURATION.md](CONFIGURATION.md) for the complete variable list.
-
----
-
-## Health Checks
-
-### HTTP Health Endpoint
-
-```bash
-curl http://localhost:8100/health
-```
-
-Returns `200 OK` with:
-
-```json
-{
-  "status": "healthy",
-  "redis_connected": true,
-  "qdrant_circuit_breaker": "closed",
-  "engine_ready": true
-}
-```
-
-### Docker Healthcheck
-
-Built into the Dockerfile:
-
-```
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3
-    CMD python /app/scripts/ops/healthcheck.py || exit 1
-```
-
-### Kubernetes Probes
-
-Configure in the Helm values:
-
-```yaml
-livenessProbe:
-  httpGet:
-    path: /health
-    port: 8100
-  initialDelaySeconds: 40
-  periodSeconds: 30
-
-readinessProbe:
-  httpGet:
-    path: /health
-    port: 8100
-  initialDelaySeconds: 10
-  periodSeconds: 10
-```
-
----
-
-## Monitoring & Observability
-
-### Prometheus Metrics
-
-Exposed at `GET /metrics` (port 8100) and optionally at port `9090`.
-
-Key metrics:
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `haim_store_total` | Counter | Total store operations |
-| `haim_query_total` | Counter | Total query operations |
-| `haim_store_latency_seconds` | Histogram | Store latency |
-| `haim_query_latency_seconds` | Histogram | Query latency |
-| `haim_tier_count` | Gauge | Memories per tier |
-
-### Grafana Dashboard
-
-Import the included `grafana-dashboard.json` into Grafana for a pre-built dashboard with:
-
-- Request rate and latency panels
-- Tier distribution
-- Dream cycle activity
-- Error rates
-
-### Structured Logging
-
-Enable structured JSON logging:
-
-```yaml
-observability:
-  structured_logging: true
-  log_level: INFO
-```
-
-Logs use `loguru` for services and stdlib `logging` for the pulse loop and API layer.
-
----
-
-## Production Checklist
-
-Before deploying to production:
-
-- [ ] Set `HAIM_API_KEY` to a strong, unique value
-- [ ] Set `REDIS_PASSWORD` and `QDRANT_API_KEY`
-- [ ] Configure CORS origins for your domain
-- [ ] Enable rate limiting (`security.rate_limit_enabled: true`)
-- [ ] Set `subconscious_ai.dry_run: false` only after validating behavior
-- [ ] Configure backup snapshots (`backup.auto_snapshot_enabled: true`)
-- [ ] Set appropriate resource limits (memory, CPU)
-- [ ] Configure monitoring (Prometheus + Grafana)
-- [ ] Enable structured logging for log aggregation
-- [ ] Review [SECURITY.md](../SECURITY.md) for security considerations
-- [ ] Test health endpoint from your monitoring system
-- [ ] Set up alerting for degraded health status
-
----
-
-*See [CONFIGURATION.md](CONFIGURATION.md) for all config options. See [ARCHITECTURE.md](ARCHITECTURE.md) for system design.*
+See [the release checklist](../RELEASE_CHECKLIST.md) and
+[the current platform status](status/2026-07-12-platform-baseline.md) for the
+authoritative public gates.

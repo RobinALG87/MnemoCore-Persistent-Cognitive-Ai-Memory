@@ -734,10 +734,16 @@ Trigger manual semantic consolidation (normally runs automatically at 3 AM).
 Engine statistics - tiers, synapse count, consolidation state. Requires `X-API-Key` by default.
 
 #### `GET /health`
-Minimal public health check: `status` and `timestamp`. Detailed diagnostics stay private.
+Public liveness and dependency diagnostics. A local-only runtime can report
+`degraded` when Redis is unavailable while remaining live.
 
-#### `GET /metrics`
-Prometheus metrics endpoint. Requires `X-API-Key` by default unless explicitly enabled for a trusted monitoring network.
+#### `GET /ready`
+Readiness of the initialized local runtime. Redis is reported diagnostically
+but is not required for the single-node prototype to become ready.
+
+#### `GET /metrics/`
+Prometheus metrics endpoint on the API listener (port 8100). The trailing slash
+is canonical.
 
 ---
 
@@ -928,11 +934,13 @@ cp .env.example .env
 ### Full Stack with Docker Compose
 
 ```bash
-# Requires .env with HAIM_API_KEY set
+# Requires .env with HAIM_API_KEY, REDIS_PASSWORD, and QDRANT_API_KEY set.
+docker compose config
 docker compose up -d
 ```
 
-This starts MnemoCore, Redis 7.2, and Qdrant in one command.
+This starts MnemoCore, Redis 7.2, and Qdrant. Only the API is published, on
+`127.0.0.1:8100`; metrics are served from `/metrics/` on the same port.
 
 ### With Qdrant (Phase 4.x Scale)
 
@@ -1016,7 +1024,7 @@ haim:
     # api_key: set via SUBCONSCIOUS_AI_API_KEY env var
 
   observability:
-    metrics_port: 9090
+    metrics_port: 8100
     log_level: "INFO"
     structured_logging: true
 
@@ -1104,7 +1112,7 @@ MnemoCore ships with built-in Prometheus metrics and structured logging.
 
 ### Prometheus Metrics
 
-Available at `GET /metrics` with `X-API-Key` by default:
+Available at canonical `GET /metrics/` on the API listener, port 8100:
 
 | Metric | Description |
 |--------|-------------|
