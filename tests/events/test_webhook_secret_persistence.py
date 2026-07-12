@@ -1,5 +1,5 @@
-import json
 import asyncio
+import json
 
 import pytest
 
@@ -9,8 +9,8 @@ from mnemocore.events.webhook_manager import (
     UnsafeWebhookPersistenceError,
     WebhookDelivery,
     WebhookManager,
-    WebhookPersistenceError,
     WebhookPersistenceCommittedError,
+    WebhookPersistenceError,
     WebhookSignature,
 )
 
@@ -80,7 +80,9 @@ async def test_persistent_webhook_rejects_inline_secret_even_with_reference(tmp_
 
 
 @pytest.mark.asyncio
-async def test_legacy_plaintext_persistence_is_rejected_without_secret_disclosure(tmp_path):
+async def test_legacy_plaintext_persistence_is_rejected_without_secret_disclosure(
+    tmp_path,
+):
     path = tmp_path / "webhooks.json"
     secret = "legacy-plaintext-value"
     path.write_text(
@@ -318,7 +320,9 @@ async def test_register_rolls_back_when_persistence_fails(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_update_and_delete_roll_back_when_persistence_fails(tmp_path, monkeypatch):
+async def test_update_and_delete_roll_back_when_persistence_fails(
+    tmp_path, monkeypatch
+):
     manager = WebhookManager(persistence_path=str(tmp_path / "webhooks.json"))
     config = await manager.register_webhook(
         url="https://example.test/original",
@@ -385,9 +389,7 @@ async def test_delete_then_update_race_observes_not_found_inside_lock(tmp_path):
 
     await manager._persistence_lock.acquire()
     delete_task = asyncio.create_task(manager.delete_webhook(config.id))
-    update_task = asyncio.create_task(
-        manager.update_webhook(config.id, enabled=False)
-    )
+    update_task = asyncio.create_task(manager.update_webhook(config.id, enabled=False))
     manager._persistence_lock.release()
 
     assert await delete_task is True

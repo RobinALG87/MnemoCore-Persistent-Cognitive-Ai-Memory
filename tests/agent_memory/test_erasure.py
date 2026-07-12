@@ -13,7 +13,9 @@ from mnemocore.agent_memory.sqlite_store import SQLiteMemoryStore
 
 
 @pytest.mark.asyncio
-async def test_erase_physically_removes_exact_memory_and_preserves_other_scopes(tmp_path):
+async def test_erase_physically_removes_exact_memory_and_preserves_other_scopes(
+    tmp_path,
+):
     path = tmp_path / "memory.db"
     local = MemoryScope(user_id="local", agent_id="codex")
     foreign = MemoryScope(user_id="foreign", agent_id="codex")
@@ -34,12 +36,18 @@ async def test_erase_physically_removes_exact_memory_and_preserves_other_scopes(
     raw = path.read_bytes()
     assert b"unique-erasure-token" not in raw
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute(
-            "SELECT count(*) FROM memory_events WHERE memory_id = ?", (removed.id,)
-        ).fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (removed.id,)
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM memory_events WHERE memory_id = ?", (removed.id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (removed.id,)
+            ).fetchone()[0]
+            == 0
+        )
     reopened = await SQLiteMemoryStore.open(path)
     assert (await reopened.get(foreign, retained.id)).content == "retained phrase"
     await reopened.close()
@@ -119,6 +127,9 @@ async def test_erase_removes_all_rows_depending_on_erased_event(tmp_path):
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        assert connection.execute(
-            "SELECT count(*) FROM memory_relations WHERE id = 'dependent-relation'"
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM memory_relations WHERE id = 'dependent-relation'"
+            ).fetchone()[0]
+            == 0
+        )

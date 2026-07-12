@@ -5,14 +5,15 @@ Health check and system statistics endpoints.
 """
 
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Request, Response, status
 
-from mnemocore.core.engine import HAIMEngine
-from mnemocore.core.container import Container
-from mnemocore.core.reliability import storage_circuit_breaker, vector_circuit_breaker
-from mnemocore.api.models import HealthResponse, ReadinessResponse, RootResponse
 from mnemocore.api.middleware import RATE_LIMIT_CONFIGS
+from mnemocore.api.models import HealthResponse, ReadinessResponse, RootResponse
 from mnemocore.api.version import get_version
+from mnemocore.core.container import Container
+from mnemocore.core.engine import HAIMEngine
+from mnemocore.core.reliability import storage_circuit_breaker, vector_circuit_breaker
 
 router = APIRouter(tags=["Health & Stats"])
 
@@ -41,7 +42,7 @@ async def root():
         "service": "MnemoCore",
         "version": get_version(),
         "phase": "Async I/O",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -56,7 +57,9 @@ async def health(request: Request):
     storage_cb_state = storage_circuit_breaker.state
     vector_cb_state = vector_circuit_breaker.state
 
-    is_healthy = redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
+    is_healthy = (
+        redis_connected and storage_cb_state == "closed" and vector_cb_state == "closed"
+    )
 
     return {
         "status": "healthy" if is_healthy else "degraded",
@@ -64,7 +67,7 @@ async def health(request: Request):
         "storage_circuit_breaker": storage_cb_state,
         "qdrant_circuit_breaker": vector_cb_state,
         "engine_ready": engine is not None,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -104,7 +107,7 @@ async def get_rate_limits():
                 "requests": cfg["requests"],
                 "window_seconds": cfg["window"],
                 "requests_per_minute": cfg["requests"],
-                "description": cfg["description"]
+                "description": cfg["description"],
             }
             for category, cfg in RATE_LIMIT_CONFIGS.items()
         }

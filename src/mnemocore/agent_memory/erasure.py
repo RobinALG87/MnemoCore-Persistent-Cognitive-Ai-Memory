@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Iterator, Sequence
 from uuid import uuid4
 
-from .errors import MemoryConflictError, MemoryNotFoundError, StorageError, ValidationError
+from .errors import (
+    MemoryConflictError,
+    MemoryNotFoundError,
+    StorageError,
+    ValidationError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +67,9 @@ def database_operation_lock(path: Path) -> Iterator[None]:
         handle.close()
 
 
-def _component(connection: sqlite3.Connection, scope_key: str, requested: set[str]) -> set[str]:
+def _component(
+    connection: sqlite3.Connection, scope_key: str, requested: set[str]
+) -> set[str]:
     component = set(requested)
     changed = True
     while changed:
@@ -95,7 +102,9 @@ def physically_erase(
     """
 
     requested = tuple(dict.fromkeys(memory_ids))
-    if not requested or any(not isinstance(value, str) or not value.strip() for value in requested):
+    if not requested or any(
+        not isinstance(value, str) or not value.strip() for value in requested
+    ):
         raise ValidationError("memory_ids must contain at least one non-empty id")
     temporary = path.with_name(f".{path.name}.erase-{uuid4().hex}.tmp")
     try:
@@ -110,7 +119,9 @@ def physically_erase(
                 )
             }
             if owned != set(requested):
-                raise MemoryNotFoundError("One or more memories were not found in this scope")
+                raise MemoryNotFoundError(
+                    "One or more memories were not found in this scope"
+                )
             connected = _component(source, scope_key, owned)
             if connected != owned and not cascade:
                 raise MemoryConflictError(
@@ -141,8 +152,12 @@ def physically_erase(
                 )
                 if row[0] is not None
             )
-            rewritten.execute("DROP TRIGGER IF EXISTS trg_memory_events_immutable_delete")
-            rewritten.execute("DROP TRIGGER IF EXISTS trg_memory_events_immutable_update")
+            rewritten.execute(
+                "DROP TRIGGER IF EXISTS trg_memory_events_immutable_delete"
+            )
+            rewritten.execute(
+                "DROP TRIGGER IF EXISTS trg_memory_events_immutable_update"
+            )
             marks = ",".join("?" for _ in erased)
             params = tuple(sorted(erased))
             event_ids = tuple(
@@ -151,11 +166,23 @@ def physically_erase(
                     f"SELECT id FROM memory_events WHERE memory_id IN ({marks})", params
                 )
             )
-            rewritten.execute(f"DELETE FROM memory_fts WHERE memory_id IN ({marks})", params)
-            rewritten.execute(f"DELETE FROM memory_evidence WHERE memory_id IN ({marks}) OR source_memory_id IN ({marks})", (*params, *params))
-            rewritten.execute(f"DELETE FROM memory_relations WHERE source_id IN ({marks}) OR target_id IN ({marks})", (*params, *params))
-            rewritten.execute(f"DELETE FROM memory_history WHERE memory_id IN ({marks})", params)
-            rewritten.execute(f"DELETE FROM memory_lifecycle WHERE memory_id IN ({marks})", params)
+            rewritten.execute(
+                f"DELETE FROM memory_fts WHERE memory_id IN ({marks})", params
+            )
+            rewritten.execute(
+                f"DELETE FROM memory_evidence WHERE memory_id IN ({marks}) OR source_memory_id IN ({marks})",
+                (*params, *params),
+            )
+            rewritten.execute(
+                f"DELETE FROM memory_relations WHERE source_id IN ({marks}) OR target_id IN ({marks})",
+                (*params, *params),
+            )
+            rewritten.execute(
+                f"DELETE FROM memory_history WHERE memory_id IN ({marks})", params
+            )
+            rewritten.execute(
+                f"DELETE FROM memory_lifecycle WHERE memory_id IN ({marks})", params
+            )
             rewritten.execute(f"DELETE FROM memories WHERE id IN ({marks})", params)
             if event_ids:
                 event_marks = ",".join("?" for _ in event_ids)
@@ -176,13 +203,17 @@ def physically_erase(
                     f"DELETE FROM memory_lifecycle WHERE event_id IN ({event_marks})",
                     event_params,
                 )
-                rewritten.execute(f"DELETE FROM memory_events WHERE id IN ({event_marks})", event_ids)
+                rewritten.execute(
+                    f"DELETE FROM memory_events WHERE id IN ({event_marks})", event_ids
+                )
             for trigger_sql in immutable_triggers:
                 rewritten.execute(trigger_sql)
             rewritten.commit()
             rewritten.execute("VACUUM")
             rewritten.execute("PRAGMA journal_mode=DELETE")
-            foreign_key_errors = rewritten.execute("PRAGMA foreign_key_check").fetchall()
+            foreign_key_errors = rewritten.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
             if foreign_key_errors:
                 raise sqlite3.IntegrityError("erasure rewrite failed foreign_key_check")
             integrity = rewritten.execute("PRAGMA integrity_check").fetchone()
@@ -210,7 +241,9 @@ def physically_erase(
     except (MemoryConflictError, MemoryNotFoundError, ValidationError):
         raise
     except (OSError, sqlite3.Error) as error:
-        raise StorageError(f"Failed to physically erase memory from {path}: {error}") from error
+        raise StorageError(
+            f"Failed to physically erase memory from {path}: {error}"
+        ) from error
     finally:
         try:
             temporary.unlink(missing_ok=True)

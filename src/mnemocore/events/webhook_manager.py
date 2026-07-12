@@ -75,16 +75,15 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 from urllib.parse import urlsplit
-from loguru import logger
 
 import aiohttp
+from loguru import logger
 
 from .event_bus import Event
-
 
 # =============================================================================
 # Webhook Configuration
@@ -121,6 +120,7 @@ def resolve_webhook_secret_from_environment(secret_ref: str) -> str:
         raise LookupError("Webhook signing secret is unavailable")
     return value
 
+
 @dataclass
 class WebhookConfig:
     """
@@ -137,6 +137,7 @@ class WebhookConfig:
         created_at: When webhook was registered
         updated_at: Last configuration update
     """
+
     id: str
     url: str
     events: List[str] = field(default_factory=list)
@@ -145,12 +146,8 @@ class WebhookConfig:
     headers: Dict[str, str] = field(default_factory=dict)
     enabled: bool = True
     retry_config: "RetryConfig" = field(default_factory=lambda: RetryConfig())
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def matches_event(self, event_type: str) -> bool:
         """Check if this webhook should receive the given event type."""
@@ -205,6 +202,7 @@ class WebhookConfig:
 # Retry Configuration with Exponential Backoff
 # =============================================================================
 
+
 @dataclass
 class RetryConfig:
     """
@@ -218,6 +216,7 @@ class RetryConfig:
         max_delay_seconds: Maximum delay between attempts
         timeout_seconds: HTTP request timeout
     """
+
     max_attempts: int = 5
     base_delay_seconds: float = 1.0
     max_delay_seconds: float = 300.0  # 5 minutes
@@ -250,6 +249,7 @@ class RetryConfig:
 # Webhook Delivery Record
 # =============================================================================
 
+
 @dataclass
 class WebhookDelivery:
     """
@@ -267,15 +267,14 @@ class WebhookDelivery:
         error_message: Error message if failed
         response_body: Response body (truncated if large)
     """
+
     id: str
     webhook_id: str
     event_id: str
     status: str = "pending"  # pending, success, failed, retrying
     http_status: Optional[int] = None
     attempt: int = 1
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
     response_body: Optional[str] = None
@@ -290,7 +289,9 @@ class WebhookDelivery:
             "http_status": self.http_status,
             "attempt": self.attempt,
             "created_at": self.created_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "error_message": self.error_message,
             "response_body": self.response_body,
         }
@@ -308,18 +309,18 @@ class RetryQueueEntry:
         retry_at: When to retry delivery (with exponential backoff)
         created_at: When this entry was created
     """
+
     delivery: WebhookDelivery
     event: Event
     webhook: WebhookConfig
     retry_at: datetime
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # =============================================================================
 # Webhook Signature (HMAC)
 # =============================================================================
+
 
 class WebhookSignature:
     """
@@ -364,9 +365,7 @@ class WebhookSignature:
 
         # Compute HMAC
         signature = hmac.new(
-            secret.encode(),
-            message.encode(),
-            getattr(hashlib, cls.ALGORITHM)
+            secret.encode(), message.encode(), getattr(hashlib, cls.ALGORITHM)
         ).hexdigest()
 
         return f"t={timestamp},{cls.VERSION_PREFIX}={signature}"
@@ -432,6 +431,7 @@ class WebhookSignature:
 # =============================================================================
 # Webhook Manager
 # =============================================================================
+
 
 class WebhookManager:
     """
@@ -616,6 +616,7 @@ class WebhookManager:
         if secret is None and not secret_ref:
             # Auto-generate secure random secret
             import secrets
+
             secret = secrets.token_urlsafe(32)
 
         webhook_headers = headers or {}
@@ -792,7 +793,8 @@ class WebhookManager:
         """
         # Find matching webhooks
         matching = [
-            w for w in self._webhooks.values()
+            w
+            for w in self._webhooks.values()
             if w.enabled and w.matches_event(event.type)
         ]
 
@@ -800,18 +802,12 @@ class WebhookManager:
             return []
 
         # Deliver to all webhooks concurrently
-        tasks = [
-            self._deliver_to_webhook(event, webhook)
-            for webhook in matching
-        ]
+        tasks = [self._deliver_to_webhook(event, webhook) for webhook in matching]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter out exceptions and return delivery records
-        deliveries = [
-            r for r in results
-            if isinstance(r, WebhookDelivery)
-        ]
+        deliveries = [r for r in results if isinstance(r, WebhookDelivery)]
 
         return deliveries
 
@@ -880,7 +876,7 @@ class WebhookManager:
                 self._deliveries_failed += 1
                 logger.error(
                     f"[WebhookManager] Delivery {delivery_id} failed: {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         # Record delivery (only if not queued for retry)
@@ -1052,7 +1048,7 @@ class WebhookManager:
 
         # Trim to max size
         if len(history) > self._max_history_size:
-            self._history[webhook_id] = history[-self._max_history_size:]
+            self._history[webhook_id] = history[-self._max_history_size :]
 
     async def get_delivery_history(
         self,
@@ -1130,10 +1126,7 @@ class WebhookManager:
         while self._running:
             try:
                 # Get next delivery to retry (with timeout)
-                entry = await asyncio.wait_for(
-                    self._retry_queue.get(),
-                    timeout=5.0
-                )
+                entry = await asyncio.wait_for(self._retry_queue.get(), timeout=5.0)
 
                 # Check if webhook still exists and is enabled
                 webhook = self._webhooks.get(entry.webhook.id)
@@ -1323,18 +1316,14 @@ class WebhookManager:
             )
 
         except UnsafeWebhookPersistenceError:
-            logger.error(
-                "[WebhookManager] Refusing unsafe legacy webhook persistence"
-            )
+            logger.error("[WebhookManager] Refusing unsafe legacy webhook persistence")
             raise
         except WebhookPersistenceError:
             logger.error("[WebhookManager] Refusing invalid webhook persistence")
             raise
         except Exception as exc:
             logger.error("[WebhookManager] Failed to load webhook configuration")
-            raise WebhookPersistenceError(
-                "Failed to load webhook persistence"
-            ) from exc
+            raise WebhookPersistenceError("Failed to load webhook persistence") from exc
 
     async def _save_webhooks(self) -> None:
         """Save webhook configurations to disk.

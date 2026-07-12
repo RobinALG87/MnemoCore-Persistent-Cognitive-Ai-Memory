@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,14 +36,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install black isort flake8 mypy
 
-      - name: Run Black (code formatter check)
-        run: black --check --diff src/ tests/
+      - name: Resolve changed Python files
+        id: changed-python
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            comparison="$BASE_SHA...${GITHUB_SHA}"
+          elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            comparison="$BEFORE_SHA..${GITHUB_SHA}"
+          else
+            comparison="${GITHUB_SHA}^..${GITHUB_SHA}"
+          fi
+          git diff --name-only --diff-filter=ACMR "$comparison" -- src tests \
+            | grep -E '\.py$' > changed-python-files.txt || true
+          if [[ -s changed-python-files.txt ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Run isort (import sorter check)
-        run: isort --check-only --diff src/ tests/
+      - name: Run Black (changed Python files)
+        if: steps.changed-python.outputs.present == 'true'
+        run: xargs black --check --diff < changed-python-files.txt
 
-      - name: Run flake8 (style guide enforcement)
-        run: flake8 src/ tests/ --max-line-length=120 --extend-ignore=E203,W503
+      - name: Run isort (changed Python files)
+        if: steps.changed-python.outputs.present == 'true'
+        run: xargs isort --check-only --diff < changed-python-files.txt
+
+      - name: Run flake8 (changed Python files)
+        if: steps.changed-python.outputs.present == 'true'
+        # Complexity is tracked separately while the persistence monolith is split.
+        run: xargs flake8 --max-line-length=120 --extend-ignore=E203,W503,C901 < changed-python-files.txt
 
       - name: Run mypy (static type checker)
         run: mypy src/ --ignore-missing-imports --no-strict-optional

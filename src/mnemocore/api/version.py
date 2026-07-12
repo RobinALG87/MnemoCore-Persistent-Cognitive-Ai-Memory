@@ -1,6 +1,7 @@
 """Runtime version lookup without importing optional integrations."""
 
-from importlib.metadata import PackageNotFoundError, version as metadata_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as metadata_version
 
 from mnemocore._version import __version__ as _SOURCE_VERSION
 

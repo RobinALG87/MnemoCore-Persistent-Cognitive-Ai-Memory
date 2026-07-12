@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -63,7 +62,9 @@ def test_helm_uses_single_http_listener_and_http_probes() -> None:
 
     assert "metrics: 8100" in values
     assert "replicaCount: 1" in values
-    autoscaling = values.split("  autoscaling:", 1)[1].split("  # Pod Disruption Budget", 1)[0]
+    autoscaling = values.split("  autoscaling:", 1)[1].split(
+        "  # Pod Disruption Budget", 1
+    )[0]
     assert "enabled: false" in autoscaling
     assert 'existingSecret: "mnemocore-api-key"' in values
     assert "path: /health" in deployment
@@ -89,7 +90,9 @@ def test_helm_optional_dependencies_are_disabled_by_default() -> None:
 
 def test_helm_chart_has_no_unresolved_subcharts_and_uses_public_metadata() -> None:
     chart = read("helm/mnemocore/Chart.yaml")
-    repository = "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory"
+    repository = (
+        "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory"
+    )
 
     assert "dependencies:" not in chart
     assert "charts.bitnami.com" not in chart
