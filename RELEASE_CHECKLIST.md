@@ -1,8 +1,23 @@
-# MnemoCore Release Checklist — v2.0.0
+# MnemoCore Release Checklist — baseline triage
 
-## Status: � IN PROGRESS
+## Status: NOT RELEASE-READY
 
-> See [PRODUCTION_REMEDIATION_PROGRESS.md](PRODUCTION_REMEDIATION_PROGRESS.md) for detailed remediation status.
+> The authoritative current-state evidence is [Platform baseline — 2026-07-12](docs/status/2026-07-12-platform-baseline.md).
+> [PRODUCTION_REMEDIATION_PROGRESS.md](PRODUCTION_REMEDIATION_PROGRESS.md) is
+> retained as historical context and is not a current green-status claim.
+
+### Current gate summary
+
+| Gate | Status | Evidence |
+|---|---|---|
+| AgentMemory core | PASS | 304 focused tests pass |
+| Offline adapters | PASS | 6 tests pass |
+| Benchmark contracts/smoke | PASS | 18 tests pass |
+| Legacy platform | TIMEOUT | Documented lane did not complete within the baseline window |
+| Lifecycle integration | QUARANTINED | 16 tests skipped pending migration |
+| Docker | NOT RUN | Daemon unavailable during baseline |
+| Security/dependency scans | FAIL | Existing Bandit and pip-audit findings remain |
+| Release decision | BLOCKED | Do not publish a release claim until the baseline gates are reviewed |
 
 ---
 

@@ -5,6 +5,12 @@
 > **Total Tasks:** 166 across 20 agents
 > **Method:** Parallel agent execution in 5 phases
 
+> **Current source of truth:** [Platform baseline — 2026-07-12](docs/status/2026-07-12-platform-baseline.md)
+>
+> This file is a historical remediation inventory from 2026-02-28. Its counts,
+> task totals, and test-failure summary are not current release evidence. Use
+> the linked baseline for present PASS, FAIL, QUARANTINED, and NOT RUN status.
+
 ---
 
 ## Test Suite Summary (Last Run)
