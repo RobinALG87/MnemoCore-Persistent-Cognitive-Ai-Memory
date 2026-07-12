@@ -16,13 +16,9 @@ spec:
   type: {{ .Values.mnemocore.service.type }}
   ports:
     - port: {{ .Values.mnemocore.service.port }}
-      targetPort: {{ .Values.mnemocore.service.targetPort }}
-      protocol: TCP
-      name: http
-    - port: {{ .Values.mnemocore.service.metricsPort }}
       targetPort: http
       protocol: TCP
-      name: metrics
+      name: http
   selector:
     {{- include "mnemocore.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: api

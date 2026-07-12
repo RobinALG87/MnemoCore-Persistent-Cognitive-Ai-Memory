@@ -12,7 +12,7 @@ global:
 # MnemoCore API Configuration
 mnemocore:
   # Number of replicas (ignored if autoscaling.enabled is true)
-  replicaCount: 2
+  replicaCount: 1
 
   # Container image
   image:
@@ -148,7 +148,6 @@ mnemocore:
     type: ClusterIP
     port: 8100
     targetPort: 8100
-    metricsPort: 8100
     annotations: {}
     labels: {}
 
@@ -171,7 +170,7 @@ mnemocore:
 
   # Autoscaling configuration
   autoscaling:
-    enabled: true
+    enabled: false
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70

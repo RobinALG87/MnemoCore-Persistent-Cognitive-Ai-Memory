@@ -36,6 +36,7 @@ def test_compose_requires_secrets_and_uses_api_port_for_metrics() -> None:
     compose = read("docker-compose.yml")
 
     assert "changeme" not in compose
+    assert "HAIM_API_KEY:?" in compose
     assert "REDIS_PASSWORD:?" in compose
     assert "QDRANT_API_KEY:?" in compose
     assert "9090" not in compose
@@ -48,11 +49,18 @@ def test_helm_uses_single_http_listener_and_http_probes() -> None:
     service = read("helm/mnemocore/templates/service.yaml")
 
     assert "metrics: 8100" in values
-    assert "metricsPort: 8100" in values
+    assert "replicaCount: 1" in values
+    autoscaling = values.split("  autoscaling:", 1)[1].split("  # Pod Disruption Budget", 1)[0]
+    assert "enabled: false" in autoscaling
     assert 'existingSecret: "mnemocore-api-key"' in values
     assert "path: /health" in deployment
     assert "path: /ready" in deployment
     assert "targetPort: http" in service
+    assert "metricsPort" not in values
+    assert "name: metrics" not in service
+    service_monitor = read("helm/mnemocore/templates/servicemonitor.yaml")
+    assert "- port: http" in service_monitor
+    assert "path: /metrics" in service_monitor
     assert "name: {{ .Values.redis.existingSecret }}" in deployment
     assert "name: {{ .Values.qdrant.existingSecret }}" in deployment
 
