@@ -379,7 +379,10 @@ jobs:
 
           wait_for_endpoint /health
           wait_for_endpoint /ready
-          wait_for_endpoint /metrics
+          wait_for_endpoint /metrics/
+
+          metrics="$(curl --fail --silent --show-error http://127.0.0.1:8100/metrics/)"
+          printf '%s\n' "$metrics" | grep -Eq '^# (HELP|TYPE) '
 
       - name: Dump prototype container logs
         if: always()

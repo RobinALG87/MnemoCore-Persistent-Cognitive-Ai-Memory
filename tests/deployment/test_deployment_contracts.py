@@ -26,7 +26,9 @@ def test_ci_docker_job_runs_the_prototype_and_checks_public_endpoints() -> None:
     assert "--publish 127.0.0.1:8100:8100" in docker_job
     assert "wait_for_endpoint /health" in docker_job
     assert "wait_for_endpoint /ready" in docker_job
-    assert "wait_for_endpoint /metrics" in docker_job
+    assert "wait_for_endpoint /metrics/" in docker_job
+    assert "http://127.0.0.1:8100/metrics/" in docker_job
+    assert "grep -Eq '^# (HELP|TYPE) '" in docker_job
     assert docker_job.count("if: always()") >= 2
     assert 'docker logs "$CONTAINER_NAME" || true' in docker_job
     assert 'docker rm --force "$CONTAINER_NAME" || true' in docker_job
@@ -60,7 +62,7 @@ def test_helm_uses_single_http_listener_and_http_probes() -> None:
     assert "name: metrics" not in service
     service_monitor = read("helm/mnemocore/templates/servicemonitor.yaml")
     assert "- port: http" in service_monitor
-    assert "path: /metrics" in service_monitor
+    assert "path: /metrics/" in service_monitor
     assert "name: {{ .Values.redis.existingSecret }}" in deployment
     assert "name: {{ .Values.qdrant.existingSecret }}" in deployment
 
