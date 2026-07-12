@@ -24,4 +24,3 @@
 - [ ] Compose/Helm: lock dependencies, remove accepted placeholder secrets, align ports/probes/ServiceMonitor, and add render/lint smoke tests.
 - [ ] Security/lifecycle: replace plaintext secret persistence and specify physical-erasure behavior with WAL/SHM, crash, rollback, and rebuild tests.
 - [ ] Documentation/release: update runbooks, stability/product boundary, baseline, deployment instructions, and release evidence.
-
