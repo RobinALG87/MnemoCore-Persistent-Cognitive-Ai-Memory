@@ -70,12 +70,13 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Protocol
 from loguru import logger
 
 import aiohttp
@@ -86,6 +87,25 @@ from .event_bus import Event
 # =============================================================================
 # Webhook Configuration
 # =============================================================================
+
+
+class UnsafeWebhookPersistenceError(RuntimeError):
+    """Raised when persisted webhook configuration contains secret material."""
+
+
+class WebhookSecretResolver(Protocol):
+    """Minimal contract for resolving a signing secret at delivery time."""
+
+    def __call__(self, secret_ref: str) -> str:
+        """Return the secret identified by ``secret_ref``."""
+
+
+def resolve_webhook_secret_from_environment(secret_ref: str) -> str:
+    """Resolve a secret reference as an environment variable name."""
+    value = os.environ.get(secret_ref)
+    if not value:
+        raise LookupError("Webhook signing secret is unavailable")
+    return value
 
 @dataclass
 class WebhookConfig:
@@ -107,6 +127,7 @@ class WebhookConfig:
     url: str
     events: List[str] = field(default_factory=list)
     secret: str = ""
+    secret_ref: Optional[str] = None
     headers: Dict[str, str] = field(default_factory=dict)
     enabled: bool = True
     retry_config: "RetryConfig" = field(default_factory=lambda: RetryConfig())
@@ -130,6 +151,7 @@ class WebhookConfig:
             "url": self.url,
             "events": self.events,
             "secret": "***" if scrub_secret else self.secret,
+            "secret_ref": self.secret_ref,
             "headers": self.headers,
             "enabled": self.enabled,
             "retry_config": self.retry_config.to_dict(),
@@ -156,6 +178,7 @@ class WebhookConfig:
             url=data["url"],
             events=data.get("events", []),
             secret=data.get("secret", ""),
+            secret_ref=data.get("secret_ref"),
             headers=data.get("headers", {}),
             enabled=data.get("enabled", True),
             retry_config=retry_config,
@@ -431,6 +454,7 @@ class WebhookManager:
         persistence_path: Optional[str] = None,
         max_history_size: int = 10000,
         http_session: Optional[aiohttp.ClientSession] = None,
+        secret_resolver: Optional[WebhookSecretResolver] = None,
     ):
         """
         Initialize WebhookManager.
@@ -442,6 +466,9 @@ class WebhookManager:
         """
         self._persistence_path = Path(persistence_path) if persistence_path else None
         self._max_history_size = max_history_size
+        self._secret_resolver = (
+            secret_resolver or resolve_webhook_secret_from_environment
+        )
 
         # Webhook storage
         self._webhooks: Dict[str, WebhookConfig] = {}
@@ -474,7 +501,11 @@ class WebhookManager:
         self._running = True
 
         # Load persisted webhooks
-        await self._load_webhooks()
+        try:
+            await self._load_webhooks()
+        except Exception:
+            self._running = False
+            raise
 
         # Start retry processor
         self._retry_task = asyncio.create_task(self._retry_loop())
@@ -512,6 +543,7 @@ class WebhookManager:
         url: str,
         events: Optional[List[str]] = None,
         secret: Optional[str] = None,
+        secret_ref: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         enabled: bool = True,
         retry_config: Optional[RetryConfig] = None,
@@ -532,7 +564,12 @@ class WebhookManager:
         """
         webhook_id = f"wh_{uuid.uuid4().hex[:12]}"
 
-        if secret is None:
+        if self._persistence_path and not secret_ref:
+            raise ValueError(
+                "Persistent webhooks require secret_ref; inline secrets are memory-only"
+            )
+
+        if secret is None and not secret_ref:
             # Auto-generate secure random secret
             import secrets
             secret = secrets.token_urlsafe(32)
@@ -541,7 +578,8 @@ class WebhookManager:
             id=webhook_id,
             url=url,
             events=events or [],
-            secret=secret,
+            secret=secret or "",
+            secret_ref=secret_ref,
             headers=headers or {},
             enabled=enabled,
             retry_config=retry_config or RetryConfig(),
@@ -566,6 +604,7 @@ class WebhookManager:
         url: Optional[str] = None,
         events: Optional[List[str]] = None,
         secret: Optional[str] = None,
+        secret_ref: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         enabled: Optional[bool] = None,
         retry_config: Optional[RetryConfig] = None,
@@ -596,6 +635,8 @@ class WebhookManager:
             config.events = events
         if secret is not None:
             config.secret = secret
+        if secret_ref is not None:
+            config.secret_ref = secret_ref
         if headers is not None:
             config.headers = headers
         if enabled is not None:
@@ -831,8 +872,25 @@ class WebhookManager:
         payload = self._build_payload(event, webhook)
         payload_str = json.dumps(payload)
 
-        # Generate signature
-        signature = WebhookSignature.sign(payload_str, webhook.secret)
+        # Resolve referenced credentials only at delivery time. Inline credentials
+        # remain supported for non-persistent, backwards-compatible usage.
+        try:
+            signing_secret = (
+                self._secret_resolver(webhook.secret_ref)
+                if webhook.secret_ref
+                else webhook.secret
+            )
+            if not signing_secret:
+                raise LookupError("empty signing secret")
+        except Exception:
+            delivery.error_message = "Webhook signing secret unavailable"
+            logger.error(
+                "[WebhookManager] Signing secret unavailable for webhook {}",
+                webhook.id,
+            )
+            return False
+
+        signature = WebhookSignature.sign(payload_str, signing_secret)
 
         # Prepare headers
         headers = {
@@ -1122,14 +1180,17 @@ class WebhookManager:
             return
 
         try:
-            import aiofiles
             import os as _os
             import stat as _stat
 
             # SECURITY: Refuse to load secrets from world-readable files (Unix)
             try:
                 file_stat = _os.stat(self._persistence_path)
-                if hasattr(_stat, "S_IROTH") and file_stat.st_mode & _stat.S_IROTH:
+                if (
+                    _os.name != "nt"
+                    and hasattr(_stat, "S_IROTH")
+                    and file_stat.st_mode & _stat.S_IROTH
+                ):
                     logger.error(
                         f"[WebhookManager] Refusing to load {self._persistence_path}: "
                         "file is world-readable. Fix permissions: chmod 600"
@@ -1138,11 +1199,18 @@ class WebhookManager:
             except (OSError, AttributeError):
                 pass  # Windows or stat not available
 
-            async with aiofiles.open(self._persistence_path, "r") as f:
-                content = await f.read()
-                data = json.loads(content)
+            content = await asyncio.to_thread(
+                self._persistence_path.read_text,
+                encoding="utf-8",
+            )
+            data = json.loads(content)
 
             for webhook_data in data.get("webhooks", []):
+                if "secret" in webhook_data:
+                    raise UnsafeWebhookPersistenceError(
+                        "Legacy webhook persistence contains plaintext secret material; "
+                        "remove it and configure secret_ref manually"
+                    )
                 config = WebhookConfig.from_dict(webhook_data)
                 self._webhooks[config.id] = config
                 self._history[config.id] = []
@@ -1152,37 +1220,47 @@ class WebhookManager:
                 f"from {self._persistence_path}"
             )
 
-        except Exception as e:
-            logger.error(f"[WebhookManager] Failed to load webhooks: {e}")
+        except UnsafeWebhookPersistenceError:
+            logger.error(
+                "[WebhookManager] Refusing unsafe legacy webhook persistence"
+            )
+            raise
+        except Exception:
+            logger.exception("[WebhookManager] Failed to load webhook configuration")
 
     async def _save_webhooks(self) -> None:
         """Save webhook configurations to disk.
 
-        SECURITY NOTE: Webhook secrets are stored in plaintext JSON.
-        In production, use a proper secrets manager (e.g., HashiCorp Vault,
-        AWS Secrets Manager) and restrict file permissions.
+        Only opaque secret references are persisted. Secret material is resolved
+        at delivery time and is never serialized by this manager.
         """
         if not self._persistence_path:
             return
 
         try:
-            import aiofiles
             import os as _os
             import stat as _stat
 
             self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
 
             data = {
-                "version": "1.0",
+                "version": "2.0",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "webhooks": [
-                    w.to_dict(scrub_secret=False)
+                    {
+                        key: value
+                        for key, value in w.to_dict().items()
+                        if key != "secret"
+                    }
                     for w in self._webhooks.values()
                 ],
             }
 
-            async with aiofiles.open(self._persistence_path, "w") as f:
-                await f.write(json.dumps(data, indent=2))
+            await asyncio.to_thread(
+                self._persistence_path.write_text,
+                json.dumps(data, indent=2),
+                encoding="utf-8",
+            )
 
             # SECURITY: Restrict file permissions to owner-only (Unix)
             try:
@@ -1194,13 +1272,8 @@ class WebhookManager:
                 # Windows or permission error — log warning
                 pass
 
-            logger.warning(
-                "[WebhookManager] Webhook secrets saved to disk in plaintext. "
-                "Use a secrets manager in production."
-            )
-
-        except Exception as e:
-            logger.error(f"[WebhookManager] Failed to save webhooks: {e}")
+        except Exception:
+            logger.exception("[WebhookManager] Failed to save webhook configuration")
 
     # ======================================================================
     # Metrics
