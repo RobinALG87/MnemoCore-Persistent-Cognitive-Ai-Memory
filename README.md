@@ -36,39 +36,51 @@ tags:
 
 ## Quick Install
 
-**Option A — install from this private GitHub repository (recommended):**
+**Install from the public repository:**
 
 ```bash
-pip install git+https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git@main
+pip install git+https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory.git@main
 ```
 
-**Option B — install from source (for development):**
+**Install from source (development):**
 
 ```bash
-git clone https://github.com/RobinALG87/MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory.git
-cd MnemoCore-Infrastructure-for-Persistent-Cognitive-Memory
+git clone https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory.git
+cd MnemoCore-Persistent-Cognitive-Ai-Memory
 python -m venv .venv && .\.venv\Scripts\activate   # Windows
 # source .venv/bin/activate                        # Linux / macOS
 pip install -e .          # editable install
 pip install -e ".[dev]"   # + pytest, mypy, black, etc.
 ```
 
-> **Set your API key before starting:**
+> **For the REST server, set your API key before starting:**
 > ```bash
 > # Windows PowerShell
 > $env:HAIM_API_KEY = "your-secure-key"
 > # Linux / macOS
 > # export HAIM_API_KEY="your-secure-key"
 > ```
-> Then start the API locally: `uvicorn mnemocore.api.main:app --host 127.0.0.1 --port 8100`
+> Then start the API locally: `mnemocore`.
 
-Full setup including Redis, Qdrant, Docker and configuration details are in [Installation](#installation) below.
+`mnemocore` starts the REST server; `mnemocore-cli` is the legacy Click CLI.
+AgentMemory itself is local-first and does not require a running Redis or
+Qdrant service. Full setup, Docker, and configuration details are in
+[Installation](#installation) below.
 
 ---
 
 ## What is MnemoCore?
 
-**MnemoCore** is a research-grade cognitive memory infrastructure that gives AI agents a brain — not just a database.
+**MnemoCore** is persistent memory and context infrastructure for agents.
+Its stable product track is **AgentMemory**: local-first, scope-isolated,
+bitemporal memory with receipts, timeline queries, deterministic context
+compilation, and rebuildable SQLite projections. The legacy HAIM stack remains
+available for compatibility and experimentation; it is not the production
+release baseline.
+
+The current 2.x package keeps its established dependencies so existing HAIM
+and REST users are not broken. A dependency-minimal AgentMemory distribution
+will arrive only in a future major release with a migration guide.
 
 Traditional vector stores retrieve. MnemoCore **thinks**. It is built on the mathematical framework of **Binary Hyperdimensional Computing (HDC)** and **Vector Symbolic Architectures (VSA)**, principles rooted in Pentti Kanerva's landmark 2009 theory of cognitive computing. Every memory is encoded as a **16,384-dimensional binary holographic vector** — a format that is simultaneously compact (2,048 bytes), noise-tolerant (Hamming geometry), and algebraically rich (XOR binding, majority bundling, circular permutation).
 
@@ -854,25 +866,30 @@ print(f"Consolidated {stats['memories_consolidated']} episodic memories")
 ### Prerequisites
 
 - **Python 3.10+**
-- For full features: Redis 6+, Qdrant (optional for COLD)
-- **Lite / lightweight use** (default `Memory()`): only Python — no Redis/Qdrant/Docker required. See quickstart below.
+- Redis and Qdrant are optional runtime services for legacy tiering and vector
+  integrations. They are not required for local AgentMemory.
+- The current 2.x wheel retains its compatibility dependencies. It does not
+  connect to Redis or Qdrant merely by importing `mnemocore.agent_memory`.
 
-### Quick Start (Lite - primary path, zero external deps)
+### Quick Start (AgentMemory — stable local-first path)
 
 ```bash
-# 1. Install (core only - no Redis/Qdrant needed)
+# 1. Install. No Redis/Qdrant service is needed for AgentMemory.
 pip install -e .
 ```
 
 ```python
-# 2. Use - default is lite: in-memory only, minimal footprint
-from mnemocore import Memory
-m = Memory()
-m.add("User prefers concise answers")
-print(m.search("concise"))
+# 2. Use AgentMemory with an explicit scope and local SQLite store.
+from pathlib import Path
+from mnemocore.agent_memory import MemoryScope, SyncAgentMemory
+
+scope = MemoryScope(tenant_id="local", user_id="robin", agent_id="assistant")
+memory = SyncAgentMemory.open(Path("agent-memory.sqlite3"), scope=scope)
+memory.remember("User prefers concise answers")
+print(memory.recall("concise"))
 ```
 
-See "Full server setup (optional)" below for Redis/Docker/API server.
+See "Full server setup (optional)" below for HAIM, Redis, Docker, and the REST API.
 
 ### Full server setup (optional, for Redis-backed etc.)
 
@@ -889,7 +906,9 @@ $env:HAIM_API_KEY = "your-secure-key-here"
 # export HAIM_API_KEY="your-secure-key-here"
 
 # Start the API locally
-uvicorn mnemocore.api.main:app --host 127.0.0.1 --port 8100
+# PowerShell; use export MNEMOCORE_HOST=127.0.0.1 on Unix
+$env:MNEMOCORE_HOST = "127.0.0.1"
+mnemocore
 
 The API is now live at `http://localhost:8100`. Visit `http://localhost:8100/docs` for the interactive Swagger UI.
 

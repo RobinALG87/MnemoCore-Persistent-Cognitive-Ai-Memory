@@ -1,4 +1,4 @@
-"""Smoke checks for the dependency-free AgentMemory surface."""
+"""Smoke checks for the service-independent AgentMemory import surface."""
 
 from __future__ import annotations
 
