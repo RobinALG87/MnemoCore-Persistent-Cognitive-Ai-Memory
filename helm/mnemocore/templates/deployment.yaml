@@ -56,9 +56,6 @@ spec:
             - name: http
               containerPort: {{ .Values.mnemocore.ports.api }}
               protocol: TCP
-            - name: metrics
-              containerPort: {{ .Values.mnemocore.ports.metrics }}
-              protocol: TCP
           env:
             - name: HOST
               value: {{ .Values.mnemocore.env.host | quote }}
@@ -67,13 +64,23 @@ spec:
             - name: LOG_LEVEL
               value: {{ .Values.mnemocore.env.logLevel | quote }}
             - name: REDIS_URL
-              {{- if .Values.redis.url }}
+              {{- if .Values.redis.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: redis-url
+              {{- else if .Values.redis.url }}
               value: {{ .Values.redis.url | quote }}
               {{- else }}
               value: "redis://{{ include "mnemocore.redis.fullname" . }}:{{ .Values.redis.service.port }}/0"
               {{- end }}
             - name: QDRANT_URL
-              {{- if .Values.qdrant.url }}
+              {{- if .Values.qdrant.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.qdrant.existingSecret }}
+                  key: qdrant-url
+              {{- else if .Values.qdrant.url }}
               value: {{ .Values.qdrant.url | quote }}
               {{- else }}
               value: "http://{{ include "mnemocore.qdrant.fullname" . }}:{{ .Values.qdrant.service.httpPort }}"
@@ -111,10 +118,9 @@ spec:
           {{- end }}
           {{- if .Values.mnemocore.probes.liveness.enabled }}
           livenessProbe:
-            exec:
-              command:
-                - python
-                - /app/scripts/ops/healthcheck.py
+            httpGet:
+              path: /health
+              port: http
             initialDelaySeconds: {{ .Values.mnemocore.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.mnemocore.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.mnemocore.probes.liveness.timeoutSeconds }}
@@ -123,10 +129,9 @@ spec:
           {{- end }}
           {{- if .Values.mnemocore.probes.readiness.enabled }}
           readinessProbe:
-            exec:
-              command:
-                - python
-                - /app/scripts/ops/healthcheck.py
+            httpGet:
+              path: /ready
+              port: http
             initialDelaySeconds: {{ .Values.mnemocore.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.mnemocore.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.mnemocore.probes.readiness.timeoutSeconds }}
@@ -135,10 +140,9 @@ spec:
           {{- end }}
           {{- if .Values.mnemocore.probes.startup.enabled }}
           startupProbe:
-            exec:
-              command:
-                - python
-                - /app/scripts/ops/healthcheck.py
+            httpGet:
+              path: /health
+              port: http
             initialDelaySeconds: {{ .Values.mnemocore.probes.startup.initialDelaySeconds }}
             periodSeconds: {{ .Values.mnemocore.probes.startup.periodSeconds }}
             timeoutSeconds: {{ .Values.mnemocore.probes.startup.timeoutSeconds }}

@@ -65,8 +65,8 @@ PROBES:
    curl http://localhost:8100/health
 
 3. Access Prometheus metrics:
-   kubectl port-forward svc/{{ include "mnemocore.fullname" . }} 9090:9090 -n {{ .Release.Namespace }}
-   curl http://localhost:9090/metrics
+   kubectl port-forward svc/{{ include "mnemocore.fullname" . }} 8100:8100 -n {{ .Release.Namespace }}
+   curl http://localhost:8100/metrics
 
 4. View logs:
    kubectl logs -l app.kubernetes.io/name={{ include "mnemocore.name" . }} -n {{ .Release.Namespace }} -f

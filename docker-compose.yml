@@ -1,5 +1,3 @@
-version: '3.8'
-
 # MnemoCore Docker Compose
 # ========================
 # Full stack deployment with Redis, Qdrant, and MnemoCore API
@@ -16,15 +14,14 @@ services:
     container_name: mnemocore-api
     ports:
       - "127.0.0.1:8100:8100"
-      - "127.0.0.1:9090:9090"  # Prometheus metrics
     volumes:
       - mnemocore_data:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
       - HAIM_API_KEY=${HAIM_API_KEY}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
       - QDRANT_URL=http://qdrant:6333
-      - QDRANT_API_KEY=${QDRANT_API_KEY:-changeme}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:?QDRANT_API_KEY must be set}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - HOST=0.0.0.0
       - PORT=8100
@@ -39,8 +36,6 @@ services:
       # - SUBCONSCIOUS_AI_API_KEY=${SUBCONSCIOUS_AI_API_KEY:-}
       # - SUBCONSCIOUS_AI_PULSE_INTERVAL_SECONDS=${SUBCONSCIOUS_AI_PULSE_INTERVAL_SECONDS:-120}
       # - SUBCONSCIOUS_AI_MAX_CPU_PERCENT=${SUBCONSCIOUS_AI_MAX_CPU_PERCENT:-30.0}
-    env_file:
-      - .env
     healthcheck:
       test: ["CMD", "python", "/app/scripts/ops/healthcheck.py"]
       interval: 30s
@@ -80,9 +75,9 @@ services:
       --loglevel warning
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
-      --requirepass ${REDIS_PASSWORD:-changeme}
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -111,7 +106,7 @@ services:
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
       - QDRANT__LOG_LEVEL=INFO
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-changeme}
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:?QDRANT_API_KEY must be set}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
       interval: 10s

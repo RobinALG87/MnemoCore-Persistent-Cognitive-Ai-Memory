@@ -20,7 +20,7 @@ spec:
       protocol: TCP
       name: http
     - port: {{ .Values.mnemocore.service.metricsPort }}
-      targetPort: {{ .Values.mnemocore.ports.metrics }}
+      targetPort: http
       protocol: TCP
       name: metrics
   selector:
