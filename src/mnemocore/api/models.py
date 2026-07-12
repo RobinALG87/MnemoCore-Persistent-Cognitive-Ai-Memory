@@ -5,7 +5,7 @@ Pydantic models with comprehensive input validation and Field validators.
 """
 
 from typing import Optional, Dict, Any, List, Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 import re
 
 
@@ -255,6 +255,15 @@ class HealthResponse(BaseModel):
     storage_circuit_breaker: str
     qdrant_circuit_breaker: str
     engine_ready: bool
+    timestamp: str
+
+
+class ReadinessResponse(BaseModel):
+    """Readiness response for the initialized local API runtime."""
+    status: Literal["ready", "not_ready"]
+    engine_ready: bool
+    local_runtime_ready: bool
+    redis_connected: bool
     timestamp: str
 
 

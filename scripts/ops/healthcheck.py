@@ -10,6 +10,7 @@ Exit codes:
   1 - Service is unhealthy or unreachable
 """
 
+import argparse
 import os
 import sys
 import urllib.request
@@ -17,22 +18,25 @@ import urllib.error
 import json
 
 # Configuration from environment or defaults
-HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = os.environ.get("PORT", "8100")
-HEALTH_ENDPOINT = f"http://{HOST}:{PORT}/health"
 TIMEOUT_SECONDS = 5
 
 
-def check_health() -> bool:
+def check_health(mode: str | None = None) -> bool:
     """
     Perform health check against the /health endpoint.
 
     Returns:
         bool: True if healthy, False otherwise
     """
+    selected_mode = mode or os.environ.get("MNEMOCORE_HEALTHCHECK_MODE", "liveness")
+    path = "/ready" if selected_mode == "readiness" else "/health"
+    endpoint = f"http://127.0.0.1:{PORT}{path}"
+    expected_statuses = {"ready"} if selected_mode == "readiness" else {"healthy", "degraded"}
+
     try:
         request = urllib.request.Request(
-            HEALTH_ENDPOINT,
+            endpoint,
             method="GET",
             headers={"Accept": "application/json"}
         )
@@ -44,24 +48,18 @@ def check_health() -> bool:
 
             data = json.loads(response.read().decode("utf-8"))
 
-            # Check if status is "healthy"
             status = data.get("status", "")
-            if status == "healthy":
+            if status in expected_statuses:
                 print(f"Health check passed: {status}")
                 return True
-            elif status == "degraded":
-                # Degraded is still operational, consider it healthy
-                print(f"Health check passed (degraded): {data}")
-                return True
-            else:
-                print(f"Health check failed: unexpected status '{status}'", file=sys.stderr)
-                return False
+            print(f"Health check failed: unexpected status '{status}'", file=sys.stderr)
+            return False
 
-    except urllib.error.URLError as e:
-        print(f"Health check failed: connection error - {e.reason}", file=sys.stderr)
-        return False
     except urllib.error.HTTPError as e:
         print(f"Health check failed: HTTP {e.code} - {e.reason}", file=sys.stderr)
+        return False
+    except urllib.error.URLError as e:
+        print(f"Health check failed: connection error - {e.reason}", file=sys.stderr)
         return False
     except json.JSONDecodeError as e:
         print(f"Health check failed: invalid JSON response - {e}", file=sys.stderr)
@@ -76,7 +74,14 @@ def check_health() -> bool:
 
 def main():
     """Main entry point for healthcheck script."""
-    is_healthy = check_health()
+    parser = argparse.ArgumentParser(description="Check MnemoCore liveness or readiness")
+    parser.add_argument(
+        "--readiness",
+        action="store_true",
+        help="check /ready instead of the default /health endpoint",
+    )
+    args = parser.parse_args()
+    is_healthy = check_health("readiness" if args.readiness else None)
     exit_code = 0 if is_healthy else 1
     sys.exit(exit_code)
 

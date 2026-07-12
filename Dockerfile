@@ -15,14 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Create virtual environment and install dependencies
+# Create virtual environment and build an installable application wheel
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip build
+
+COPY pyproject.toml README.md LICENSE CHANGELOG.md config.yaml ./
+COPY src/ ./src/
+COPY benchmarks/ ./benchmarks/
+RUN pip wheel --no-cache-dir --wheel-dir /wheels .
 
 # Stage 2: Production
 FROM python:3.11.8-slim-bookworm AS production
@@ -43,7 +44,12 @@ WORKDIR /app
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /wheels /wheels
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Install MnemoCore and all locked wheel artifacts produced by the builder.
+RUN pip install --no-cache-dir --no-index --find-links=/wheels mnemocore && \
+    rm -rf /wheels
 
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -51,8 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Copy application code
-COPY --chown=mnemocore:mnemocore src/ ./src/
+# Copy runtime configuration and operational scripts
 COPY --chown=mnemocore:mnemocore config.yaml .
 COPY --chown=mnemocore:mnemocore scripts/ ./scripts/
 
@@ -84,5 +89,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python /app/scripts/ops/healthcheck.py || exit 1
 
 # Entry point: Validate environment then run uvicorn
-ENTRYPOINT ["/entrypoint.sh", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8100"]
+ENTRYPOINT ["/entrypoint.sh", "uvicorn", "mnemocore.api.main:app", "--host", "0.0.0.0", "--port", "8100"]
 CMD ["--workers", "1", "--log-level", "info"]
