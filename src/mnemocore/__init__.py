@@ -9,10 +9,11 @@ initializing the legacy engine stack.
 
 from typing import TYPE_CHECKING, Any
 
+from ._version import __version__
+
 if TYPE_CHECKING:
     from ._memory import Memory
 
-__version__ = "2.0.0"
 __all__ = ["Memory", "__version__"]
 
 

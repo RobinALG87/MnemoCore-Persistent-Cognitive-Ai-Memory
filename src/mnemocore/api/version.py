@@ -1,60 +1,26 @@
-"""
-Version Management
-==================
-Centralized version handling for MnemoCore API.
-"""
+"""Runtime version lookup without importing optional integrations."""
 
-from typing import Optional
+from importlib.metadata import PackageNotFoundError, version as metadata_version
 
-# Fallback version if package metadata is not available
-_FALLBACK_VERSION = "2.0.0"
+from mnemocore._version import __version__ as _SOURCE_VERSION
 
-_cached_version: Optional[str] = None
+_cached_version: str | None = None
 
 
 def get_version() -> str:
-    """
-    Get the current MnemoCore version.
-
-    Tries to read from package metadata first, falls back to hardcoded version.
-
-    Returns:
-        The version string (e.g., "5.0.0")
-    """
+    """Return the installed distribution version or source fallback."""
     global _cached_version
-
     if _cached_version is not None:
         return _cached_version
 
-    # Try to get version from package metadata
     try:
-        from importlib.metadata import version
-        _cached_version = version("mnemocore")
-        return _cached_version
-    except Exception:
-        # Package not installed or metadata not available
-        pass
-
-    # Try to read from pyproject.toml
-    try:
-        from pathlib import Path
-        pyproject_path = Path(__file__).parent.parent.parent.parent.parent / "pyproject.toml"
-        if pyproject_path.exists():
-            import tomllib
-            with open(pyproject_path, "rb") as f:
-                data = tomllib.load(f)
-                if "project" in data and "version" in data["project"]:
-                    _cached_version = data["project"]["version"]
-                    return _cached_version
-    except Exception:
-        pass
-
-    # Fallback to hardcoded version
-    _cached_version = _FALLBACK_VERSION
+        _cached_version = metadata_version("mnemocore")
+    except PackageNotFoundError:
+        _cached_version = _SOURCE_VERSION
     return _cached_version
 
 
-# Module-level version string for direct access
 __version__ = get_version()
 
 __all__ = ["get_version", "__version__"]
+
