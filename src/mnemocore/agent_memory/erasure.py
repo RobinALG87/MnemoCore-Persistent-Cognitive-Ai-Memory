@@ -23,7 +23,11 @@ class ErasureReceipt:
 
 @contextmanager
 def database_operation_lock(path: Path) -> Iterator[None]:
-    """Hold the database's cooperative, cross-process exclusive operation lock."""
+    """Hold the cooperative cross-process lock used by SQLiteMemoryStore.
+
+    Raw SQLite clients that do not acquire this sidecar lock are outside the
+    safety contract and must not access the database during physical erasure.
+    """
 
     lock_path = Path(f"{path}.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +88,11 @@ def physically_erase(
     *,
     cascade: bool = False,
 ) -> ErasureReceipt:
-    """Rewrite the database without selected exact-scope memory streams."""
+    """Rewrite the database without selected exact-scope memory streams.
+
+    The caller must hold :func:`database_operation_lock`; uncoordinated raw
+    SQLite connections cannot be made safe across an atomic file replacement.
+    """
 
     requested = tuple(dict.fromkeys(memory_ids))
     if not requested or any(not isinstance(value, str) or not value.strip() for value in requested):
@@ -151,23 +159,62 @@ def physically_erase(
             rewritten.execute(f"DELETE FROM memories WHERE id IN ({marks})", params)
             if event_ids:
                 event_marks = ",".join("?" for _ in event_ids)
+                event_params = tuple(event_ids)
+                rewritten.execute(
+                    f"DELETE FROM memory_evidence WHERE event_id IN ({event_marks})",
+                    event_params,
+                )
+                rewritten.execute(
+                    f"DELETE FROM memory_relations WHERE event_id IN ({event_marks})",
+                    event_params,
+                )
+                rewritten.execute(
+                    f"DELETE FROM memory_history WHERE event_id IN ({event_marks})",
+                    event_params,
+                )
+                rewritten.execute(
+                    f"DELETE FROM memory_lifecycle WHERE event_id IN ({event_marks})",
+                    event_params,
+                )
                 rewritten.execute(f"DELETE FROM memory_events WHERE id IN ({event_marks})", event_ids)
             for trigger_sql in immutable_triggers:
                 rewritten.execute(trigger_sql)
             rewritten.commit()
             rewritten.execute("VACUUM")
             rewritten.execute("PRAGMA journal_mode=DELETE")
+            foreign_key_errors = rewritten.execute("PRAGMA foreign_key_check").fetchall()
+            if foreign_key_errors:
+                raise sqlite3.IntegrityError("erasure rewrite failed foreign_key_check")
+            integrity = rewritten.execute("PRAGMA integrity_check").fetchone()
+            if integrity is None or integrity[0] != "ok":
+                raise sqlite3.IntegrityError("erasure rewrite failed integrity_check")
         # Windows requires a writable descriptor for FlushFileBuffers, which
         # backs os.fsync there.
         with temporary.open("r+b") as file_handle:
             os.fsync(file_handle.fileno())
-        os.replace(temporary, path)
         for suffix in ("-wal", "-shm"):
             Path(f"{path}{suffix}").unlink(missing_ok=True)
+        os.replace(temporary, path)
+        if os.name != "nt":
+            try:
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                # Replacement has committed; durability probing cannot safely
+                # roll it back or turn success into a false failure.
+                pass
         return ErasureReceipt(scope_key=scope_key, memory_ids=tuple(sorted(erased)))
     except (MemoryConflictError, MemoryNotFoundError, ValidationError):
         raise
     except (OSError, sqlite3.Error) as error:
         raise StorageError(f"Failed to physically erase memory from {path}: {error}") from error
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            # Cleanup is best-effort and must never turn a successful atomic
+            # replacement into a reported erasure failure.
+            pass
