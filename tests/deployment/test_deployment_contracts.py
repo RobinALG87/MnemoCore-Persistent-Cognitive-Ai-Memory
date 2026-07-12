@@ -45,6 +45,17 @@ def test_compose_requires_secrets_and_uses_api_port_for_metrics() -> None:
     assert '"127.0.0.1:8100:8100"' in compose
 
 
+def test_compose_qdrant_healthcheck_uses_available_bash_http_probe() -> None:
+    compose = read("docker-compose.yml")
+    qdrant = compose.split("  qdrant:", 1)[1].split("# Networks", 1)[0]
+
+    assert "curl" not in qdrant
+    assert "/bin/bash" in qdrant
+    assert "/dev/tcp/127.0.0.1/6333" in qdrant
+    assert "GET /healthz HTTP/1.1" in qdrant
+    assert "grep -q '200 OK'" in qdrant
+
+
 def test_helm_uses_single_http_listener_and_http_probes() -> None:
     values = read("helm/mnemocore/values.yaml")
     deployment = read("helm/mnemocore/templates/deployment.yaml")
