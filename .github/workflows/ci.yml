@@ -61,7 +61,7 @@ jobs:
 
       - name: Run Black (changed Python files)
         if: steps.changed-python.outputs.present == 'true'
-        run: xargs black --check --diff < changed-python-files.txt
+        run: xargs black --target-version py310 --check --diff < changed-python-files.txt
 
       - name: Run isort (changed Python files)
         if: steps.changed-python.outputs.present == 'true'

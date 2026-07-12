@@ -137,10 +137,7 @@ def physically_erase(
         with closing(sqlite3.connect(temporary)) as rewritten:
             rewritten.execute("PRAGMA foreign_keys=OFF")
             rewritten.execute("BEGIN IMMEDIATE")
-            immutable_triggers = tuple(
-                row[0]
-                for row in rewritten.execute(
-                    """
+            immutable_triggers = tuple(row[0] for row in rewritten.execute("""
                     SELECT sql FROM sqlite_master
                     WHERE type = 'trigger'
                       AND name IN (
@@ -148,10 +145,7 @@ def physically_erase(
                         'trg_memory_events_immutable_update'
                       )
                     ORDER BY name
-                    """
-                )
-                if row[0] is not None
-            )
+                    """) if row[0] is not None)
             rewritten.execute(
                 "DROP TRIGGER IF EXISTS trg_memory_events_immutable_delete"
             )

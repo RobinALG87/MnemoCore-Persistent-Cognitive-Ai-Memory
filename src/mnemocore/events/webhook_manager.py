@@ -289,9 +289,9 @@ class WebhookDelivery:
             "http_status": self.http_status,
             "attempt": self.attempt,
             "created_at": self.created_at.isoformat(),
-            "completed_at": self.completed_at.isoformat()
-            if self.completed_at
-            else None,
+            "completed_at": (
+                self.completed_at.isoformat() if self.completed_at else None
+            ),
             "error_message": self.error_message,
             "response_body": self.response_body,
         }
