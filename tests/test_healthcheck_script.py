@@ -58,4 +58,3 @@ def test_healthcheck_rejects_not_ready_response(monkeypatch):
         return_value=_Response(b'{"status":"not_ready"}'),
     ):
         assert healthcheck.check_health() is False
-

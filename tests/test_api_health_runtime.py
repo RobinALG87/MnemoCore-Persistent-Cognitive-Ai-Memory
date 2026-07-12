@@ -52,4 +52,3 @@ def test_health_reports_redis_without_making_it_a_local_readiness_dependency():
     assert health.status_code == 200
     assert health.json()["redis_connected"] is False
     assert ready.status_code == 200
-
