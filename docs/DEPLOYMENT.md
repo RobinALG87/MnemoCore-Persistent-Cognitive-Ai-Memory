@@ -113,14 +113,30 @@ chart.
 - Alert separately on liveness, readiness, and dependency degradation.
 - Treat logs and metrics as potentially sensitive operational metadata.
 
+AgentMemory's physical erase prototype rewrites the SQLite database under a
+cooperative cross-process sidecar lock. It verifies exact scope ownership,
+requires an explicit cascade for connected supersession streams, removes
+dependent rows, checks foreign keys/integrity, and returns a content-free
+receipt. Every process must use `SQLiteMemoryStore` and its lock contract during
+erasure; uncoordinated raw SQLite connections are unsafe. Current tests do not
+yet prove arbitrary power-loss points, all filesystem failure modes, backup
+purging, or deletion from external derived artifacts.
+
+Persistent webhook configuration must use an opaque `secret_ref`. The secret is
+resolved at delivery time and is not written to the webhook JSON file. Inline
+secrets, legacy plaintext documents, and all persistent custom headers are
+rejected. Persistence mutations are serialized and use atomic replacement; load
+and write failures fail closed or report that replacement already committed.
+
 ## Remaining production gates
 
 The prototype is intentionally not labelled production-ready until all of the
 following are evidenced:
 
 - security and dependency findings are resolved or explicitly accepted;
-- physical erasure covers SQLite, WAL/SHM, FTS, projections, backups, and
-  derived artifacts with failure-injection tests;
+- physical erasure is extended from the current coordinated SQLite prototype to
+  cover exhaustive failure injection, power loss, backups, and external derived
+  artifacts;
 - the quarantined lifecycle test and legacy lane are migrated or retired with
   an explicit compatibility decision;
 - real Redis/Qdrant service tests, backup/restore, upgrade/rollback, load, and

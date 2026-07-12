@@ -8,11 +8,19 @@ remediation documents are context, not green release evidence.
 
 ## Verified prototype gates
 
-- [x] AgentMemory core baseline: 304 focused tests passed.
+- [x] AgentMemory core: 308 focused tests passed, including four physical
+  erasure contract tests.
 - [x] Offline adapters: 6 tests passed.
 - [x] Benchmark contracts/smoke: 18 tests passed.
-- [x] Packaging/runtime contract batch: 16 passed, 2 skipped because the local
+- [x] Combined AgentMemory, webhook security, adapter, benchmark, packaging,
+  runtime, and deployment batch: 380 passed, 2 skipped because the local
   build-backend metadata prerequisite was unavailable.
+- [x] Persistent webhook signing secrets are represented only by `secret_ref`;
+  inline secrets, unsafe legacy files, and persistent custom headers fail
+  closed. Mutations are serialized and atomically persisted.
+- [x] Physical erase prototype enforces exact scope, protects supersession
+  components unless cascade is explicit, removes dependent rows, validates
+  integrity, and returns a content-free receipt.
 - [x] Docker image builds a wheel and installs the package.
 - [x] A real container starts `mnemocore.api.main:app` as a non-root user.
 - [x] Container smoke returned `/health` (live/degraded without Redis), `/ready`
@@ -25,8 +33,9 @@ remediation documents are context, not green release evidence.
 ## Release blockers
 
 - [ ] Resolve or explicitly accept current Bandit and dependency-audit findings.
-- [ ] Prove physical erasure from SQLite, WAL/SHM, FTS, projections, backups,
-  and derived artifacts, including interrupted-operation recovery.
+- [ ] Extend physical erasure beyond its cooperative-lock SQLite prototype:
+  prove arbitrary power-loss/failure points, uncoordinated-client handling,
+  backup deletion, and external derived-artifact deletion.
 - [ ] Migrate or retire the quarantined lifecycle integration file.
 - [ ] Make the legacy unit lane terminate reliably and record its result.
 - [ ] Add non-zero Redis/Qdrant service-lane coverage.
@@ -45,6 +54,7 @@ remediation documents are context, not green release evidence.
 python -m build
 python -m pytest tests/agent_memory tests/integrations \
   benchmarks/test_agent_memory_baseline.py benchmarks/test_benchmark_smoke.py -q
+python -m pytest tests/events/test_webhook_secret_persistence.py -q
 python -m pytest tests/test_version_contract.py tests/test_packaging_smoke.py \
   tests/test_api_health_runtime.py tests/test_docker_runtime_contract.py \
   tests/deployment/test_deployment_contracts.py -q

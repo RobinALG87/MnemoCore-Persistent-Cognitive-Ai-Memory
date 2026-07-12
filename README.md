@@ -1057,6 +1057,21 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 export HAIM_API_KEY="<generated-value>"
 ```
 
+Persistent webhooks store only an opaque `secret_ref`; the signing secret is
+resolved when a delivery is sent. Inline signing secrets, legacy plaintext
+records, and all custom headers are rejected for persistent webhook managers.
+Writes are serialized and atomically replaced, and malformed persistence loads
+fail closed without partial in-memory state. Memory-only webhook managers retain
+the legacy inline-secret/header behavior for compatibility.
+
+AgentMemory also exposes a physical SQLite erase operation with exact-scope
+ownership checks, optional whole-supersession-component cascade, dependent-row
+cleanup, database integrity checks, and a content-free `ErasureReceipt`. All
+database users must cooperate with the store's sidecar lock; raw SQLite clients
+are outside the safety contract during erasure. Backups, derived external
+artifacts, power-loss recovery, and exhaustive failure injection remain separate
+production gates.
+
 ---
 
 ## MCP Server Integration
