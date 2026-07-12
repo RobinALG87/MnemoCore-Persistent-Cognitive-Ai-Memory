@@ -63,7 +63,7 @@ COPY --chown=mnemocore:mnemocore scripts/ ./scripts/
 
 # Copy and set up entrypoint script
 COPY scripts/docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Create data directory with proper permissions
 RUN mkdir -p /app/data && chown -R mnemocore:mnemocore /app/data

@@ -15,6 +15,7 @@ def test_image_installs_wheel_and_starts_public_api_module():
     assert "COPY pyproject.toml README.md LICENSE config.yaml ./" in dockerfile
     assert "COPY pyproject.toml README.md LICENSE CHANGELOG.md" not in dockerfile
     assert "HAIM_API_KEY=" not in dockerfile
+    assert "sed -i 's/\\r$//' /entrypoint.sh" in dockerfile
     assert 'ENTRYPOINT ["/entrypoint.sh"]' in dockerfile
     assert (
         'CMD ["uvicorn", "mnemocore.api.main:app", "--host", "0.0.0.0", '
