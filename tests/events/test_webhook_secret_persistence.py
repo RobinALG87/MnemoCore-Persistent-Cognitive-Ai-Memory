@@ -4,9 +4,11 @@ import pytest
 
 from mnemocore.events.event_bus import Event
 from mnemocore.events.webhook_manager import (
+    SensitiveWebhookHeaderError,
     UnsafeWebhookPersistenceError,
     WebhookDelivery,
     WebhookManager,
+    WebhookPersistenceError,
     WebhookSignature,
 )
 
@@ -168,3 +170,200 @@ async def test_secret_resolution_errors_are_redacted(tmp_path):
     assert not await manager._attempt_delivery(event, webhook, delivery)
     assert delivery.error_message == "Webhook signing secret unavailable"
     assert secret not in delivery.error_message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "header_name",
+    [
+        "Authorization",
+        "proxy-authorization",
+        "X-API-Key",
+        "api-key",
+        "Cookie",
+        "set-cookie",
+        "X-Customer-Token",
+    ],
+)
+async def test_persistent_webhooks_reject_sensitive_headers(tmp_path, header_name):
+    manager = WebhookManager(
+        persistence_path=str(tmp_path / "webhooks.json"),
+        sensitive_header_names={"X-Customer-Token"},
+    )
+
+    with pytest.raises(SensitiveWebhookHeaderError, match="secret references"):
+        await manager.register_webhook(
+            url="https://example.test/hook",
+            secret_ref="SIGNING_SECRET",
+            headers={header_name: "must-not-persist"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_persistent_webhooks_allow_non_sensitive_headers(tmp_path):
+    manager = WebhookManager(persistence_path=str(tmp_path / "webhooks.json"))
+
+    config = await manager.register_webhook(
+        url="https://example.test/hook",
+        secret_ref="SIGNING_SECRET",
+        headers={"X-Webhook-Version": "2"},
+    )
+
+    assert config.headers == {"X-Webhook-Version": "2"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("document", [{}, {"version": "3.0", "webhooks": []}])
+async def test_load_rejects_missing_or_unknown_persistence_version(tmp_path, document):
+    path = tmp_path / "webhooks.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    manager = WebhookManager(persistence_path=str(path))
+
+    with pytest.raises(WebhookPersistenceError, match="version 2.0"):
+        await manager.start()
+
+
+@pytest.mark.asyncio
+async def test_load_rejects_malformed_json(tmp_path):
+    path = tmp_path / "webhooks.json"
+    path.write_text('{"version": "2.0",', encoding="utf-8")
+
+    with pytest.raises(WebhookPersistenceError):
+        await WebhookManager(persistence_path=str(path)).start()
+
+
+@pytest.mark.asyncio
+async def test_load_rejects_sensitive_persisted_headers(tmp_path):
+    path = tmp_path / "webhooks.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "2.0",
+                "webhooks": [
+                    {
+                        "id": "wh_unsafe",
+                        "url": "https://example.test/hook",
+                        "secret_ref": "SIGNING_SECRET",
+                        "headers": {"Authorization": "plaintext-credential"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SensitiveWebhookHeaderError):
+        await WebhookManager(persistence_path=str(path)).start()
+
+
+@pytest.mark.asyncio
+async def test_malformed_load_is_fail_closed_without_partial_state(tmp_path):
+    path = tmp_path / "webhooks.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "2.0",
+                "webhooks": [
+                    {
+                        "id": "wh_valid",
+                        "url": "https://example.test/valid",
+                        "secret_ref": "VALID_SECRET",
+                    },
+                    {"id": "wh_invalid"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = WebhookManager(persistence_path=str(path))
+
+    with pytest.raises(WebhookPersistenceError):
+        await manager.start()
+
+    assert manager.get_webhook("wh_valid") is None
+
+
+@pytest.mark.asyncio
+async def test_register_rolls_back_when_persistence_fails(tmp_path, monkeypatch):
+    manager = WebhookManager(persistence_path=str(tmp_path / "webhooks.json"))
+
+    def fail_write(_content):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(manager, "_atomic_write", fail_write)
+    with pytest.raises(WebhookPersistenceError):
+        await manager.register_webhook(
+            url="https://example.test/hook",
+            secret_ref="SIGNING_SECRET",
+        )
+
+    assert manager.list_webhooks() == []
+
+
+@pytest.mark.asyncio
+async def test_update_and_delete_roll_back_when_persistence_fails(tmp_path, monkeypatch):
+    manager = WebhookManager(persistence_path=str(tmp_path / "webhooks.json"))
+    config = await manager.register_webhook(
+        url="https://example.test/original",
+        secret_ref="SIGNING_SECRET",
+    )
+
+    def fail_write(_content):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(manager, "_atomic_write", fail_write)
+    with pytest.raises(WebhookPersistenceError):
+        await manager.update_webhook(config.id, url="https://example.test/changed")
+    assert manager.get_webhook(config.id).url == "https://example.test/original"
+
+    with pytest.raises(WebhookPersistenceError):
+        await manager.delete_webhook(config.id)
+    assert manager.get_webhook(config.id) is not None
+
+    reopened = WebhookManager(persistence_path=str(tmp_path / "webhooks.json"))
+    await reopened._load_webhooks()
+    assert reopened.get_webhook(config.id).url == "https://example.test/original"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_registration_persists_every_webhook(tmp_path):
+    import asyncio
+
+    path = tmp_path / "webhooks.json"
+    manager = WebhookManager(persistence_path=str(path))
+
+    await asyncio.gather(
+        *(
+            manager.register_webhook(
+                url=f"https://example.test/hook/{index}",
+                secret_ref=f"SIGNING_SECRET_{index}",
+            )
+            for index in range(10)
+        )
+    )
+
+    reloaded = WebhookManager(persistence_path=str(path))
+    await reloaded._load_webhooks()
+    assert len(reloaded.list_webhooks()) == 10
+
+
+@pytest.mark.asyncio
+async def test_registration_log_redacts_url_credentials_and_query(tmp_path):
+    from loguru import logger
+
+    messages = []
+    sink = logger.add(lambda message: messages.append(str(message)), level="INFO")
+    try:
+        manager = WebhookManager(persistence_path=str(tmp_path / "webhooks.json"))
+        await manager.register_webhook(
+            url="https://alice:password@example.test/hook?token=query-secret",
+            secret_ref="SIGNING_SECRET",
+        )
+    finally:
+        logger.remove(sink)
+
+    output = "".join(messages)
+    assert "example.test" in output
+    assert "alice" not in output
+    assert "password" not in output
+    assert "query-secret" not in output

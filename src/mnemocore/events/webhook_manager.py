@@ -31,7 +31,7 @@ Example:
     config = await manager.register_webhook(
         url="https://example.com/mnemocore-webhook",
         events=["memory.created", "consolidation.completed"],
-        secret="my_shared_secret",
+        secret_ref="MNEMOCORE_WEBHOOK_SECRET",
         headers={"X-Custom-Header": "value"}
     )
 
@@ -67,6 +67,7 @@ Webhook Payload Format:
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import hmac
 import json
@@ -77,6 +78,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
+from urllib.parse import urlsplit
 from loguru import logger
 
 import aiohttp
@@ -89,8 +91,16 @@ from .event_bus import Event
 # =============================================================================
 
 
-class UnsafeWebhookPersistenceError(RuntimeError):
+class WebhookPersistenceError(RuntimeError):
+    """Raised when webhook persistence cannot be safely read or committed."""
+
+
+class UnsafeWebhookPersistenceError(WebhookPersistenceError):
     """Raised when persisted webhook configuration contains secret material."""
+
+
+class SensitiveWebhookHeaderError(WebhookPersistenceError, ValueError):
+    """Raised when a persistent header could contain credential material."""
 
 
 class WebhookSecretResolver(Protocol):
@@ -438,7 +448,7 @@ class WebhookManager:
         config = await manager.register_webhook(
             url="https://example.com/webhook",
             events=["memory.created", "consolidation.completed"],
-            secret="my_shared_secret"
+            secret_ref="MNEMOCORE_WEBHOOK_SECRET"
         )
 
         # Get delivery history
@@ -455,6 +465,7 @@ class WebhookManager:
         max_history_size: int = 10000,
         http_session: Optional[aiohttp.ClientSession] = None,
         secret_resolver: Optional[WebhookSecretResolver] = None,
+        sensitive_header_names: Optional[set[str]] = None,
     ):
         """
         Initialize WebhookManager.
@@ -463,12 +474,24 @@ class WebhookManager:
             persistence_path: Path to save webhook configurations
             max_history_size: Maximum delivery records to keep
             http_session: Optional aiohttp session for HTTP requests
+            secret_resolver: Callable that resolves an opaque secret reference
+            sensitive_header_names: Additional header names forbidden in persistence
         """
         self._persistence_path = Path(persistence_path) if persistence_path else None
         self._max_history_size = max_history_size
         self._secret_resolver = (
             secret_resolver or resolve_webhook_secret_from_environment
         )
+        self._persistence_lock = asyncio.Lock()
+        self._sensitive_header_names = {
+            "authorization",
+            "proxy-authorization",
+            "x-api-key",
+            "api-key",
+            "cookie",
+            "set-cookie",
+            *(name.casefold() for name in (sensitive_header_names or set())),
+        }
 
         # Webhook storage
         self._webhooks: Dict[str, WebhookConfig] = {}
@@ -538,6 +561,29 @@ class WebhookManager:
     # Webhook Registration
     # ======================================================================
 
+    def _validate_persistent_headers(self, headers: Dict[str, str]) -> None:
+        if not self._persistence_path:
+            return
+        sensitive = {
+            name for name in headers if name.casefold() in self._sensitive_header_names
+        }
+        if sensitive:
+            raise SensitiveWebhookHeaderError(
+                "Sensitive persistent webhook headers require secret references"
+            )
+
+    @staticmethod
+    def _safe_url_target(url: str) -> str:
+        """Return only the URL host (and explicit port) for safe logging."""
+        parsed = urlsplit(url)
+        if not parsed.hostname:
+            return "invalid-host"
+        try:
+            port = parsed.port
+        except ValueError:
+            return parsed.hostname
+        return f"{parsed.hostname}:{port}" if port is not None else parsed.hostname
+
     async def register_webhook(
         self,
         url: str,
@@ -554,7 +600,8 @@ class WebhookManager:
         Args:
             url: Target URL for webhook delivery
             events: List of event types (empty = all events)
-            secret: Shared secret for HMAC (auto-generated if None)
+            secret: In-memory HMAC secret for non-persistent use
+            secret_ref: Opaque signing-secret reference required for persistence
             headers: Additional HTTP headers
             enabled: Whether webhook is initially active
             retry_config: Retry behavior configuration
@@ -574,26 +621,32 @@ class WebhookManager:
             import secrets
             secret = secrets.token_urlsafe(32)
 
+        webhook_headers = headers or {}
+        self._validate_persistent_headers(webhook_headers)
         config = WebhookConfig(
             id=webhook_id,
             url=url,
             events=events or [],
             secret=secret or "",
             secret_ref=secret_ref,
-            headers=headers or {},
+            headers=webhook_headers,
             enabled=enabled,
             retry_config=retry_config or RetryConfig(),
         )
 
-        self._webhooks[webhook_id] = config
-        self._history[webhook_id] = []
-
-        # Persist to disk
-        await self._save_webhooks()
+        async with self._persistence_lock:
+            self._webhooks[webhook_id] = config
+            self._history[webhook_id] = []
+            try:
+                await self._save_webhooks()
+            except Exception:
+                self._webhooks.pop(webhook_id, None)
+                self._history.pop(webhook_id, None)
+                raise
 
         logger.info(
             f"[WebhookManager] Registered webhook {webhook_id} "
-            f"to {url} (events: {events or 'all'})"
+            f"to {self._safe_url_target(url)} (events: {events or 'all'})"
         )
 
         return config
@@ -616,7 +669,8 @@ class WebhookManager:
             webhook_id: ID of webhook to update
             url: New URL (optional)
             events: New event list (optional)
-            secret: New secret (optional)
+            secret: New in-memory secret (optional)
+            secret_ref: New opaque signing-secret reference (optional)
             headers: New headers (optional)
             enabled: New enabled state (optional)
             retry_config: New retry config (optional)
@@ -627,26 +681,33 @@ class WebhookManager:
         if webhook_id not in self._webhooks:
             return None
 
-        config = self._webhooks[webhook_id]
+        async with self._persistence_lock:
+            previous = self._webhooks[webhook_id]
+            config = copy.deepcopy(previous)
 
-        if url is not None:
-            config.url = url
-        if events is not None:
-            config.events = events
-        if secret is not None:
-            config.secret = secret
-        if secret_ref is not None:
-            config.secret_ref = secret_ref
-        if headers is not None:
-            config.headers = headers
-        if enabled is not None:
-            config.enabled = enabled
-        if retry_config is not None:
-            config.retry_config = retry_config
+            if url is not None:
+                config.url = url
+            if events is not None:
+                config.events = events
+            if secret is not None:
+                config.secret = secret
+            if secret_ref is not None:
+                config.secret_ref = secret_ref
+            if headers is not None:
+                self._validate_persistent_headers(headers)
+                config.headers = headers
+            if enabled is not None:
+                config.enabled = enabled
+            if retry_config is not None:
+                config.retry_config = retry_config
 
-        config.updated_at = datetime.now(timezone.utc)
-
-        await self._save_webhooks()
+            config.updated_at = datetime.now(timezone.utc)
+            self._webhooks[webhook_id] = config
+            try:
+                await self._save_webhooks()
+            except Exception:
+                self._webhooks[webhook_id] = previous
+                raise
 
         logger.info(f"[WebhookManager] Updated webhook {webhook_id}")
 
@@ -665,10 +726,15 @@ class WebhookManager:
         if webhook_id not in self._webhooks:
             return False
 
-        del self._webhooks[webhook_id]
-        del self._history[webhook_id]
-
-        await self._save_webhooks()
+        async with self._persistence_lock:
+            config = self._webhooks.pop(webhook_id)
+            history = self._history.pop(webhook_id)
+            try:
+                await self._save_webhooks()
+            except Exception:
+                self._webhooks[webhook_id] = config
+                self._history[webhook_id] = history
+                raise
 
         logger.info(f"[WebhookManager] Deleted webhook {webhook_id}")
 
@@ -1180,44 +1246,75 @@ class WebhookManager:
             return
 
         try:
-            import os as _os
-            import stat as _stat
-
-            # SECURITY: Refuse to load secrets from world-readable files (Unix)
-            try:
-                file_stat = _os.stat(self._persistence_path)
-                if (
-                    _os.name != "nt"
-                    and hasattr(_stat, "S_IROTH")
-                    and file_stat.st_mode & _stat.S_IROTH
-                ):
-                    logger.error(
-                        f"[WebhookManager] Refusing to load {self._persistence_path}: "
-                        "file is world-readable. Fix permissions: chmod 600"
-                    )
-                    return
-            except (OSError, AttributeError):
-                pass  # Windows or stat not available
-
+            file_stat = await asyncio.to_thread(os.stat, self._persistence_path)
+            if os.name != "nt" and file_stat.st_mode & 0o077:
+                raise WebhookPersistenceError(
+                    "Webhook persistence permissions must be owner-only"
+                )
             content = await asyncio.to_thread(
-                self._persistence_path.read_text,
-                encoding="utf-8",
+                self._persistence_path.read_text, encoding="utf-8"
             )
             data = json.loads(content)
-
-            for webhook_data in data.get("webhooks", []):
+            if isinstance(data, dict) and isinstance(data.get("webhooks"), list):
+                if any(
+                    isinstance(entry, dict) and "secret" in entry
+                    for entry in data["webhooks"]
+                ):
+                    raise UnsafeWebhookPersistenceError(
+                        "Legacy webhook persistence contains plaintext secret material; "
+                        "remove it and configure secret_ref manually"
+                    )
+            if not isinstance(data, dict) or data.get("version") != "2.0":
+                raise WebhookPersistenceError(
+                    "Webhook persistence requires exact version 2.0"
+                )
+            webhook_documents = data.get("webhooks")
+            if not isinstance(webhook_documents, list):
+                raise WebhookPersistenceError(
+                    "Webhook persistence webhooks must be a list"
+                )
+            loaded: Dict[str, WebhookConfig] = {}
+            for webhook_data in webhook_documents:
+                if not isinstance(webhook_data, dict):
+                    raise WebhookPersistenceError(
+                        "Webhook persistence entry must be an object"
+                    )
                 if "secret" in webhook_data:
                     raise UnsafeWebhookPersistenceError(
                         "Legacy webhook persistence contains plaintext secret material; "
                         "remove it and configure secret_ref manually"
                     )
+                if not all(
+                    isinstance(webhook_data.get(key), str)
+                    and bool(webhook_data.get(key))
+                    for key in ("id", "url", "secret_ref")
+                ):
+                    raise WebhookPersistenceError(
+                        "Webhook persistence entry requires id, url, and secret_ref"
+                    )
+                headers = webhook_data.get("headers", {})
+                if not isinstance(headers, dict) or not all(
+                    isinstance(key, str) and isinstance(value, str)
+                    for key, value in headers.items()
+                ):
+                    raise WebhookPersistenceError(
+                        "Webhook persistence headers must be string pairs"
+                    )
+                self._validate_persistent_headers(headers)
                 config = WebhookConfig.from_dict(webhook_data)
-                self._webhooks[config.id] = config
-                self._history[config.id] = []
+                if config.id in loaded:
+                    raise WebhookPersistenceError(
+                        "Webhook persistence contains duplicate identifiers"
+                    )
+                loaded[config.id] = config
+
+            async with self._persistence_lock:
+                self._webhooks = loaded
+                self._history = {webhook_id: [] for webhook_id in loaded}
 
             logger.info(
                 f"[WebhookManager] Loaded {len(self._webhooks)} webhooks "
-                f"from {self._persistence_path}"
+                "from persistent storage"
             )
 
         except UnsafeWebhookPersistenceError:
@@ -1225,8 +1322,14 @@ class WebhookManager:
                 "[WebhookManager] Refusing unsafe legacy webhook persistence"
             )
             raise
-        except Exception:
-            logger.exception("[WebhookManager] Failed to load webhook configuration")
+        except WebhookPersistenceError:
+            logger.error("[WebhookManager] Refusing invalid webhook persistence")
+            raise
+        except Exception as exc:
+            logger.error("[WebhookManager] Failed to load webhook configuration")
+            raise WebhookPersistenceError(
+                "Failed to load webhook persistence"
+            ) from exc
 
     async def _save_webhooks(self) -> None:
         """Save webhook configurations to disk.
@@ -1238,11 +1341,6 @@ class WebhookManager:
             return
 
         try:
-            import os as _os
-            import stat as _stat
-
-            self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
-
             data = {
                 "version": "2.0",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1256,24 +1354,39 @@ class WebhookManager:
                 ],
             }
 
-            await asyncio.to_thread(
-                self._persistence_path.write_text,
-                json.dumps(data, indent=2),
-                encoding="utf-8",
-            )
+            await asyncio.to_thread(self._atomic_write, json.dumps(data, indent=2))
+        except Exception as exc:
+            logger.error("[WebhookManager] Failed to save webhook configuration")
+            raise WebhookPersistenceError(
+                "Failed to commit webhook persistence"
+            ) from exc
 
-            # SECURITY: Restrict file permissions to owner-only (Unix)
+    def _atomic_write(self, content: str) -> None:
+        """Durably replace persistence using a temporary file in the same directory."""
+        if self._persistence_path is None:
+            return
+        destination = self._persistence_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+                if os.name != "nt":
+                    os.chmod(temporary, 0o600)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, destination)
+            if os.name != "nt":
+                directory_fd = os.open(destination.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
             try:
-                _os.chmod(
-                    self._persistence_path,
-                    _stat.S_IRUSR | _stat.S_IWUSR,  # 0o600
-                )
-            except (OSError, AttributeError):
-                # Windows or permission error — log warning
+                temporary.unlink(missing_ok=True)
+            except OSError:
                 pass
-
-        except Exception:
-            logger.exception("[WebhookManager] Failed to save webhook configuration")
 
     # ======================================================================
     # Metrics
