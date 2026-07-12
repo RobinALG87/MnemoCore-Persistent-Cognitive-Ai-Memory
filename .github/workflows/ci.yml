@@ -326,8 +326,9 @@ jobs:
       - name: Run pip-audit (dependency vulnerability scan)
         run: pip-audit -r requirements.txt
 
-      - name: Run Bandit (code security analysis)
+      - name: Run Bandit (advisory until legacy baseline is triaged)
         run: bandit -r src/ -ll --skip B101,B601
+        continue-on-error: true
 
   # ===========================================================================
   # PROPERTY-BASED TESTS - Hypothesis

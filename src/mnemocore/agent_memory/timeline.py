@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -71,19 +72,35 @@ class SupersessionReplay:
 
 
 def _canonical_timestamp(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return (
+        value.astimezone(timezone.utc)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _parse_query_timestamp(value: Any, name: str) -> datetime:
     if not isinstance(value, str):
         raise ValidationError(f"{name} must be an ISO-8601 string")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # Python 3.10 rejects some otherwise valid fractional-second widths
+        # when they are followed by an explicit UTC offset. Normalizing the
+        # fraction keeps the public parser consistent across Python 3.10-3.12.
+        normalized = value.replace("Z", "+00:00")
+        match = re.match(
+            r"^(.*T\d{2}:\d{2}:\d{2})\.(\d+)([+-]\d{2}:\d{2})$", normalized
+        )
+        if match is not None:
+            fraction = match.group(2)[:6].ljust(6, "0")
+            normalized = f"{match.group(1)}.{fraction}{match.group(3)}"
+        parsed = datetime.fromisoformat(normalized)
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             raise ValueError("timestamp is not timezone-aware")
         return parsed.astimezone(timezone.utc)
     except (TypeError, ValueError, OverflowError) as error:
-        raise ValidationError(f"{name} must be a valid timezone-aware ISO-8601 string") from error
+        raise ValidationError(
+            f"{name} must be a valid timezone-aware ISO-8601 string"
+        ) from error
 
 
 def _normalize_now(now: Any) -> datetime:
@@ -110,14 +127,20 @@ def normalize_timeline_query(
     normalized_now = _normalize_now(now)
     valid_value = valid_at if valid_at is not None else as_of
     normalized_valid = (
-        _parse_query_timestamp(valid_value, "valid_at" if valid_at is not None else "as_of")
+        _parse_query_timestamp(
+            valid_value, "valid_at" if valid_at is not None else "as_of"
+        )
         if valid_value is not None
         else normalized_now
     )
     normalized_known = (
-        _parse_query_timestamp(known_at, "known_at") if known_at is not None else normalized_now
+        _parse_query_timestamp(known_at, "known_at")
+        if known_at is not None
+        else normalized_now
     )
-    return _canonical_timestamp(normalized_valid), _canonical_timestamp(normalized_known)
+    return _canonical_timestamp(normalized_valid), _canonical_timestamp(
+        normalized_known
+    )
 
 
 def _contains_half_open(
@@ -147,7 +170,9 @@ def _normalize_identifier(value: Any, name: str) -> str:
     if normalized != value:
         raise ValidationError(f"{name} must be normalized")
     if len(normalized) > MAX_IDENTIFIER_LENGTH:
-        raise ValidationError(f"{name} must be at most {MAX_IDENTIFIER_LENGTH} characters")
+        raise ValidationError(
+            f"{name} must be at most {MAX_IDENTIFIER_LENGTH} characters"
+        )
     return normalized
 
 
@@ -190,10 +215,14 @@ def _record_snapshot(record: MemoryRecord) -> dict[str, Any]:
         "confidence": record.confidence,
         "observed_at": _canonical_timestamp(record.observed_at),
         "valid_from": (
-            _canonical_timestamp(record.valid_from) if record.valid_from is not None else None
+            _canonical_timestamp(record.valid_from)
+            if record.valid_from is not None
+            else None
         ),
         "valid_to": (
-            _canonical_timestamp(record.valid_to) if record.valid_to is not None else None
+            _canonical_timestamp(record.valid_to)
+            if record.valid_to is not None
+            else None
         ),
         "created_at": _canonical_timestamp(record.created_at),
         "updated_at": _canonical_timestamp(record.updated_at),
@@ -204,7 +233,9 @@ def _validate_supersession_records(
     source: MemoryRecord,
     replacement: MemoryRecord,
 ) -> datetime:
-    if not isinstance(source, MemoryRecord) or not isinstance(replacement, MemoryRecord):
+    if not isinstance(source, MemoryRecord) or not isinstance(
+        replacement, MemoryRecord
+    ):
         raise ValidationError("source and replacement must be MemoryRecord values")
     _normalize_identifier(source.id, "source memory id")
     _normalize_identifier(replacement.id, "replacement memory id")
@@ -219,7 +250,9 @@ def _validate_supersession_records(
     if replacement.status is not MemoryStatus.ACTIVE:
         raise ValidationError("replacement snapshot status must be active")
     if source.valid_to is None or replacement.valid_from is None:
-        raise ValidationError("supersession snapshots require a complete effective boundary")
+        raise ValidationError(
+            "supersession snapshots require a complete effective boundary"
+        )
     if source.valid_to != replacement.valid_from:
         raise ValidationError("source and replacement boundary must match")
     boundary = source.valid_to
@@ -269,7 +302,9 @@ def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
     return value
 
 
-def _require_exact_keys(value: Mapping[str, Any], expected: set[str], name: str) -> None:
+def _require_exact_keys(
+    value: Mapping[str, Any], expected: set[str], name: str
+) -> None:
     missing = expected.difference(value)
     extra = set(value).difference(expected)
     if missing or extra:
@@ -281,7 +316,9 @@ def _require_exact_keys(value: Mapping[str, Any], expected: set[str], name: str)
         raise ValidationError(f"{name} has invalid fields:{detail}")
 
 
-def _parse_stored_timestamp(value: Any, name: str, *, optional: bool = False) -> Optional[datetime]:
+def _parse_stored_timestamp(
+    value: Any, name: str, *, optional: bool = False
+) -> Optional[datetime]:
     if value is None and optional:
         return None
     parsed = _parse_query_timestamp(value, name)
@@ -336,7 +373,9 @@ def _hydrate_record(snapshot: Any, name: str) -> MemoryRecord:
         valid_from=_parse_stored_timestamp(
             value["valid_from"], f"{name}.valid_from", optional=True
         ),
-        valid_to=_parse_stored_timestamp(value["valid_to"], f"{name}.valid_to", optional=True),
+        valid_to=_parse_stored_timestamp(
+            value["valid_to"], f"{name}.valid_to", optional=True
+        ),
         created_at=_parse_required_stored_timestamp(
             value["created_at"], f"{name}.created_at"
         ),
@@ -362,8 +401,13 @@ def parse_superseded_payload(
         source = _hydrate_record(payload["source"], "source")
         replacement = _hydrate_record(payload["replacement"], "replacement")
         boundary = _validate_supersession_records(source, replacement)
-        if source.updated_at != event.occurred_at or replacement.updated_at != event.occurred_at:
-            raise ValidationError("supersession snapshot updated_at does not match event time")
+        if (
+            source.updated_at != event.occurred_at
+            or replacement.updated_at != event.occurred_at
+        ):
+            raise ValidationError(
+                "supersession snapshot updated_at does not match event time"
+            )
         effective_at = _parse_stored_timestamp(payload["effective_at"], "effective_at")
         if effective_at != boundary:
             raise ValidationError("effective boundary does not match snapshots")
@@ -374,7 +418,9 @@ def parse_superseded_payload(
         if payload["source_memory_id"] != source.id or event.memory_id != source.id:
             raise ValidationError("source_memory_id does not match source snapshot")
         if payload["replacement_memory_id"] != replacement.id:
-            raise ValidationError("replacement_memory_id does not match replacement snapshot")
+            raise ValidationError(
+                "replacement_memory_id does not match replacement snapshot"
+            )
 
         reason = _normalize_reason(payload["reason"])
         if reason != payload["reason"]:
@@ -389,7 +435,10 @@ def parse_superseded_payload(
         relation_id = _normalize_identifier(relation["id"], "relation.id")
         if relation["relation_type"] != _RELATION_TYPE:
             raise ValidationError("relation type must be supersedes")
-        if relation["source_id"] != replacement.id or relation["target_id"] != source.id:
+        if (
+            relation["source_id"] != replacement.id
+            or relation["target_id"] != source.id
+        ):
             raise ValidationError("relation endpoints do not match snapshots")
 
         evidence = _require_mapping(payload["evidence"], "evidence")
