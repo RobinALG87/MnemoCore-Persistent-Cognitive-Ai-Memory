@@ -86,3 +86,11 @@ def test_helm_chart_has_no_unresolved_subcharts_and_uses_public_metadata() -> No
     assert f"home: {repository}" in chart
     assert f"  - {repository}" in chart
     assert "github.com/your-org" not in chart
+
+
+def test_helm_deployment_has_no_dead_secret_template_checksum() -> None:
+    deployment = read("helm/mnemocore/templates/deployment.yaml")
+
+    assert "checksum/secret" not in deployment
+    assert 'Template.BasePath "/secret.yaml"' not in deployment
+    assert 'Template.BasePath "/configmap.yaml"' in deployment
