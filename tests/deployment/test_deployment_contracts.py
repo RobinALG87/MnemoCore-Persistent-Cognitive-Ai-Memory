@@ -74,3 +74,15 @@ def test_helm_optional_dependencies_are_disabled_by_default() -> None:
 
     assert "enabled: false" in redis
     assert "enabled: false" in qdrant
+
+
+def test_helm_chart_has_no_unresolved_subcharts_and_uses_public_metadata() -> None:
+    chart = read("helm/mnemocore/Chart.yaml")
+    repository = "https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory"
+
+    assert "dependencies:" not in chart
+    assert "charts.bitnami.com" not in chart
+    assert "qdrant.github.io" not in chart
+    assert f"home: {repository}" in chart
+    assert f"  - {repository}" in chart
+    assert "github.com/your-org" not in chart

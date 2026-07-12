@@ -11,9 +11,9 @@ version: 1.0.0
 appVersion: "2.0.0"
 
 # Metadata
-home: https://github.com/your-org/mnemocore
+home: https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory
 sources:
-  - https://github.com/your-org/mnemocore
+  - https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory
 keywords:
   - ai
   - memory
@@ -27,20 +27,6 @@ maintainers:
   - name: MnemoCore Team
     email: team@mnemocore.ai
 
-# Dependencies
-dependencies:
-  - name: redis
-    version: "18.x.x"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: redis.enabled
-    alias: redis
-
-  - name: qdrant
-    version: "0.x.x"
-    repository: "https://qdrant.github.io/qdrant-helm"
-    condition: qdrant.enabled
-    alias: qdrant
-
 # Kubernetes version compatibility
 kubeVersion: ">=1.25.0-0"
 
@@ -50,6 +36,6 @@ annotations:
   artifacthub.io/license: MIT
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/your-org/mnemocore/docs
+      url: https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory/tree/main/docs
     - name: API Reference
-      url: https://github.com/your-org/mnemocore/docs/API.md
+      url: https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory/blob/main/docs/API.md
