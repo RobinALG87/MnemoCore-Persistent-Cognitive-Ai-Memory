@@ -89,5 +89,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python /app/scripts/ops/healthcheck.py || exit 1
 
 # Entry point: Validate environment then run uvicorn
-ENTRYPOINT ["/entrypoint.sh", "uvicorn", "mnemocore.api.main:app", "--host", "0.0.0.0", "--port", "8100"]
-CMD ["--workers", "1", "--log-level", "info"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["uvicorn", "mnemocore.api.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "1", "--log-level", "info"]
