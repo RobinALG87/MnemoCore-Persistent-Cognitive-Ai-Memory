@@ -1,7 +1,12 @@
 """Backward-compatible high-level Memory facade."""
 
 from .core.config import load_config
-from .core.lite_engine import LiteEngine
+
+
+_LITE_REMOVAL_MESSAGE = (
+    'v3 migration: the "lite" profile was removed. Migrate to AgentMemory with an '
+    "explicit MemoryScope (or HybridMemoryRuntime for hybrid retrieval)."
+)
 
 
 def _run_sync(coro):
@@ -30,10 +35,8 @@ class Memory:
     """Simple high-level memory client for agents."""
 
     def __init__(self, profile: str = "lite", **engine_kwargs):
-        self._is_lite = profile == "lite"
-        if self._is_lite:
-            self._backend = LiteEngine()
-            return
+        if profile == "lite":
+            raise RuntimeError(_LITE_REMOVAL_MESSAGE)
         if "config" not in engine_kwargs:
             import os
             from dataclasses import replace
@@ -55,12 +58,6 @@ class Memory:
         self._initialized = False
 
     def add(self, content: str, **meta):
-        if self._is_lite:
-            metadata = dict(meta.get("metadata") or {})
-            for key, value in list(meta.items()):
-                if key != "metadata":
-                    metadata[key] = value
-            return self._backend.store(content, metadata=metadata if metadata else None)
         self._ensure_init()
         call_kwargs = {}
         metadata = dict(meta.get("metadata") or {})
@@ -75,8 +72,6 @@ class Memory:
         return _run_sync(coroutine)
 
     def search(self, query: str, top_k: int = 5, **kwargs):
-        if self._is_lite:
-            return self._backend.query(query, top_k=top_k, **kwargs)
         self._ensure_init()
         coroutine = self.engine.query(query, top_k=top_k, **kwargs)
         results = _run_sync(coroutine)
@@ -108,4 +103,4 @@ class Memory:
             self._initialized = True
 
     def __repr__(self):
-        return "<Memory (lite)>" if getattr(self, "_is_lite", False) else "<Memory>"
+        return "<Memory>"

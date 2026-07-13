@@ -11,6 +11,7 @@ and keeping each module under 800 lines.
 """
 
 from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING
+import warnings
 from dataclasses import replace
 from pathlib import Path
 from loguru import logger
@@ -44,6 +45,8 @@ from .strategy_bank import StrategyBankService
 from .knowledge_graph import KnowledgeGraphService
 from .memory_scheduler import MemoryScheduler
 from .memory_exchange import MemoryExchangeProtocol
+from ..agent_memory import AgentMemory, MemoryNotFoundError, MemoryScope
+from ..hybrid import ExactScopeError, HybridMemoryRuntime
 
 # Phase 4.0 workers
 from .semantic_consolidation import SemanticConsolidationWorker
@@ -435,5 +438,61 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
 #   - analyze_memory_clusters()
 
 
+class HAIMEngineAdapter:
+    """Deprecated bridge from the legacy store/query/delete shape to v3 memory.
+
+    The adapter is intentionally opt-in: callers must supply the exact
+    ``MemoryScope`` used to open the ``AgentMemory`` client.  It never opens a
+    database, invents a scope, or falls back to another scope.  ``HAIMEngine``
+    remains available for its existing cognitive operations during v3.
+    """
+
+    def __init__(self, memory: AgentMemory, *, scope: MemoryScope) -> None:
+        warnings.warn(
+            "HAIMEngineAdapter is deprecated; migrate to HybridMemoryRuntime "
+            "and AgentMemory with an explicit MemoryScope.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if not isinstance(memory, AgentMemory):
+            raise TypeError("memory must be an AgentMemory")
+        if not isinstance(scope, MemoryScope):
+            raise TypeError("scope must be a MemoryScope")
+        if memory._scope != scope:
+            raise ExactScopeError("adapter scope does not match the AgentMemory scope")
+        self._memory = memory
+        self._scope = scope
+        self._runtime = HybridMemoryRuntime(memory, scope=scope)
+
+    async def store(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        goal_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> str:
+        """Store through the bound AgentMemory client and return its record id."""
+        bridged_metadata = dict(metadata or {})
+        if goal_id is not None:
+            bridged_metadata["goal_id"] = goal_id
+        if project_id is not None:
+            bridged_metadata["project_id"] = project_id
+        record = await self._memory.remember(content, metadata=bridged_metadata or None)
+        return record.id
+
+    async def query(self, query_text: str, top_k: int = 5) -> List[Tuple[str, float]]:
+        """Return legacy-shaped ids and deterministic hybrid scores for this scope."""
+        results = await self._runtime.recall(self._scope, query_text, limit=top_k)
+        return [(result.memory.id, result.score) for result in results]
+
+    async def delete_memory(self, node_id: str) -> bool:
+        """Forget a record in the bound scope, preserving AgentMemory history."""
+        try:
+            await self._memory.forget(node_id, reason="legacy HAIM adapter delete")
+        except MemoryNotFoundError:
+            return False
+        return True
+
+
 # Export for backward compatibility
-__all__ = ["HAIMEngine"]
+__all__ = ["HAIMEngine", "HAIMEngineAdapter"]

@@ -414,21 +414,6 @@ assert not any(name in sys.modules for name in blocked)
     subprocess.run([sys.executable, "-c", script], check=True, env=environment)
 
 
-def test_lazy_root_memory_export_remains_compatible():
-    script = """
-from mnemocore import Memory
-
-memory = Memory()
-assert repr(memory) == "<Memory (lite)>"
-"""
-    environment = os.environ.copy()
-    source_root = str(Path(__file__).resolve().parents[2] / "src")
-    environment["PYTHONPATH"] = os.pathsep.join(
-        part for part in (source_root, environment.get("PYTHONPATH")) if part
-    )
-    subprocess.run([sys.executable, "-c", script], check=True, env=environment)
-
-
 def test_subprocess_memory_persists_across_restarts(tmp_path):
     path = tmp_path / "memory.db"
     script = r"""

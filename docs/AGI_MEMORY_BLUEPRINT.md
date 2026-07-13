@@ -587,8 +587,11 @@ Konfigurationsexempel:
 
 ```yaml
 haim:
-  profile: "lite"  # "lite" | "standard" | "scale"
+  profile: "standard"  # "standard" | "scale"
 ```
+
+`lite` was removed in v3. For lightweight persistent memory, use
+`AgentMemory` with an explicit `MemoryScope`.
 
 ---
 

@@ -741,7 +741,7 @@ class EventsConfig:
 class HAIMConfig:
     """Root configuration for the HAIM system."""
 
-    profile: str = "lite"  # "lite" | "standard" | "scale"  (lite = very light, zero external by default)
+    profile: str = "standard"  # "standard" | "scale"
     version: str = "4.5"
     dimensionality: int = 16384
     encoding: EncodingConfig = field(default_factory=EncodingConfig)
@@ -958,10 +958,17 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
             loaded = yaml.safe_load(f) or {}
             raw = loaded.get("haim") or {}
 
-    # Lightweight profile support (default "lite" per user priority)
-    profile = _env_override("HAIM_PROFILE", raw.get("profile", "lite")).lower()
-    if profile not in ("lite", "standard", "scale"):
-        profile = "lite"
+    profile = _env_override("PROFILE", raw.get("profile", "standard")).lower()
+    if profile == "lite":
+        raise ConfigurationError(
+            config_key="profile",
+            reason=(
+                'v3 migration: the "lite" profile was removed. Migrate to AgentMemory '
+                "with an explicit MemoryScope."
+            ),
+        )
+    if profile not in ("standard", "scale"):
+        profile = "standard"
 
     # Apply env overrides to top-level scalars
     dimensionality = _env_override(
@@ -1256,12 +1263,6 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         max_episodes_per_tick=_env_override("PULSE_MAX_EPISODES_PER_TICK", pulse_raw.get("max_episodes_per_tick", 200)),
     )
 
-    # Lite profile forces disable of heavy background features (per plan for low token/light footprint)
-    if profile == "lite":
-        subconscious_ai = replace(subconscious_ai, enabled=False)
-        pulse = replace(pulse, enabled=False)
-        anticipatory = replace(anticipatory, enabled=False)
-
     # Build performance config
     perf_raw = raw.get("performance") or {}
     performance = PerformanceConfig(
@@ -1270,10 +1271,6 @@ def load_config(path: Optional[Path] = None) -> HAIMConfig:
         vector_cache_enabled=_env_override("PERFORMANCE_VECTOR_CACHE_ENABLED", perf_raw.get("vector_cache_enabled", True)),
         vector_cache_path=_env_override("PERFORMANCE_VECTOR_CACHE_PATH", perf_raw.get("vector_cache_path", "./data/vector_cache.sqlite")),
     )
-
-    # Lite profile: also disable vector cache (prevents INFO log + disk side-effect for pure lite usage)
-    if profile == "lite":
-        performance = replace(performance, vector_cache_enabled=False)
 
     # Build embedding registry config (Phase 6.0)
     embed_raw = raw.get("embedding_registry") or {}

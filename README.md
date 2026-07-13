@@ -755,23 +755,29 @@ bitemporal recall, supersession, and evidence receipts, see the
 in this foundation is SQLite FTS5 lexical search only; it is not semantic or
 embedding retrieval.
 
-### Lightweight Quickstart (recommended - very light, no Redis/Qdrant)
+### v2 to v3 migration
 
 ```python
-from mnemocore import Memory
+from mnemocore.agent_memory import AgentMemory, MemoryScope
+from mnemocore.hybrid import HybridMemoryRuntime
+import asyncio
 
-# Default is "lite" profile: minimal footprint, in-process only.
-# Heavy background (subconscious, pulse) disabled.
-m = Memory()
+async def main():
+    scope = MemoryScope(tenant_id="local", user_id="demo", agent_id="assistant")
+    async with await AgentMemory.open("memory.db", scope=scope) as memory:
+        runtime = HybridMemoryRuntime(memory, scope=scope)
+        await memory.remember("User prefers concise answers")
+        results = await runtime.recall(scope, "concise", limit=3)
+        print(results)
 
-m.add("User prefers concise answers")
-m.add("Project uses Binary HDV for efficient memory", user_id="demo")
-
-results = m.search("concise", top_k=3)
-print(results)
+asyncio.run(main())
 ```
 
-See Installation for `pip install -e .` (core only is enough for lite).
+The v2 `LiteEngine` and `Memory(profile="lite")` are removed in v3. They now
+fail with a migration error; use `AgentMemory` with an explicit `MemoryScope`.
+`HAIMEngine` remains available for legacy cognitive operations. For a temporary
+bridge of its legacy `store`/`query`/`delete_memory` shape, use the deprecated
+`HAIMEngineAdapter` with an already-open, scope-bound `AgentMemory` client.
 
 ### Advanced / Low-level (full engine)
 
