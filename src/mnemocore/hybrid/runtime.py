@@ -10,6 +10,13 @@ from .contracts import ExactScopeError, HybridRecallResult, RetrievalRequest
 from .retrieval import DeterministicHybridRetriever
 
 
+def _require_client_scope(memory: AgentMemory, scope: MemoryScope) -> None:
+    """Reject an explicit runtime scope that is not the client's bound scope."""
+    bound_scope = memory._scope
+    if bound_scope != scope:
+        raise ExactScopeError("runtime scope does not match the AgentMemory scope")
+
+
 class HybridMemoryRuntime:
     """An async exact-scope retrieval runtime backed solely by AgentMemory."""
 
@@ -18,6 +25,7 @@ class HybridMemoryRuntime:
             raise TypeError("memory must be an AgentMemory")
         if not isinstance(scope, MemoryScope):
             raise TypeError("scope must be a MemoryScope")
+        _require_client_scope(memory, scope)
         self._memory = memory
         self._scope = scope
         self._retriever = DeterministicHybridRetriever()
@@ -66,6 +74,7 @@ class SyncHybridMemoryRuntime:
             raise TypeError("memory must be a SyncAgentMemory")
         if not isinstance(scope, MemoryScope):
             raise TypeError("scope must be a MemoryScope")
+        _require_client_scope(memory._client, scope)
         self._memory = memory
         self._scope = scope
         self._retriever = DeterministicHybridRetriever()

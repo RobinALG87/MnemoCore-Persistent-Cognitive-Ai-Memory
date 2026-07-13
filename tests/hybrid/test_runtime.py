@@ -42,6 +42,23 @@ async def test_recall_is_exact_scope_and_combines_lexical_and_binary_hdv(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_async_runtime_rejects_a_scope_that_differs_from_agent_memory(tmp_path):
+    local_scope = _scope("local")
+    foreign_scope = _scope("foreign")
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=local_scope) as memory:
+        with pytest.raises(ExactScopeError, match="does not match the AgentMemory scope"):
+            HybridMemoryRuntime(memory, scope=foreign_scope)
+
+
+def test_sync_runtime_rejects_a_scope_that_differs_from_agent_memory(tmp_path):
+    local_scope = _scope("local")
+    foreign_scope = _scope("foreign")
+    with SyncAgentMemory.open(tmp_path / "memory.db", scope=local_scope) as memory:
+        with pytest.raises(ExactScopeError, match="does not match the AgentMemory scope"):
+            SyncHybridMemoryRuntime(memory, scope=foreign_scope)
+
+
+@pytest.mark.asyncio
 async def test_recall_exposes_a_content_free_scoring_version_and_is_deterministic(tmp_path):
     scope = _scope("local")
     async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
