@@ -12,6 +12,10 @@ from mnemocore.agent_memory import MemoryRecord, MemoryScope
 SCORING_VERSION = "hybrid-lexical-binary-hdv-v1"
 
 
+class ExactScopeError(ValueError):
+    """Raised when a retrieval request differs from the runtime's bound scope."""
+
+
 @dataclass(frozen=True, slots=True)
 class RetrievalRequest:
     """An exact-scope retrieval request.

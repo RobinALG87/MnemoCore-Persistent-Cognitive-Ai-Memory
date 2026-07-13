@@ -1,12 +1,13 @@
 """Deterministic, exact-scope hybrid retrieval over AgentMemory."""
 
-from .contracts import HybridRecallResult, RetrievalRequest, SCORING_VERSION
+from .contracts import ExactScopeError, HybridRecallResult, RetrievalRequest, SCORING_VERSION
 from .retrieval import BinaryHDV, DeterministicHybridRetriever, lexical_similarity
 from .runtime import HybridMemoryRuntime, SyncHybridMemoryRuntime
 
 __all__ = [
     "BinaryHDV",
     "DeterministicHybridRetriever",
+    "ExactScopeError",
     "HybridMemoryRuntime",
     "HybridRecallResult",
     "RetrievalRequest",
