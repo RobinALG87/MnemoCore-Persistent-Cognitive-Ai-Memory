@@ -1,0 +1,92 @@
+"""Typed, non-mutating validation for cognitive memory proposals."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from mnemocore.agent_memory import MemoryKind, MemoryScope
+
+from .contracts import ExactScopeError
+
+
+def _require_provenance(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("provenance must not be blank")
+    return value.strip()
+
+
+def _require_confidence(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError("confidence must be between 0 and 1")
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("confidence must be between 0 and 1")
+    return float(value)
+
+
+@dataclass(frozen=True, slots=True)
+class ProposedMemory:
+    """An ephemeral cognitive proposal; it has no persistence behavior."""
+
+    content: str
+    kind: MemoryKind
+    provenance: str
+    confidence: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.content, str) or not self.content.strip():
+            raise ValueError("content must not be blank")
+        if not isinstance(self.kind, MemoryKind):
+            raise TypeError("kind must be a MemoryKind")
+        object.__setattr__(self, "provenance", _require_provenance(self.provenance))
+        object.__setattr__(self, "confidence", _require_confidence(self.confidence))
+
+
+@dataclass(frozen=True, slots=True)
+class CognitivePlan:
+    """A scope-bound proposal created by a cognitive module, never a writer."""
+
+    scope: MemoryScope
+    provenance: str
+    confidence: float
+    proposals: tuple[ProposedMemory, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, MemoryScope):
+            raise TypeError("scope must be a MemoryScope")
+        object.__setattr__(self, "provenance", _require_provenance(self.provenance))
+        object.__setattr__(self, "confidence", _require_confidence(self.confidence))
+        if not isinstance(self.proposals, tuple) or not self.proposals:
+            raise ValueError("proposals must be a non-empty tuple")
+        if any(not isinstance(proposal, ProposedMemory) for proposal in self.proposals):
+            raise TypeError("proposals must contain only ProposedMemory")
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedPlan:
+    """A receipt for runtime use; validation deliberately performs no writes."""
+
+    scope: MemoryScope
+    plan: CognitivePlan
+    proposal_count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, MemoryScope):
+            raise TypeError("scope must be a MemoryScope")
+        if not isinstance(self.plan, CognitivePlan):
+            raise TypeError("plan must be a CognitivePlan")
+        if self.scope != self.plan.scope:
+            raise ValueError("scope does not match the plan scope")
+        if self.proposal_count != len(self.plan.proposals):
+            raise ValueError("proposal_count must match the plan proposals")
+
+
+def validate_plan(scope: MemoryScope, plan: CognitivePlan) -> ValidatedPlan:
+    """Validate a plan for one runtime scope without applying or persisting it."""
+    if not isinstance(scope, MemoryScope):
+        raise TypeError("scope must be a MemoryScope")
+    if not isinstance(plan, CognitivePlan):
+        raise TypeError("plan must be a CognitivePlan")
+    if plan.scope != scope:
+        raise ExactScopeError("plan scope does not match the runtime scope")
+    return ValidatedPlan(scope=scope, plan=plan, proposal_count=len(plan.proposals))
