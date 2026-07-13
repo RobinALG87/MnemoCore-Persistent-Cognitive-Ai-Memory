@@ -26,6 +26,7 @@ from .models import (
     RecallResult,
     utc_now,
 )
+from .store import MemoryWrite
 
 __all__ = [
     "AgentMemory",
@@ -45,6 +46,7 @@ __all__ = [
     "MemoryRelation",
     "MemoryScope",
     "MemoryStatus",
+    "MemoryWrite",
     "RecallResult",
     "MemorySession",
     "ScopeError",

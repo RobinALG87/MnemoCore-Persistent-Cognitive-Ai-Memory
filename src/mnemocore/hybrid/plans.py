@@ -10,6 +10,9 @@ from mnemocore.agent_memory import MemoryKind, MemoryScope
 from .contracts import ExactScopeError
 
 
+MINIMUM_APPLY_CONFIDENCE = 0.5
+
+
 def _require_provenance(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("provenance must not be blank")
@@ -69,7 +72,6 @@ class ValidatedPlan:
     scope: MemoryScope
     plan: CognitivePlan
     proposal_count: int
-
     def __post_init__(self) -> None:
         if not isinstance(self.scope, MemoryScope):
             raise TypeError("scope must be a MemoryScope")
@@ -81,12 +83,45 @@ class ValidatedPlan:
             raise ValueError("proposal_count must match the plan proposals")
 
 
-def validate_plan(scope: MemoryScope, plan: CognitivePlan) -> ValidatedPlan:
+def validate_plan(
+    scope: MemoryScope,
+    plan: CognitivePlan,
+    *,
+    min_confidence: float = 0.0,
+    revalidate: bool = False,
+) -> ValidatedPlan:
     """Validate a plan for one runtime scope without applying or persisting it."""
     if not isinstance(scope, MemoryScope):
         raise TypeError("scope must be a MemoryScope")
     if not isinstance(plan, CognitivePlan):
         raise TypeError("plan must be a CognitivePlan")
+    minimum = _require_confidence(min_confidence)
     if plan.scope != scope:
         raise ExactScopeError("plan scope does not match the runtime scope")
-    return ValidatedPlan(scope=scope, plan=plan, proposal_count=len(plan.proposals))
+    validated_plan = plan
+    if revalidate:
+        # Rebuild from public values so a caller cannot bypass dataclass
+        # validation by mutating a frozen object through low-level mechanisms.
+        validated_plan = CognitivePlan(
+            scope=plan.scope,
+            provenance=plan.provenance,
+            confidence=plan.confidence,
+            proposals=tuple(
+                ProposedMemory(
+                    content=proposal.content,
+                    kind=proposal.kind,
+                    provenance=proposal.provenance,
+                    confidence=proposal.confidence,
+                )
+                for proposal in plan.proposals
+            ),
+        )
+    if validated_plan.confidence < minimum or any(
+        proposal.confidence < minimum for proposal in validated_plan.proposals
+    ):
+        raise ValueError("plan and proposals must meet the minimum confidence")
+    return ValidatedPlan(
+        scope=scope,
+        plan=validated_plan,
+        proposal_count=len(validated_plan.proposals),
+    )

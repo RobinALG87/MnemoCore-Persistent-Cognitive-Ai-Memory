@@ -9,8 +9,11 @@ from mnemocore.hybrid import (
     ExactScopeError,
     SCORING_VERSION,
     HybridMemoryRuntime,
+    PlanApplyReceipt,
     SyncHybridMemoryRuntime,
 )
+from mnemocore.hybrid.plans import CognitivePlan, ProposedMemory, ValidatedPlan, validate_plan
+from mnemocore.agent_memory import MemoryKind
 
 
 def _scope(user_id: str) -> MemoryScope:
@@ -113,3 +116,85 @@ def test_sync_and_async_runtimes_have_recall_parity(tmp_path):
         result.memory.id for result in async_results
     ]
     assert sync_results[0].scoring_version == SCORING_VERSION
+
+
+def test_sync_runtime_applies_the_same_validated_remember_only_plan(tmp_path):
+    scope = _scope("local")
+    plan = CognitivePlan(
+        scope=scope,
+        provenance="cognitive-module",
+        confidence=0.8,
+        proposals=(ProposedMemory("sync proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+    )
+    with SyncAgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        receipt = SyncHybridMemoryRuntime(memory, scope=scope).apply(validate_plan(scope, plan))
+
+        assert receipt == PlanApplyReceipt(proposal_count=1, applied_count=1)
+        assert {record.content for record in memory.list()} == {"sync proposed memory"}
+
+
+@pytest.mark.asyncio
+async def test_apply_persists_a_validated_plan_atomically_and_returns_content_free_receipt(tmp_path):
+    scope = _scope("local")
+    plan = CognitivePlan(
+        scope=scope,
+        provenance="cognitive-module",
+        confidence=0.8,
+        proposals=(
+            ProposedMemory("first proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),
+            ProposedMemory("second proposed memory", MemoryKind.OBSERVATION, "cognitive-module", 0.8),
+        ),
+    )
+
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        runtime = HybridMemoryRuntime(memory, scope=scope)
+        receipt = await runtime.apply(ValidatedPlan(scope=scope, plan=plan, proposal_count=2))
+
+        assert isinstance(receipt, PlanApplyReceipt)
+        assert receipt.applied_count == 2
+        assert receipt.proposal_count == 2
+        assert not hasattr(receipt, "content")
+        assert {record.content for record in await memory.list()} == {
+            "first proposed memory",
+            "second proposed memory",
+        }
+
+
+@pytest.mark.asyncio
+async def test_apply_rejects_unvalidated_low_confidence_or_wrong_scope_before_writing(tmp_path):
+    scope = _scope("local")
+    foreign_scope = _scope("foreign")
+    plan = CognitivePlan(
+        scope=scope,
+        provenance="cognitive-module",
+        confidence=0.8,
+        proposals=(ProposedMemory("proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+    )
+    low_confidence = CognitivePlan(
+        scope=scope,
+        provenance="cognitive-module",
+        confidence=0.49,
+        proposals=(ProposedMemory("low confidence memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+    )
+
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        runtime = HybridMemoryRuntime(memory, scope=scope)
+        forged_plan = CognitivePlan(
+            scope=scope,
+            provenance="cognitive-module",
+            confidence=0.8,
+            proposals=(ProposedMemory("valid before mutation", MemoryKind.FACT, "cognitive-module", 0.8),),
+        )
+        object.__setattr__(forged_plan.proposals[0], "content", " ")
+        with pytest.raises(ValueError, match="content must not be blank"):
+            await runtime.apply(ValidatedPlan(scope=scope, plan=forged_plan, proposal_count=1))
+        with pytest.raises(ValueError, match="confidence"):
+            await runtime.apply(low_confidence)
+        with pytest.raises(ExactScopeError):
+            await runtime.apply(CognitivePlan(
+                scope=foreign_scope,
+                provenance="cognitive-module",
+                confidence=0.8,
+                proposals=(ProposedMemory("foreign memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+            ))
+        assert await memory.list() == []

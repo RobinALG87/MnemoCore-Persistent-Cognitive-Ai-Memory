@@ -22,7 +22,7 @@ from .models import (
     RecallResult,
 )
 from .sqlite_store import SQLiteMemoryStore
-from .store import MemoryStore
+from .store import MemoryStore, MemoryWrite
 
 _T = TypeVar("_T")
 
@@ -93,6 +93,11 @@ class AgentMemory:
             valid_from=valid_from,
             valid_to=valid_to,
         )
+
+    async def remember_many(self, writes: Sequence[MemoryWrite]) -> builtins.list[MemoryRecord]:
+        """Atomically persist a non-empty sequence of remember-only writes."""
+        self._ensure_open()
+        return await self._store.remember_many(self._scope, writes)
 
     async def recall(
         self,
@@ -316,6 +321,10 @@ class SyncAgentMemory:
                 valid_to=valid_to,
             )
         )
+
+    def remember_many(self, writes: Sequence[MemoryWrite]) -> builtins.list[MemoryRecord]:
+        """Synchronously persist a remember-only batch in one transaction."""
+        return self._run(lambda: self._client.remember_many(writes))
 
     def recall(
         self,

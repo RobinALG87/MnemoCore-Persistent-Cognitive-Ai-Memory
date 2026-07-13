@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from .models import (
@@ -17,8 +18,30 @@ from .models import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class MemoryWrite:
+    """One remember-only write accepted by an atomic store batch."""
+
+    content: str
+    kind: MemoryKind
+    confidence: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.content, str) or not self.content.strip():
+            raise ValueError("content must not be blank")
+        if not isinstance(self.kind, MemoryKind):
+            raise TypeError("kind must be a MemoryKind")
+        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)) or not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("confidence must be between 0 and 1")
+
+
 @runtime_checkable
 class MemoryStore(Protocol):
+    async def remember_many(
+        self, scope: MemoryScope, writes: Sequence[MemoryWrite]
+    ) -> builtins.list[MemoryRecord]:
+        ...
+
     async def remember(
         self,
         scope: MemoryScope,

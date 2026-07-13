@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import sqlite3
+
+import pytest
+
+from mnemocore.agent_memory import AgentMemory, MemoryKind, MemoryScope, StorageError
+from mnemocore.hybrid import HybridMemoryRuntime
+from mnemocore.hybrid.plans import CognitivePlan, ProposedMemory, validate_plan
+
+
+def _scope() -> MemoryScope:
+    return MemoryScope(tenant_id="tenant", user_id="local", agent_id="agent")
+
+
+@pytest.mark.asyncio
+async def test_apply_rolls_back_every_proposal_when_a_later_write_fails(tmp_path):
+    database = tmp_path / "memory.db"
+    scope = _scope()
+    plan = CognitivePlan(
+        scope=scope,
+        provenance="cognitive-module",
+        confidence=0.8,
+        proposals=(
+            ProposedMemory("first atomic memory", MemoryKind.FACT, "cognitive-module", 0.8),
+            ProposedMemory("forced failure memory", MemoryKind.FACT, "cognitive-module", 0.8),
+        ),
+    )
+
+    async with await AgentMemory.open(database, scope=scope) as memory:
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_second_plan_write
+                BEFORE INSERT ON memories
+                WHEN NEW.content = 'forced failure memory'
+                BEGIN SELECT RAISE(ABORT, 'injected mid-plan failure'); END;
+                """
+            )
+
+        with pytest.raises(StorageError, match="injected mid-plan failure"):
+            await HybridMemoryRuntime(memory, scope=scope).apply(plan)
+
+        assert await memory.list() == []

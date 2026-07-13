@@ -54,6 +54,7 @@ from .timeline import (
     normalize_timeline_query,
     parse_superseded_payload,
 )
+from .store import MemoryWrite
 
 _T = TypeVar("_T")
 
@@ -327,6 +328,94 @@ def _remember(
                 raise
     except sqlite3.Error as error:
         raise StorageError(f"Failed to remember memory in {path}: {error}") from error
+
+
+def _remember_many(
+    path: Path, scope: MemoryScope, writes: Sequence[MemoryWrite]
+) -> builtins.list[MemoryRecord]:
+    """Persist remember-only writes in one SQLite transaction."""
+    if not writes:
+        raise ValidationError("writes must not be empty")
+    if any(not isinstance(write, MemoryWrite) for write in writes):
+        raise ValidationError("writes must contain only MemoryWrite")
+    try:
+        with closing(_connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                records: builtins.list[MemoryRecord] = []
+                for write in writes:
+                    now = utc_now()
+                    memory_id = uuid4().hex
+                    record = MemoryRecord(
+                        id=memory_id,
+                        scope=scope,
+                        kind=write.kind,
+                        content=write.content,
+                        confidence=write.confidence,
+                        observed_at=now,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    event = MemoryEvent(
+                        id=uuid4().hex,
+                        memory_id=memory_id,
+                        scope=scope,
+                        event_type=MemoryEventType.REMEMBERED,
+                        payload=_record_observation_payload(record),
+                        occurred_at=now,
+                        created_at=now,
+                    )
+                    timestamp = _timestamp_to_storage(now)
+                    connection.execute(
+                        """INSERT INTO memory_events (
+                            id, memory_id, scope_key, tenant_id, user_id, agent_id,
+                            project_id, session_id, event_type, payload_json,
+                            idempotency_key, occurred_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (event.id, memory_id, scope.scope_key, scope.tenant_id,
+                         scope.user_id, scope.agent_id, scope.project_id, scope.session_id,
+                         event.event_type.value, _canonical_json(event.payload), None,
+                         timestamp, timestamp),
+                    )
+                    connection.execute(
+                        """INSERT INTO memories (
+                            id, scope_key, tenant_id, user_id, agent_id, project_id,
+                            session_id, kind, content, metadata_json, status, confidence,
+                            observed_at, valid_from, valid_to, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (memory_id, scope.scope_key, scope.tenant_id, scope.user_id,
+                         scope.agent_id, scope.project_id, scope.session_id, record.kind.value,
+                         record.content, "{}", record.status.value, record.confidence,
+                         timestamp, None, None, timestamp, timestamp),
+                    )
+                    connection.execute(
+                        """INSERT INTO memory_lifecycle (
+                            memory_id, scope_key, status, known_from, known_to,
+                            valid_from, valid_to, event_id, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (memory_id, scope.scope_key, MemoryStatus.ACTIVE.value, timestamp,
+                         None, None, None, event.id, timestamp),
+                    )
+                    connection.execute(
+                        """INSERT INTO memory_history (
+                            id, memory_id, event_id, action, status, details_json, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (f"{event.id}:history", memory_id, event.id,
+                         event.event_type.value, record.status.value, "{}", timestamp),
+                    )
+                    connection.execute(
+                        "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
+                        (memory_id, record.content),
+                    )
+                    records.append(record)
+                connection.commit()
+                return records
+            except Exception:
+                connection.rollback()
+                raise
+    except sqlite3.Error as error:
+        raise StorageError(f"Failed to remember memories in {path}: {error}") from error
 
 
 def _get(
@@ -2581,6 +2670,11 @@ class SQLiteMemoryStore:
             valid_from=valid_from,
             valid_to=valid_to,
         )
+
+    async def remember_many(
+        self, scope: MemoryScope, writes: Sequence[MemoryWrite]
+    ) -> builtins.list[MemoryRecord]:
+        return await self._run(_remember_many, scope, writes)
 
     async def get(
         self,
