@@ -6,19 +6,19 @@
 ARG VERSION=3.0.0
 
 # Stage 1: Builder
-FROM python:3.11.8-slim-bookworm AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 WORKDIR /app
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment and build an installable application wheel
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir --upgrade pip build
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel build
 
 COPY pyproject.toml README.md LICENSE config.yaml ./
 COPY src/ ./src/
@@ -26,7 +26,7 @@ COPY benchmarks/ ./benchmarks/
 RUN pip wheel --no-cache-dir --wheel-dir /wheels .
 
 # Stage 2: Production
-FROM python:3.11.8-slim-bookworm AS production
+FROM python:3.11-slim-bookworm AS production
 
 # Re-declare ARG in production stage to use it
 ARG VERSION=3.0.0
@@ -42,6 +42,10 @@ RUN groupadd --gid 1000 mnemocore && \
 
 WORKDIR /app
 
+# Keep the base interpreter's packaging tools current as well as the venv's.
+# Trivy scans both Python environments in the final image.
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /wheels /wheels
@@ -52,7 +56,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels mnemocore && \
     rm -rf /wheels
 
 # Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
