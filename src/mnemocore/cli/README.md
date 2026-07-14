@@ -1,6 +1,10 @@
-# MnemoCore CLI
+# MnemoCore CLI (v2 compatibility)
 
-Command-line interface for MnemoCore persistent cognitive memory system.
+This HAIM-based command-line interface is retained for existing v2
+installations. It does not bind an exact `MemoryScope` and is not the v3
+AgentMemory persistence/runtime path. For v3, use scope-bound `AgentMemory`
+or `HybridMemoryRuntime` in application code; do not use this CLI to establish
+v3 persistence.
 
 ## Installation
 

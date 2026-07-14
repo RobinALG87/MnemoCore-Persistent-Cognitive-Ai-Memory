@@ -200,8 +200,8 @@ Phase 6 adds four research-backed services: **StrategyBank** (reasoning bank wit
 | **Container** | `src/mnemocore/core/container.py` | Dependency-injection wiring for all core components |
 | **GoalTree** | `src/mnemocore/meta/goal_tree.py` | Hierarchical goal / task tracking for meta-cognition |
 | **LearningJournal** | `src/mnemocore/meta/learning_journal.py` | Persistent log of what the agent has learned over time |
-| **API** | `src/mnemocore/api/main.py` | FastAPI REST interface with async wrappers and middleware |
-| **MCP Server** | `src/mnemocore/mcp/server.py` | Model Context Protocol adapter for agent tool integration |
+| **API** | `src/mnemocore/api/main.py` | Legacy v2 HAIM REST interface; v3 uses `create_v3_app` with scope authorization |
+| **MCP Server** | `src/mnemocore/mcp/server.py` | Legacy v2 HAIM REST adapter; v3 uses scoped AgentMemory integration helpers |
 
 ---
 
