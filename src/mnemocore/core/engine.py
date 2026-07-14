@@ -1,13 +1,14 @@
 """
-Holographic Active Inference Memory Engine (HAIM) - Phase 6 Refactored
+Holographic Active Inference Memory Engine (HAIM) - v2 compatibility surface
 
-This module provides HAIMEngine as a facade that composes functionality from:
+This module provides the legacy HAIMEngine facade that composes functionality from:
 - engine_core.py: Core memory operations (store, query, delete)
 - engine_lifecycle.py: Initialization, shutdown, health checks, garbage collection
 - engine_coordinator.py: Orchestration between sub-systems and event routing
 
-The facade pattern maintains backward compatibility while improving code organization
-and keeping each module under 800 lines.
+The facade pattern maintains v2 backward compatibility while improving code
+organization and keeping each module under 800 lines. It is not the v3 runtime
+or persistence boundary: new code must use AgentMemory and HybridMemoryRuntime.
 """
 
 from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING
@@ -67,14 +68,17 @@ if TYPE_CHECKING:
 
 class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator):
     """
-    Holographic Active Inference Memory Engine (Phase 6 Refactored)
+    Deprecated v2 Holographic Active Inference Memory Engine compatibility facade.
 
     This class is a facade that composes functionality from three mixin modules:
     - EngineCoreOperations: store(), query(), delete(), and related operations
     - EngineLifecycleManager: initialize(), close(), health_check(), cleanup
     - EngineCoordinator: gap filling, recursive synthesis, OR operations
 
-    Uses Binary HDV and Tiered Storage for efficient cognitive memory.
+    Uses Binary HDV and tiered storage for existing v2 integrations. Its legacy
+    JSONL/tiering lifecycle is separate from AgentMemory and must not be treated
+    as v3's persistent truth source. New integrations should compose
+    ``HybridMemoryRuntime`` over a scope-bound ``AgentMemory`` instead.
 
     All public interfaces from the original engine.py are preserved for
     backward compatibility.
@@ -98,6 +102,10 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
     ):
         """
         Initialize HAIMEngine with optional dependency injection.
+
+        Deprecated:
+            This constructor is retained for v2 compatibility. It does not
+            provide v3 exact-scope or AgentMemory persistence semantics.
 
         Args:
             dimension: Vector dimensionality (default 16384).

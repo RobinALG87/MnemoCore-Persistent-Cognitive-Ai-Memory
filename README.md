@@ -778,10 +778,13 @@ asyncio.run(main())
 ```
 
 The published package remains v2.0.0. In the unreleased v3 migration path,
-`LiteEngine` and `Memory(profile="lite")` are removed and fail with a migration
-error; use `AgentMemory` with an explicit `MemoryScope`.
+`LiteEngine` and the entire unscoped `Memory(...)` facade are removed and fail
+with a migration error; use `AgentMemory` with an explicit `MemoryScope`.
 Every runtime operation uses the complete scope tuple; there is no broader
-scope fallback. `HAIMEngine` remains available for legacy cognitive operations.
+scope fallback. `HAIMEngine` remains available only for v2 compatibility: its
+global JSONL/tiering lifecycle is not AgentMemory-backed and must not be used
+as v3 persistence. Use `HybridMemoryRuntime` (or `create_v3_app` for HTTP)
+for v3.
 For a temporary bridge of its legacy `store`/`query`/`delete_memory` shape, use
 the deprecated `HAIMEngineAdapter` with an already-open, scope-bound
 `AgentMemory` client.
@@ -792,7 +795,11 @@ runtime there. See the [v3 hybrid-runtime guide](docs/V3_HYBRID_RUNTIME.md) for
 retrieval metadata, cognitive-plan safeguards, API composition, and the staged
 remaining work.
 
-### Advanced / Low-level (full engine)
+### Advanced / Low-level (v2 compatibility only)
+
+`HAIMEngine` below is retained for existing v2 integrations. It is deprecated
+for new work, does not enforce `MemoryScope`, and is not the v3 persistence
+layer. New v3 code must use the scoped runtime shown above.
 
 ```python
 from mnemocore.core.engine import HAIMEngine

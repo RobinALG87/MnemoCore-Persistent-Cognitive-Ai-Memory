@@ -2,9 +2,9 @@
 MnemoCore - Infrastructure for Persistent Cognitive Memory
 ===========================================================
 
-Lightweight agentic memory for AI. The legacy ``Memory`` facade remains
-available as a lazy export so focused subpackages can be imported without
-initializing the legacy engine stack.
+Lightweight agentic memory for AI. ``Memory`` remains a lazy compatibility
+export only so it can raise the v3 migration error without importing the
+legacy engine stack. Use AgentMemory or HybridMemoryRuntime for all new code.
 """
 
 from typing import TYPE_CHECKING, Any

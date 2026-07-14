@@ -1,7 +1,7 @@
 """
 MnemoCore Core Module
 =====================
-The central cognitive processing engine and HDV operations.
+Legacy v2 cognitive processing engine and HDV operations.
 
 This module provides the foundational components for MnemoCore's memory system:
 
@@ -13,7 +13,7 @@ Vector Operations (Binary HDV):
 Memory Storage:
     - MemoryNode: Individual memory unit with HDV, content, metadata
     - SynapticConnection: Weighted links between memories
-    - HAIMEngine: Central coordinator for all memory operations
+    - HAIMEngine: Deprecated v2 compatibility coordinator; not the v3 runtime
 
 Tier Management:
     - TierManager: Orchestrates HOT/WARM/COLD tier transitions
@@ -46,6 +46,7 @@ Configuration:
     See docs/CONFIGURATION.md for complete reference.
 
 Example:
+    # v2 compatibility only. New code uses AgentMemory + HybridMemoryRuntime.
     from mnemocore.core import HAIMEngine, BinaryHDV, TierManager
 
     engine = HAIMEngine()

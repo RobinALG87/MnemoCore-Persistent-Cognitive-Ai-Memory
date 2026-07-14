@@ -24,8 +24,11 @@ not a second memory database.
   confidence, malformed provenance, or conflicts leave no partial change.
 - **`HAIMEngineAdapter` is temporary.** It bridges legacy store/query/delete
   calls to a scope-bound AgentMemory client and emits a deprecation warning.
-  `LiteEngine` and `Memory(profile="lite")` are removed; migrate to an explicit
-  `MemoryScope`.
+  The direct `HAIMEngine`, legacy REST application, CLI, and MCP server remain
+  v2 compatibility surfaces; their global JSONL/tiering lifecycle is not
+  AgentMemory-backed. Use `HybridMemoryRuntime` or `create_v3_app` for v3.
+  `LiteEngine` and every `Memory(...)` invocation are removed; migrate to an
+  explicit `MemoryScope`.
 
 ## Scope rule
 
