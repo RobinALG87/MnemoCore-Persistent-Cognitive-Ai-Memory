@@ -9,6 +9,7 @@ provides storage-layer specific utilities and integration helpers.
 Phase 4.6: Enhanced semantic retrieval with multi-modal search support.
 """
 
+from numbers import Real
 from typing import List, Dict, Any, Optional, Tuple
 from loguru import logger
 
@@ -51,10 +52,14 @@ class HybridSearchEngine(_HybridSearchEngine):
         Returns:
             List of SearchResult with combined scores
         """
-        dense_results = [
-            (str(p.id), getattr(p, "score", 0.0))
-            for p in qdrant_points
-        ]
+        dense_results = []
+        for point in qdrant_points:
+            score = getattr(point, "score", 0.0)
+            # MagicMock synthesizes missing attributes; retain the documented
+            # zero-score fallback unless Qdrant supplied a real numeric score.
+            dense_results.append(
+                (str(point.id), score if isinstance(score, Real) else 0.0)
+            )
 
         payloads = {
             str(p.id): p.payload or {}
