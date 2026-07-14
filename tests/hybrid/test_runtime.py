@@ -98,7 +98,7 @@ async def test_recall_exposes_a_content_free_scoring_version_and_is_deterministi
         first = await runtime.recall(scope, "alpha beta")
         second = await runtime.recall(scope, "alpha beta")
 
-    assert SCORING_VERSION == "hybrid-lexical-binary-hdv-v1"
+    assert SCORING_VERSION == "hybrid-lexical-binary-hdv-v2"
     assert [item.memory.id for item in first] == [item.memory.id for item in second]
     assert all(item.scoring_version == SCORING_VERSION for item in first)
     assert all(
@@ -161,6 +161,31 @@ async def test_lexical_retrieval_is_a_safe_fallback_when_no_hdv_candidate_is_str
 
     assert results[0].memory.id == stored.id
     assert results[0].lexical_score == 1.0
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retrieval_unions_exact_lexical_and_hdv_only_candidates_by_memory_id(
+    tmp_path,
+):
+    """A lexical hit cannot disappear merely because another record clears HDV."""
+    scope = _scope("local")
+    lexical_content = (
+        "a very long needle content with obscuring unique vocabulary "
+        "kerosene zulu weather xylophone quasar"
+    )
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        exact_lexical = await memory.remember(lexical_content)
+        hdv_only = await memory.remember("needles")
+        results = await HybridMemoryRuntime(memory, scope=scope).recall(
+            scope, "needle", limit=2
+        )
+
+    assert exact_lexical.id in {result.memory.id for result in results}
+    assert hdv_only.id in {result.memory.id for result in results}
+    assert results[0].memory.id == exact_lexical.id
+    assert results[0].hdv_score < results[1].hdv_score
+    assert results[0].lexical_score == 1.0
+    assert results[1].lexical_score == 0.0
 
 
 def test_sync_and_async_runtimes_have_recall_parity(tmp_path):

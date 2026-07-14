@@ -45,7 +45,7 @@ def test_v3_memory_lifecycle_is_exact_scope_and_reports_scores(tmp_path):
     assert recall.status_code == 200
     result = recall.json()["results"][0]
     assert result["memory"]["id"] == memory_id
-    assert result["scoring_version"] == "hybrid-lexical-binary-hdv-v1"
+    assert result["scoring_version"] == "hybrid-lexical-binary-hdv-v2"
     assert set(result["score_components"]) == {"lexical", "hdv", "hybrid"}
 
     foreign = client.get(

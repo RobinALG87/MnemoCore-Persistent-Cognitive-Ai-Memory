@@ -75,15 +75,14 @@ class BinaryHDV:
 
 
 class DeterministicHybridRetriever:
-    """Exact-scope HDV retrieval with deterministic lexical fallback."""
+    """Exact-scope union of HDV and lexical candidates with hybrid ranking."""
 
     def retrieve(
         self,
         request: RetrievalRequest,
         records: Iterable[MemoryRecord],
     ) -> tuple[HybridRecallResult, ...]:
-        hdv_results: list[HybridRecallResult] = []
-        lexical_results: list[HybridRecallResult] = []
+        candidates: dict[str, HybridRecallResult] = {}
         for memory in records:
             if memory.scope != request.scope:
                 continue
@@ -97,11 +96,11 @@ class DeterministicHybridRetriever:
                 score=hybrid_score,
             )
             if hdv_score >= _HDV_MINIMUM_SIMILARITY:
-                hdv_results.append(result)
+                candidates[memory.id] = result
             if lexical_score > 0.0:
-                lexical_results.append(result)
+                candidates[memory.id] = result
 
-        results = hdv_results or lexical_results
+        results = list(candidates.values())
         results.sort(
             key=lambda result: (
                 -result.score,

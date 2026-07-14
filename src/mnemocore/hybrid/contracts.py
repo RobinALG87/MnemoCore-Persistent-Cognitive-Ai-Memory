@@ -8,7 +8,7 @@ from typing import Mapping
 
 from mnemocore.agent_memory import MemoryRecord, MemoryScope
 
-SCORING_VERSION = "hybrid-lexical-binary-hdv-v1"
+SCORING_VERSION = "hybrid-lexical-binary-hdv-v2"
 
 
 class ExactScopeError(ValueError):
