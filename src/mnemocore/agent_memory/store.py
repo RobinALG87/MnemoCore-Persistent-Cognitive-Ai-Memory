@@ -31,7 +31,11 @@ class MemoryWrite:
             raise ValueError("content must not be blank")
         if not isinstance(self.kind, MemoryKind):
             raise TypeError("kind must be a MemoryKind")
-        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)) or not 0.0 <= self.confidence <= 1.0:
+        if (
+            isinstance(self.confidence, bool)
+            or not isinstance(self.confidence, (int, float))
+            or not 0.0 <= self.confidence <= 1.0
+        ):
             raise ValueError("confidence must be between 0 and 1")
 
 
@@ -39,8 +43,7 @@ class MemoryWrite:
 class MemoryStore(Protocol):
     async def remember_many(
         self, scope: MemoryScope, writes: Sequence[MemoryWrite]
-    ) -> builtins.list[MemoryRecord]:
-        ...
+    ) -> builtins.list[MemoryRecord]: ...
 
     async def remember(
         self,
@@ -54,8 +57,7 @@ class MemoryStore(Protocol):
         observed_at: Optional[str] = None,
         valid_from: Optional[str] = None,
         valid_to: Optional[str] = None,
-    ) -> MemoryRecord:
-        ...
+    ) -> MemoryRecord: ...
 
     async def get(
         self,
@@ -63,8 +65,7 @@ class MemoryStore(Protocol):
         memory_id: str,
         *,
         include_forgotten: bool = False,
-    ) -> MemoryRecord:
-        ...
+    ) -> MemoryRecord: ...
 
     async def list(
         self,
@@ -73,8 +74,8 @@ class MemoryStore(Protocol):
         kind: Optional[MemoryKind] = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 100,
-    ) -> builtins.list[MemoryRecord]:
-        ...
+        offset: int = 0,
+    ) -> builtins.list[MemoryRecord]: ...
 
     async def recall(
         self,
@@ -89,8 +90,7 @@ class MemoryStore(Protocol):
         include_ancestors: bool = False,
         valid_at: Optional[str] = None,
         known_at: Optional[str] = None,
-    ) -> builtins.list[RecallResult]:
-        ...
+    ) -> builtins.list[RecallResult]: ...
 
     async def supersede(
         self,
@@ -103,8 +103,7 @@ class MemoryStore(Protocol):
         metadata: Optional[Mapping[str, Any]] = None,
         confidence: float = 1.0,
         idempotency_key: Optional[str] = None,
-    ) -> MemoryRecord:
-        ...
+    ) -> MemoryRecord: ...
 
     async def explain(
         self,
@@ -113,15 +112,13 @@ class MemoryStore(Protocol):
         *,
         valid_at: Optional[str] = None,
         known_at: Optional[str] = None,
-    ) -> MemoryReceipt:
-        ...
+    ) -> MemoryReceipt: ...
 
     async def history(
         self,
         scope: MemoryScope,
         memory_id: str,
-    ) -> builtins.list[MemoryHistoryEntry]:
-        ...
+    ) -> builtins.list[MemoryHistoryEntry]: ...
 
     async def forget(
         self,
@@ -129,11 +126,8 @@ class MemoryStore(Protocol):
         memory_id: str,
         *,
         reason: Optional[str] = None,
-    ) -> MemoryRecord:
-        ...
+    ) -> MemoryRecord: ...
 
-    async def rebuild(self, scope: MemoryScope) -> int:
-        ...
+    async def rebuild(self, scope: MemoryScope) -> int: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...

@@ -22,7 +22,6 @@ from mnemocore.agent_memory import (
     ValidationError,
 )
 
-
 VALID_BEFORE = "2026-07-11T09:30:00.000000Z"
 EFFECTIVE_AT = "2026-07-11T09:30:00.000001Z"
 
@@ -70,6 +69,35 @@ def test_public_callable_name_sets_have_async_sync_parity(
 def test_client_lifecycle_name_differences_are_explicit(async_name, sync_name):
     assert callable(getattr(AgentMemory, async_name))
     assert callable(getattr(SyncAgentMemory, sync_name))
+
+
+@pytest.mark.asyncio
+async def test_list_preserves_legacy_store_call_shape_without_paging():
+    class LegacyStore:
+        def __init__(self):
+            self.calls = []
+
+        async def list(
+            self, scope, *, kind=None, status=MemoryStatus.ACTIVE, limit=100
+        ):
+            self.calls.append((scope, kind, status, limit))
+            return []
+
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
+    store = LegacyStore()
+
+    assert await AgentMemory(store, scope).list() == []
+    assert store.calls == [(scope, None, MemoryStatus.ACTIVE, 100)]
+
+
+@pytest.mark.asyncio
+async def test_list_rejects_non_integer_zero_offset_at_the_agent_memory_facade(
+    tmp_path,
+):
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        with pytest.raises(ValidationError, match="offset"):
+            await memory.list(offset=0.0)
 
 
 @pytest.mark.parametrize(
@@ -247,7 +275,9 @@ async def test_async_client_always_uses_its_exact_default_scope(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_async_close_is_idempotent_and_all_operations_reject_after_close(tmp_path):
+async def test_async_close_is_idempotent_and_all_operations_reject_after_close(
+    tmp_path,
+):
     memory = await AgentMemory.open(
         tmp_path / "memory.db",
         scope=MemoryScope(user_id="robin", agent_id="codex"),
@@ -258,12 +288,8 @@ async def test_async_close_is_idempotent_and_all_operations_reject_after_close(t
     operations = (
         lambda: memory.remember("closed"),
         lambda: memory.recall("closed"),
-        lambda: memory.recall(
-            "closed", valid_at=VALID_BEFORE, known_at=EFFECTIVE_AT
-        ),
-        lambda: memory.supersede(
-            "missing", "closed", effective_at=EFFECTIVE_AT
-        ),
+        lambda: memory.recall("closed", valid_at=VALID_BEFORE, known_at=EFFECTIVE_AT),
+        lambda: memory.supersede("missing", "closed", effective_at=EFFECTIVE_AT),
         lambda: memory.explain("missing"),
         lambda: memory.get("missing"),
         lambda: memory.list(),
@@ -352,9 +378,7 @@ def test_sync_timeline_facade_matches_async_and_reuses_one_private_loop(tmp_path
 
     operations = (
         lambda: memory.recall("closed", valid_at=VALID_BEFORE),
-        lambda: memory.supersede(
-            "missing", "closed", effective_at=EFFECTIVE_AT
-        ),
+        lambda: memory.supersede("missing", "closed", effective_at=EFFECTIVE_AT),
         lambda: memory.explain("missing"),
     )
     for operation in operations:
@@ -371,13 +395,13 @@ def test_sync_client_refuses_calls_from_async_code_without_becoming_unusable(tmp
         operations = (
             lambda: memory.get(stored.id),
             lambda: memory.recall("usable", valid_at=VALID_BEFORE),
-            lambda: memory.supersede(
-                stored.id, "rejected", effective_at=EFFECTIVE_AT
-            ),
+            lambda: memory.supersede(stored.id, "rejected", effective_at=EFFECTIVE_AT),
             lambda: memory.explain(stored.id),
         )
         for operation in operations:
-            with pytest.raises(AgentMemoryError, match="^Use AgentMemory inside async code$"):
+            with pytest.raises(
+                AgentMemoryError, match="^Use AgentMemory inside async code$"
+            ):
                 operation()
 
     asyncio.run(call_sync_client())
@@ -387,7 +411,9 @@ def test_sync_client_refuses_calls_from_async_code_without_becoming_unusable(tmp
 
 def test_sync_open_refuses_running_event_loop(tmp_path):
     async def open_sync_client():
-        with pytest.raises(AgentMemoryError, match="^Use AgentMemory inside async code$"):
+        with pytest.raises(
+            AgentMemoryError, match="^Use AgentMemory inside async code$"
+        ):
             SyncAgentMemory.open(
                 tmp_path / "memory.db",
                 scope=MemoryScope(user_id="robin", agent_id="codex"),
@@ -474,9 +500,7 @@ async def test_compile_context_is_bounded_and_receipted(tmp_path):
 @pytest.mark.asyncio
 async def test_session_start_finish_roundtrip_and_session_scoped_recall(tmp_path):
     """Roundtrip for the Session API: start, remember (DECISION), recall, finish(EPISODE)."""
-    base_scope = MemoryScope(
-        user_id="robin", agent_id="codex", project_id="mnemocore"
-    )
+    base_scope = MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
     path = tmp_path / "memory.db"
     memory = await AgentMemory.open(path, scope=base_scope)
 
@@ -571,6 +595,8 @@ def test_sync_session_start_finish(tmp_path):
         # observe also
         o = sess.observe("sync observe")
         assert o.scope.session_id == "fixed-sync-123"
+
+
 def test_subprocess_v1_timeline_survives_migration_and_restart(tmp_path):
     path = tmp_path / "v1-timeline.db"
     script = r'''

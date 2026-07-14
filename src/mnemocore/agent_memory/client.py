@@ -94,7 +94,9 @@ class AgentMemory:
             valid_to=valid_to,
         )
 
-    async def remember_many(self, writes: Sequence[MemoryWrite]) -> builtins.list[MemoryRecord]:
+    async def remember_many(
+        self, writes: Sequence[MemoryWrite]
+    ) -> builtins.list[MemoryRecord]:
         """Atomically persist a non-empty sequence of remember-only writes."""
         self._ensure_open()
         return await self._store.remember_many(self._scope, writes)
@@ -200,13 +202,22 @@ class AgentMemory:
         kind: Optional[MemoryKind] = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 100,
+        offset: int = 0,
     ) -> builtins.list[MemoryRecord]:
         self._ensure_open()
+        if type(offset) is int and offset == 0:
+            return await self._store.list(
+                self._scope,
+                kind=kind,
+                status=status,
+                limit=limit,
+            )
         return await self._store.list(
             self._scope,
             kind=kind,
             status=status,
             limit=limit,
+            offset=offset,
         )
 
     async def history(self, memory_id: str) -> builtins.list[MemoryHistoryEntry]:
@@ -322,7 +333,9 @@ class SyncAgentMemory:
             )
         )
 
-    def remember_many(self, writes: Sequence[MemoryWrite]) -> builtins.list[MemoryRecord]:
+    def remember_many(
+        self, writes: Sequence[MemoryWrite]
+    ) -> builtins.list[MemoryRecord]:
         """Synchronously persist a remember-only batch in one transaction."""
         return self._run(lambda: self._client.remember_many(writes))
 
@@ -425,9 +438,12 @@ class SyncAgentMemory:
         kind: Optional[MemoryKind] = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 100,
+        offset: int = 0,
     ) -> builtins.list[MemoryRecord]:
         return self._run(
-            lambda: self._client.list(kind=kind, status=status, limit=limit)
+            lambda: self._client.list(
+                kind=kind, status=status, limit=limit, offset=offset
+            )
         )
 
     def history(self, memory_id: str) -> builtins.list[MemoryHistoryEntry]:
@@ -450,8 +466,10 @@ class SyncAgentMemory:
         session_id: Optional[str] = None,
     ) -> SyncMemorySession:
         """Start session (sync version): returns SyncMemorySession that delegates via the loop."""
+
         async def _start() -> MemorySession:
             return await self._client.start_session(goal=goal, session_id=session_id)
+
         async_sess = self._run(_start)
         return SyncMemorySession(async_sess, self._loop)
 
@@ -579,12 +597,21 @@ class MemorySession:
         kind: Optional[MemoryKind] = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 100,
+        offset: int = 0,
     ) -> builtins.list[MemoryRecord]:
+        if type(offset) is int and offset == 0:
+            return await self._store.list(
+                self._scope,
+                kind=kind,
+                status=status,
+                limit=limit,
+            )
         return await self._store.list(
             self._scope,
             kind=kind,
             status=status,
             limit=limit,
+            offset=offset,
         )
 
     async def history(self, memory_id: str) -> builtins.list[MemoryHistoryEntry]:
@@ -607,9 +634,7 @@ class MemorySession:
         **kwargs: Any,
     ) -> MemoryRecord:
         """Convenience alias for remember(..., kind=OBSERVATION) or with explicit kind."""
-        return await self.remember(
-            content, kind=kind, metadata=metadata, **kwargs
-        )
+        return await self.remember(content, kind=kind, metadata=metadata, **kwargs)
 
     async def finish(
         self,
@@ -644,9 +669,7 @@ class MemorySession:
 class SyncMemorySession:
     """Explicit synchronous wrapper around a MemorySession (reuses parent's loop)."""
 
-    def __init__(
-        self, session: MemorySession, loop: asyncio.AbstractEventLoop
-    ) -> None:
+    def __init__(self, session: MemorySession, loop: asyncio.AbstractEventLoop) -> None:
         self._session = session
         self._loop = loop
         self.goal = session.goal
@@ -742,9 +765,12 @@ class SyncMemorySession:
         kind: Optional[MemoryKind] = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 100,
+        offset: int = 0,
     ) -> builtins.list[MemoryRecord]:
         return self._run(
-            lambda: self._session.list(kind=kind, status=status, limit=limit)
+            lambda: self._session.list(
+                kind=kind, status=status, limit=limit, offset=offset
+            )
         )
 
     def history(self, memory_id: str) -> builtins.list[MemoryHistoryEntry]:

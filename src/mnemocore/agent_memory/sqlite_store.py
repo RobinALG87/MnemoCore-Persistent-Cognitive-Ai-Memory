@@ -373,10 +373,21 @@ def _remember_many(
                             project_id, session_id, event_type, payload_json,
                             idempotency_key, occurred_at, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (event.id, memory_id, scope.scope_key, scope.tenant_id,
-                         scope.user_id, scope.agent_id, scope.project_id, scope.session_id,
-                         event.event_type.value, _canonical_json(event.payload), None,
-                         timestamp, timestamp),
+                        (
+                            event.id,
+                            memory_id,
+                            scope.scope_key,
+                            scope.tenant_id,
+                            scope.user_id,
+                            scope.agent_id,
+                            scope.project_id,
+                            scope.session_id,
+                            event.event_type.value,
+                            _canonical_json(event.payload),
+                            None,
+                            timestamp,
+                            timestamp,
+                        ),
                     )
                     connection.execute(
                         """INSERT INTO memories (
@@ -384,25 +395,56 @@ def _remember_many(
                             session_id, kind, content, metadata_json, status, confidence,
                             observed_at, valid_from, valid_to, created_at, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (memory_id, scope.scope_key, scope.tenant_id, scope.user_id,
-                         scope.agent_id, scope.project_id, scope.session_id, record.kind.value,
-                         record.content, "{}", record.status.value, record.confidence,
-                         timestamp, None, None, timestamp, timestamp),
+                        (
+                            memory_id,
+                            scope.scope_key,
+                            scope.tenant_id,
+                            scope.user_id,
+                            scope.agent_id,
+                            scope.project_id,
+                            scope.session_id,
+                            record.kind.value,
+                            record.content,
+                            "{}",
+                            record.status.value,
+                            record.confidence,
+                            timestamp,
+                            None,
+                            None,
+                            timestamp,
+                            timestamp,
+                        ),
                     )
                     connection.execute(
                         """INSERT INTO memory_lifecycle (
                             memory_id, scope_key, status, known_from, known_to,
                             valid_from, valid_to, event_id, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (memory_id, scope.scope_key, MemoryStatus.ACTIVE.value, timestamp,
-                         None, None, None, event.id, timestamp),
+                        (
+                            memory_id,
+                            scope.scope_key,
+                            MemoryStatus.ACTIVE.value,
+                            timestamp,
+                            None,
+                            None,
+                            None,
+                            event.id,
+                            timestamp,
+                        ),
                     )
                     connection.execute(
                         """INSERT INTO memory_history (
                             id, memory_id, event_id, action, status, details_json, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (f"{event.id}:history", memory_id, event.id,
-                         event.event_type.value, record.status.value, "{}", timestamp),
+                        (
+                            f"{event.id}:history",
+                            memory_id,
+                            event.id,
+                            event.event_type.value,
+                            record.status.value,
+                            "{}",
+                            timestamp,
+                        ),
                     )
                     connection.execute(
                         "INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)",
@@ -1671,16 +1713,19 @@ def _list(
     kind: Optional[MemoryKind],
     status: MemoryStatus,
     limit: int,
+    offset: int,
 ) -> list[MemoryRecord]:
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
         raise ValidationError("limit must be between 1 and 1000")
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise ValidationError("offset must be a non-negative integer")
     sql = "SELECT * FROM memories WHERE scope_key = ? AND status = ?"
     parameters: list[Any] = [scope.scope_key, status.value]
     if kind is not None:
         sql += " AND kind = ?"
         parameters.append(kind.value)
-    sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
-    parameters.append(limit)
+    sql += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+    parameters.extend((limit, offset))
     try:
         with closing(_connect(path)) as connection:
             connection.row_factory = sqlite3.Row
@@ -2697,6 +2742,7 @@ class SQLiteMemoryStore:
         kind: Optional[MemoryKind] = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 100,
+        offset: int = 0,
     ) -> builtins.list[MemoryRecord]:
         return await self._run(
             _list,
@@ -2704,6 +2750,7 @@ class SQLiteMemoryStore:
             kind=kind,
             status=status,
             limit=limit,
+            offset=offset,
         )
 
     async def history(

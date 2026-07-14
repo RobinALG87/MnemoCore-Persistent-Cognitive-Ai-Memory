@@ -243,9 +243,7 @@ async def test_version_zero_conflict_rolls_back_without_blessing_schema(tmp_path
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("overrides", FINGERPRINT_MISMATCHES)
-async def test_open_rejects_version_one_table_fingerprint_mismatch(
-    tmp_path, overrides
-):
+async def test_open_rejects_version_one_table_fingerprint_mismatch(tmp_path, overrides):
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
     await store.close()
@@ -262,9 +260,7 @@ async def test_open_rejects_version_one_table_fingerprint_mismatch(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("overrides", FINGERPRINT_MISMATCHES)
-async def test_version_zero_table_fingerprint_conflict_rolls_back(
-    tmp_path, overrides
-):
+async def test_version_zero_table_fingerprint_conflict_rolls_back(tmp_path, overrides):
     path = tmp_path / "memory.db"
     with closing(sqlite3.connect(path)) as conn:
         conn.executescript(_memory_history_schema(**overrides))
@@ -291,14 +287,12 @@ async def test_open_rejects_fts_with_indexed_memory_id(tmp_path):
     await store.close()
 
     with closing(sqlite3.connect(path)) as conn:
-        conn.executescript(
-            """
+        conn.executescript("""
             DROP TABLE memory_fts;
             CREATE VIRTUAL TABLE memory_fts USING fts5(
                 memory_id, content, tokenize='unicode61'
             );
-            """
-        )
+            """)
 
     with pytest.raises(StorageError, match="memory_id must be UNINDEXED") as raised:
         await SQLiteMemoryStore.open(path)
@@ -406,10 +400,13 @@ async def test_forget_tombstones_and_removes_from_recall(tmp_path, scope):
     assert history[-1].details == {"reason": "incorrect"}
     await store.close()
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 0
+        )
 
 
 @pytest.mark.asyncio
@@ -428,18 +425,27 @@ async def test_forget_is_idempotent_for_an_already_forgotten_memory(tmp_path, sc
     ]
     await store.close()
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM memory_events WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 2
-        assert conn.execute(
-            "SELECT count(*) FROM memory_history WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 2
-        assert conn.execute(
-            "SELECT count(*) FROM memory_lifecycle WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 2
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_events WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_history WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_lifecycle WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 2
+        )
 
 
 @pytest.mark.asyncio
@@ -457,19 +463,25 @@ async def test_forget_requires_exact_scope_without_side_effects(tmp_path, scope)
         await store.forget(foreign_scope, record.id, reason="not authorized")
 
     assert (await store.get(scope, record.id)).status is MemoryStatus.ACTIVE
-    assert [result.memory.id for result in await store.recall(scope, "private scoped")] == [
-        record.id
-    ]
+    assert [
+        result.memory.id for result in await store.recall(scope, "private scoped")
+    ] == [record.id]
     await store.close()
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM memory_events WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM memory_history WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_events WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_history WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 @pytest.mark.asyncio
@@ -478,46 +490,56 @@ async def test_forget_rolls_back_ledger_and_projections_on_failure(tmp_path, sco
     store = await SQLiteMemoryStore.open(path)
     record = await store.remember(scope, "Remain searchable after rollback")
     with closing(sqlite3.connect(path)) as conn:
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TRIGGER fail_forgotten_history_insert
             BEFORE INSERT ON memory_history
             WHEN NEW.action = 'forgotten'
             BEGIN
                 SELECT RAISE(ABORT, 'forced forget failure');
             END;
-            """
-        )
+            """)
 
     with pytest.raises(StorageError, match="forced forget failure") as raised:
         await store.forget(scope, record.id, reason="must roll back")
     assert isinstance(raised.value.__cause__, sqlite3.Error)
     assert (await store.get(scope, record.id)).status is MemoryStatus.ACTIVE
-    assert [result.memory.id for result in await store.recall(scope, "remain searchable")] == [
-        record.id
-    ]
+    assert [
+        result.memory.id for result in await store.recall(scope, "remain searchable")
+    ] == [record.id]
     await store.close()
 
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM memory_events WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM memory_history WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
-            (record.id,),
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            """
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_events WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_history WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id = ?",
+                (record.id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                """
             SELECT status, known_to FROM memory_lifecycle
             WHERE memory_id = ? ORDER BY known_from
             """,
-            (record.id,),
-        ).fetchall() == [("active", None)]
+                (record.id,),
+            ).fetchall()
+            == [("active", None)]
+        )
 
 
 @pytest.mark.asyncio
@@ -678,10 +700,9 @@ async def test_list_filters_orders_and_validates_limit(tmp_path, scope):
     second = await store.remember(scope, "Second", kind=MemoryKind.PROCEDURE)
 
     assert [record.id for record in await store.list(scope)] == [second.id, first.id]
-    assert [
-        record.id
-        for record in await store.list(scope, kind=MemoryKind.FACT)
-    ] == [first.id]
+    assert [record.id for record in await store.list(scope, kind=MemoryKind.FACT)] == [
+        first.id
+    ]
     assert [
         record.id
         for record in await store.list(scope, status=MemoryStatus.ACTIVE, limit=1)
@@ -689,6 +710,26 @@ async def test_list_filters_orders_and_validates_limit(tmp_path, scope):
     for invalid_limit in (0, 1001, True):
         with pytest.raises(ValidationError, match="limit"):
             await store.list(scope, limit=invalid_limit)
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_list_pages_in_stable_scope_local_order(tmp_path, scope):
+    store = await SQLiteMemoryStore.open(tmp_path / "memory.db")
+    first = await store.remember(scope, "First")
+    second = await store.remember(scope, "Second")
+    foreign_scope = MemoryScope(tenant_id="other", user_id="user", agent_id="agent")
+    await store.remember(foreign_scope, "Foreign")
+
+    assert [record.id for record in await store.list(scope, limit=1, offset=0)] == [
+        second.id
+    ]
+    assert [record.id for record in await store.list(scope, limit=1, offset=1)] == [
+        first.id
+    ]
+    for invalid_offset in (-1, True):
+        with pytest.raises(ValidationError, match="offset"):
+            await store.list(scope, offset=invalid_offset)
     await store.close()
 
 
@@ -832,15 +873,13 @@ async def test_remember_rolls_back_every_projection_and_preserves_sqlite_cause(
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
     with closing(sqlite3.connect(path)) as conn:
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TRIGGER fail_memory_insert
             BEFORE INSERT ON memories
             BEGIN
                 SELECT RAISE(ABORT, 'forced projection failure');
             END;
-            """
-        )
+            """)
 
     with pytest.raises(StorageError, match="forced projection failure") as raised:
         await store.remember(scope, "Must roll back")
@@ -959,7 +998,9 @@ async def test_history_wraps_corrupt_stored_rows_with_path_and_cause(tmp_path, s
 
 
 @pytest.mark.asyncio
-async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_path, scope):
+async def test_rebuild_restores_projection_and_fts_from_immutable_events(
+    tmp_path, scope
+):
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
     active = await store.remember(
@@ -1000,15 +1041,17 @@ async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_pat
 
     assert await store.rebuild(scope) == 2
     assert await store.get(scope, active.id) == active
-    restored_forgotten = await store.get(
-        scope, forgotten.id, include_forgotten=True
-    )
+    restored_forgotten = await store.get(scope, forgotten.id, include_forgotten=True)
     assert restored_forgotten == forgotten
-    assert [entry.action.value for entry in await store.history(scope, forgotten.id)] == [
+    assert [
+        entry.action.value for entry in await store.history(scope, forgotten.id)
+    ] == [
         "remembered",
         "forgotten",
     ]
-    assert [entry.id for entry in await store.history(scope, forgotten.id)] == history_ids_before
+    assert [
+        entry.id for entry in await store.history(scope, forgotten.id)
+    ] == history_ids_before
     assert [
         result.memory.id
         for result in await store.recall(
@@ -1018,17 +1061,25 @@ async def test_rebuild_restores_projection_and_fts_from_immutable_events(tmp_pat
     assert await store.recall(scope, "forgotten") == []
     assert await store.get(foreign_scope, foreign.id) == foreign
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (active.id,)
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (forgotten.id,)
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (active.id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (forgotten.id,)
+            ).fetchone()[0]
+            == 0
+        )
     await store.close()
 
 
 @pytest.mark.asyncio
-async def test_rebuild_empty_ledger_removes_all_exact_scope_projections(tmp_path, scope):
+async def test_rebuild_empty_ledger_removes_all_exact_scope_projections(
+    tmp_path, scope
+):
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
     orphan_id = "orphan-projection"
@@ -1085,15 +1136,24 @@ async def test_rebuild_empty_ledger_removes_all_exact_scope_projections(tmp_path
 
     assert await store.rebuild(scope) == 0
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM memories WHERE scope_key = ?", (scope.scope_key,)
-        ).fetchone()[0] == 0
-        assert conn.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (orphan_id,)
-        ).fetchone()[0] == 0
-        assert conn.execute(
-            "SELECT count(*) FROM memory_history WHERE memory_id = ?", (orphan_id,)
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memories WHERE scope_key = ?", (scope.scope_key,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id = ?", (orphan_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_history WHERE memory_id = ?", (orphan_id,)
+            ).fetchone()[0]
+            == 0
+        )
     await store.close()
 
 
@@ -1165,13 +1225,19 @@ async def test_rebuild_rejects_cross_scope_event_before_any_mutation(tmp_path, s
 
     assert await store.get(foreign_scope, foreign.id) == foreign
     with closing(sqlite3.connect(path)) as conn:
-        assert conn.execute(
-            "SELECT content FROM memories WHERE id = ?", ("scope-a-orphan",)
-        ).fetchone()[0] == "Must survive rejected rebuild"
-        assert conn.execute(
-            "SELECT count(*) FROM memory_fts WHERE memory_id IN (?, ?)",
-            (foreign.id, "scope-a-orphan"),
-        ).fetchone()[0] == 2
+        assert (
+            conn.execute(
+                "SELECT content FROM memories WHERE id = ?", ("scope-a-orphan",)
+            ).fetchone()[0]
+            == "Must survive rejected rebuild"
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM memory_fts WHERE memory_id IN (?, ?)",
+                (foreign.id, "scope-a-orphan"),
+            ).fetchone()[0]
+            == 2
+        )
     await store.close()
 
 
@@ -1246,12 +1312,16 @@ def _insert_crafted_remembered_event(
 
 
 @pytest.mark.asyncio
-async def test_rebuild_rejects_denormalized_event_scope_before_mutation(tmp_path, scope):
+async def test_rebuild_rejects_denormalized_event_scope_before_mutation(
+    tmp_path, scope
+):
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
     local = await store.remember(scope, "Local projection remains unchanged")
     foreign_scope = MemoryScope(user_id="other", agent_id="codex")
-    foreign = await store.remember(foreign_scope, "Foreign projection remains unchanged")
+    foreign = await store.remember(
+        foreign_scope, "Foreign projection remains unchanged"
+    )
     with closing(sqlite3.connect(path)) as conn:
         payload = conn.execute(
             "SELECT payload_json FROM memory_events WHERE memory_id = ?", (local.id,)
@@ -1288,7 +1358,9 @@ async def test_rebuild_rejects_payload_memory_id_mismatch_before_mutation(
     store = await SQLiteMemoryStore.open(path)
     local = await store.remember(scope, "Local projection remains unchanged")
     foreign_scope = MemoryScope(user_id="other", agent_id="codex")
-    foreign = await store.remember(foreign_scope, "Foreign projection remains unchanged")
+    foreign = await store.remember(
+        foreign_scope, "Foreign projection remains unchanged"
+    )
     with closing(sqlite3.connect(path)) as conn:
         payload = conn.execute(
             "SELECT payload_json FROM memory_events WHERE memory_id = ?", (local.id,)
@@ -1318,9 +1390,7 @@ async def test_rebuild_rejects_payload_memory_id_mismatch_before_mutation(
 
 
 @pytest.mark.asyncio
-async def test_rebuild_rejects_foreign_ledger_only_memory_id_collision(
-    tmp_path, scope
-):
+async def test_rebuild_rejects_foreign_ledger_only_memory_id_collision(tmp_path, scope):
     path = tmp_path / "memory.db"
     store = await SQLiteMemoryStore.open(path)
     local = await store.remember(scope, "Local projection remains unchanged")

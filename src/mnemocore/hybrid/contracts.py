@@ -8,12 +8,31 @@ from typing import Mapping
 
 from mnemocore.agent_memory import MemoryRecord, MemoryScope
 
-
 SCORING_VERSION = "hybrid-lexical-binary-hdv-v1"
 
 
 class ExactScopeError(ValueError):
     """Raised when a retrieval request differs from the runtime's bound scope."""
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalObservability:
+    """Content-free details for the most recent bounded candidate scan."""
+
+    candidate_count: int
+    scoring_version: str = SCORING_VERSION
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.candidate_count, int)
+            or isinstance(self.candidate_count, bool)
+            or self.candidate_count < 0
+        ):
+            raise ValueError("candidate_count must be a non-negative integer")
+        if self.scoring_version != SCORING_VERSION:
+            raise ValueError(
+                "scoring_version must identify the current scoring algorithm"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +52,11 @@ class RetrievalRequest:
             raise TypeError("scope must be a MemoryScope")
         if not isinstance(self.query, str) or not self.query.strip():
             raise ValueError("query must not be blank")
-        if not isinstance(self.limit, int) or isinstance(self.limit, bool) or self.limit < 1:
+        if (
+            not isinstance(self.limit, int)
+            or isinstance(self.limit, bool)
+            or self.limit < 1
+        ):
             raise ValueError("limit must be a positive integer")
 
 
@@ -55,7 +78,9 @@ class HybridRecallResult:
             if not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
         if self.scoring_version != SCORING_VERSION:
-            raise ValueError("scoring_version must identify the current scoring algorithm")
+            raise ValueError(
+                "scoring_version must identify the current scoring algorithm"
+            )
 
     @property
     def score_components(self) -> Mapping[str, float]:

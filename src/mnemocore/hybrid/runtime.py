@@ -15,7 +15,13 @@ from mnemocore.agent_memory import (
     SyncAgentMemory,
 )
 
-from .contracts import ExactScopeError, HybridRecallResult, RetrievalRequest
+from .contracts import (
+    SCORING_VERSION,
+    ExactScopeError,
+    HybridRecallResult,
+    RetrievalObservability,
+    RetrievalRequest,
+)
 from .retrieval import DeterministicHybridRetriever
 from .plans import (
     MINIMUM_APPLY_CONFIDENCE,
@@ -38,6 +44,23 @@ class PlanApplyReceipt:
             raise ValueError("applied_count must equal a positive proposal_count")
 
 
+DEFAULT_CANDIDATE_BUDGET = 5_000
+MAX_CANDIDATE_BUDGET = 10_000
+_CANDIDATE_PAGE_SIZE = 1_000
+
+
+def _validate_candidate_budget(candidate_budget: int) -> int:
+    if (
+        not isinstance(candidate_budget, int)
+        or isinstance(candidate_budget, bool)
+        or not 1 <= candidate_budget <= MAX_CANDIDATE_BUDGET
+    ):
+        raise ValueError(
+            f"candidate_budget must be between 1 and {MAX_CANDIDATE_BUDGET}"
+        )
+    return candidate_budget
+
+
 def _plan_writes(validated_plan: ValidatedPlan) -> tuple[MemoryWrite, ...]:
     plan = validated_plan.plan
     return tuple(
@@ -50,7 +73,9 @@ def _plan_writes(validated_plan: ValidatedPlan) -> tuple[MemoryWrite, ...]:
     )
 
 
-def _freshly_validate(scope: MemoryScope, candidate: CognitivePlan | ValidatedPlan) -> ValidatedPlan:
+def _freshly_validate(
+    scope: MemoryScope, candidate: CognitivePlan | ValidatedPlan
+) -> ValidatedPlan:
     if isinstance(candidate, ValidatedPlan):
         candidate = candidate.plan
     return validate_plan(
@@ -71,7 +96,13 @@ def _require_client_scope(memory: AgentMemory, scope: MemoryScope) -> None:
 class HybridMemoryRuntime:
     """An async exact-scope retrieval runtime backed solely by AgentMemory."""
 
-    def __init__(self, memory: AgentMemory, *, scope: MemoryScope) -> None:
+    def __init__(
+        self,
+        memory: AgentMemory,
+        *,
+        scope: MemoryScope,
+        candidate_budget: int = DEFAULT_CANDIDATE_BUDGET,
+    ) -> None:
         if not isinstance(memory, AgentMemory):
             raise TypeError("memory must be an AgentMemory")
         if not isinstance(scope, MemoryScope):
@@ -79,12 +110,29 @@ class HybridMemoryRuntime:
         _require_client_scope(memory, scope)
         self._memory = memory
         self._scope = scope
+        self._candidate_budget = _validate_candidate_budget(candidate_budget)
         self._retriever = DeterministicHybridRetriever()
+        self._last_retrieval_observability = RetrievalObservability(candidate_count=0)
 
     @classmethod
-    async def open(cls, path: str | Path, *, scope: MemoryScope) -> "HybridMemoryRuntime":
+    async def open(
+        cls,
+        path: str | Path,
+        *,
+        scope: MemoryScope,
+        candidate_budget: int = DEFAULT_CANDIDATE_BUDGET,
+    ) -> "HybridMemoryRuntime":
         """Open a runtime around a single scope-bound AgentMemory client."""
-        return cls(await AgentMemory.open(path, scope=scope), scope=scope)
+        return cls(
+            await AgentMemory.open(path, scope=scope),
+            scope=scope,
+            candidate_budget=candidate_budget,
+        )
+
+    @property
+    def last_retrieval_observability(self) -> RetrievalObservability:
+        """Return content-free metadata for the most recent recall."""
+        return self._last_retrieval_observability
 
     async def recall(
         self,
@@ -100,7 +148,21 @@ class HybridMemoryRuntime:
         """
         request = RetrievalRequest(scope=scope, query=query, limit=limit)
         self._require_exact_scope(request.scope)
-        records = await self._memory.list(limit=1000)
+        records: list[MemoryRecord] = []
+        offset = 0
+        while len(records) < self._candidate_budget:
+            page_limit = min(
+                _CANDIDATE_PAGE_SIZE, self._candidate_budget - len(records)
+            )
+            page = await self._memory.list(limit=page_limit, offset=offset)
+            records.extend(page)
+            if len(page) < page_limit:
+                break
+            offset += len(page)
+        self._last_retrieval_observability = RetrievalObservability(
+            candidate_count=len(records),
+            scoring_version=SCORING_VERSION,
+        )
         return self._retriever.retrieve(request, records)
 
     async def remember(
@@ -120,7 +182,9 @@ class HybridMemoryRuntime:
         """Get one active record from this runtime's exact scope."""
         return await self._memory.get(memory_id)
 
-    async def forget(self, memory_id: str, *, reason: str | None = None) -> MemoryRecord:
+    async def forget(
+        self, memory_id: str, *, reason: str | None = None
+    ) -> MemoryRecord:
         """Forget one record in this runtime's exact scope."""
         return await self._memory.forget(memory_id, reason=reason)
 
@@ -150,7 +214,13 @@ class HybridMemoryRuntime:
 class SyncHybridMemoryRuntime:
     """Explicit synchronous facade with the same deterministic retrieval contract."""
 
-    def __init__(self, memory: SyncAgentMemory, *, scope: MemoryScope) -> None:
+    def __init__(
+        self,
+        memory: SyncAgentMemory,
+        *,
+        scope: MemoryScope,
+        candidate_budget: int = DEFAULT_CANDIDATE_BUDGET,
+    ) -> None:
         if not isinstance(memory, SyncAgentMemory):
             raise TypeError("memory must be a SyncAgentMemory")
         if not isinstance(scope, MemoryScope):
@@ -158,11 +228,28 @@ class SyncHybridMemoryRuntime:
         _require_client_scope(memory._client, scope)
         self._memory = memory
         self._scope = scope
+        self._candidate_budget = _validate_candidate_budget(candidate_budget)
         self._retriever = DeterministicHybridRetriever()
+        self._last_retrieval_observability = RetrievalObservability(candidate_count=0)
 
     @classmethod
-    def open(cls, path: str | Path, *, scope: MemoryScope) -> "SyncHybridMemoryRuntime":
-        return cls(SyncAgentMemory.open(path, scope=scope), scope=scope)
+    def open(
+        cls,
+        path: str | Path,
+        *,
+        scope: MemoryScope,
+        candidate_budget: int = DEFAULT_CANDIDATE_BUDGET,
+    ) -> "SyncHybridMemoryRuntime":
+        return cls(
+            SyncAgentMemory.open(path, scope=scope),
+            scope=scope,
+            candidate_budget=candidate_budget,
+        )
+
+    @property
+    def last_retrieval_observability(self) -> RetrievalObservability:
+        """Return content-free metadata for the most recent recall."""
+        return self._last_retrieval_observability
 
     def recall(
         self,
@@ -173,7 +260,21 @@ class SyncHybridMemoryRuntime:
     ) -> tuple[HybridRecallResult, ...]:
         request = RetrievalRequest(scope=scope, query=query, limit=limit)
         self._require_exact_scope(request.scope)
-        records = self._memory.list(limit=1000)
+        records: list[MemoryRecord] = []
+        offset = 0
+        while len(records) < self._candidate_budget:
+            page_limit = min(
+                _CANDIDATE_PAGE_SIZE, self._candidate_budget - len(records)
+            )
+            page = self._memory.list(limit=page_limit, offset=offset)
+            records.extend(page)
+            if len(page) < page_limit:
+                break
+            offset += len(page)
+        self._last_retrieval_observability = RetrievalObservability(
+            candidate_count=len(records),
+            scoring_version=SCORING_VERSION,
+        )
         return self._retriever.retrieve(request, records)
 
     def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:

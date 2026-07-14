@@ -4,7 +4,12 @@ import asyncio
 
 import pytest
 
-from mnemocore.agent_memory import AgentMemory, MemoryScope, SyncAgentMemory
+from mnemocore.agent_memory import (
+    AgentMemory,
+    MemoryScope,
+    MemoryWrite,
+    SyncAgentMemory,
+)
 from mnemocore.hybrid import (
     ExactScopeError,
     SCORING_VERSION,
@@ -12,7 +17,12 @@ from mnemocore.hybrid import (
     PlanApplyReceipt,
     SyncHybridMemoryRuntime,
 )
-from mnemocore.hybrid.plans import CognitivePlan, ProposedMemory, ValidatedPlan, validate_plan
+from mnemocore.hybrid.plans import (
+    CognitivePlan,
+    ProposedMemory,
+    ValidatedPlan,
+    validate_plan,
+)
 from mnemocore.agent_memory import MemoryKind
 
 
@@ -30,7 +40,9 @@ async def test_recall_is_exact_scope_and_combines_lexical_and_binary_hdv(tmp_pat
         await local_memory.remember("orchard apples are crisp and sweet")
         runtime = HybridMemoryRuntime(local_memory, scope=local_scope)
 
-        async with await AgentMemory.open(database, scope=foreign_scope) as foreign_memory:
+        async with await AgentMemory.open(
+            database, scope=foreign_scope
+        ) as foreign_memory:
             await foreign_memory.remember("orchard apples are a private foreign memory")
 
         results = await runtime.recall(local_scope, "crisp orchard apples")
@@ -48,8 +60,12 @@ async def test_recall_is_exact_scope_and_combines_lexical_and_binary_hdv(tmp_pat
 async def test_async_runtime_rejects_a_scope_that_differs_from_agent_memory(tmp_path):
     local_scope = _scope("local")
     foreign_scope = _scope("foreign")
-    async with await AgentMemory.open(tmp_path / "memory.db", scope=local_scope) as memory:
-        with pytest.raises(ExactScopeError, match="does not match the AgentMemory scope"):
+    async with await AgentMemory.open(
+        tmp_path / "memory.db", scope=local_scope
+    ) as memory:
+        with pytest.raises(
+            ExactScopeError, match="does not match the AgentMemory scope"
+        ):
             HybridMemoryRuntime(memory, scope=foreign_scope)
 
 
@@ -57,12 +73,16 @@ def test_sync_runtime_rejects_a_scope_that_differs_from_agent_memory(tmp_path):
     local_scope = _scope("local")
     foreign_scope = _scope("foreign")
     with SyncAgentMemory.open(tmp_path / "memory.db", scope=local_scope) as memory:
-        with pytest.raises(ExactScopeError, match="does not match the AgentMemory scope"):
+        with pytest.raises(
+            ExactScopeError, match="does not match the AgentMemory scope"
+        ):
             SyncHybridMemoryRuntime(memory, scope=foreign_scope)
 
 
 @pytest.mark.asyncio
-async def test_recall_exposes_a_content_free_scoring_version_and_is_deterministic(tmp_path):
+async def test_recall_exposes_a_content_free_scoring_version_and_is_deterministic(
+    tmp_path,
+):
     scope = _scope("local")
     async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
         await memory.remember("alpha beta gamma")
@@ -75,7 +95,9 @@ async def test_recall_exposes_a_content_free_scoring_version_and_is_deterministi
     assert SCORING_VERSION == "hybrid-lexical-binary-hdv-v1"
     assert [item.memory.id for item in first] == [item.memory.id for item in second]
     assert all(item.scoring_version == SCORING_VERSION for item in first)
-    assert all(set(item.score_components) == {"lexical", "hdv", "hybrid"} for item in first)
+    assert all(
+        set(item.score_components) == {"lexical", "hdv", "hybrid"} for item in first
+    )
 
 
 @pytest.mark.asyncio
@@ -105,7 +127,9 @@ def test_sync_and_async_runtimes_have_recall_parity(tmp_path):
 
     async def async_recall():
         async with await AgentMemory.open(database, scope=scope) as memory:
-            return await HybridMemoryRuntime(memory, scope=scope).recall(scope, "red fox")
+            return await HybridMemoryRuntime(memory, scope=scope).recall(
+                scope, "red fox"
+            )
 
     async_results = asyncio.run(async_recall())
 
@@ -124,31 +148,48 @@ def test_sync_runtime_applies_the_same_validated_remember_only_plan(tmp_path):
         scope=scope,
         provenance="cognitive-module",
         confidence=0.8,
-        proposals=(ProposedMemory("sync proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+        proposals=(
+            ProposedMemory(
+                "sync proposed memory", MemoryKind.FACT, "cognitive-module", 0.8
+            ),
+        ),
     )
     with SyncAgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
-        receipt = SyncHybridMemoryRuntime(memory, scope=scope).apply(validate_plan(scope, plan))
+        receipt = SyncHybridMemoryRuntime(memory, scope=scope).apply(
+            validate_plan(scope, plan)
+        )
 
         assert receipt == PlanApplyReceipt(proposal_count=1, applied_count=1)
         assert {record.content for record in memory.list()} == {"sync proposed memory"}
 
 
 @pytest.mark.asyncio
-async def test_apply_persists_a_validated_plan_atomically_and_returns_content_free_receipt(tmp_path):
+async def test_apply_persists_a_validated_plan_atomically_and_returns_content_free_receipt(
+    tmp_path,
+):
     scope = _scope("local")
     plan = CognitivePlan(
         scope=scope,
         provenance="cognitive-module",
         confidence=0.8,
         proposals=(
-            ProposedMemory("first proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),
-            ProposedMemory("second proposed memory", MemoryKind.OBSERVATION, "cognitive-module", 0.8),
+            ProposedMemory(
+                "first proposed memory", MemoryKind.FACT, "cognitive-module", 0.8
+            ),
+            ProposedMemory(
+                "second proposed memory",
+                MemoryKind.OBSERVATION,
+                "cognitive-module",
+                0.8,
+            ),
         ),
     )
 
     async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
         runtime = HybridMemoryRuntime(memory, scope=scope)
-        receipt = await runtime.apply(ValidatedPlan(scope=scope, plan=plan, proposal_count=2))
+        receipt = await runtime.apply(
+            ValidatedPlan(scope=scope, plan=plan, proposal_count=2)
+        )
 
         assert isinstance(receipt, PlanApplyReceipt)
         assert receipt.applied_count == 2
@@ -161,20 +202,28 @@ async def test_apply_persists_a_validated_plan_atomically_and_returns_content_fr
 
 
 @pytest.mark.asyncio
-async def test_apply_rejects_unvalidated_low_confidence_or_wrong_scope_before_writing(tmp_path):
+async def test_apply_rejects_unvalidated_low_confidence_or_wrong_scope_before_writing(
+    tmp_path,
+):
     scope = _scope("local")
     foreign_scope = _scope("foreign")
     plan = CognitivePlan(
         scope=scope,
         provenance="cognitive-module",
         confidence=0.8,
-        proposals=(ProposedMemory("proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+        proposals=(
+            ProposedMemory("proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),
+        ),
     )
     low_confidence = CognitivePlan(
         scope=scope,
         provenance="cognitive-module",
         confidence=0.49,
-        proposals=(ProposedMemory("low confidence memory", MemoryKind.FACT, "cognitive-module", 0.8),),
+        proposals=(
+            ProposedMemory(
+                "low confidence memory", MemoryKind.FACT, "cognitive-module", 0.8
+            ),
+        ),
     )
 
     async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
@@ -183,18 +232,80 @@ async def test_apply_rejects_unvalidated_low_confidence_or_wrong_scope_before_wr
             scope=scope,
             provenance="cognitive-module",
             confidence=0.8,
-            proposals=(ProposedMemory("valid before mutation", MemoryKind.FACT, "cognitive-module", 0.8),),
+            proposals=(
+                ProposedMemory(
+                    "valid before mutation", MemoryKind.FACT, "cognitive-module", 0.8
+                ),
+            ),
         )
         object.__setattr__(forged_plan.proposals[0], "content", " ")
         with pytest.raises(ValueError, match="content must not be blank"):
-            await runtime.apply(ValidatedPlan(scope=scope, plan=forged_plan, proposal_count=1))
+            await runtime.apply(
+                ValidatedPlan(scope=scope, plan=forged_plan, proposal_count=1)
+            )
         with pytest.raises(ValueError, match="confidence"):
             await runtime.apply(low_confidence)
         with pytest.raises(ExactScopeError):
-            await runtime.apply(CognitivePlan(
-                scope=foreign_scope,
-                provenance="cognitive-module",
-                confidence=0.8,
-                proposals=(ProposedMemory("foreign memory", MemoryKind.FACT, "cognitive-module", 0.8),),
-            ))
+            await runtime.apply(
+                CognitivePlan(
+                    scope=foreign_scope,
+                    provenance="cognitive-module",
+                    confidence=0.8,
+                    proposals=(
+                        ProposedMemory(
+                            "foreign memory", MemoryKind.FACT, "cognitive-module", 0.8
+                        ),
+                    ),
+                )
+            )
         assert await memory.list() == []
+
+
+@pytest.mark.asyncio
+async def test_recall_pages_past_one_thousand_scope_local_candidates_and_reports_content_free_metadata(
+    tmp_path,
+):
+    scope = _scope("local")
+    foreign_scope = _scope("foreign")
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        target = await memory.remember("needle precise ranking phrase")
+        await memory.remember_many(
+            tuple(
+                MemoryWrite("needle distractor", MemoryKind.OBSERVATION, 1.0)
+                for _ in range(1001)
+            )
+        )
+        async with await AgentMemory.open(
+            tmp_path / "memory.db", scope=foreign_scope
+        ) as foreign_memory:
+            foreign = await foreign_memory.remember(
+                "needle precise ranking phrase foreign"
+            )
+
+        runtime = HybridMemoryRuntime(memory, scope=scope, candidate_budget=1002)
+        results = await runtime.recall(scope, "needle precise ranking phrase")
+
+    assert results[0].memory.id == target.id
+    assert foreign.id not in {result.memory.id for result in results}
+    assert runtime.last_retrieval_observability.candidate_count == 1002
+    assert runtime.last_retrieval_observability.scoring_version == SCORING_VERSION
+    assert not hasattr(runtime.last_retrieval_observability, "content")
+
+
+@pytest.mark.asyncio
+async def test_recall_candidate_budget_bounds_paged_scan(tmp_path):
+    scope = _scope("local")
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        target = await memory.remember("needle precise ranking phrase")
+        await memory.remember_many(
+            tuple(
+                MemoryWrite("needle distractor", MemoryKind.OBSERVATION, 1.0)
+                for _ in range(1001)
+            )
+        )
+
+        runtime = HybridMemoryRuntime(memory, scope=scope, candidate_budget=1000)
+        results = await runtime.recall(scope, "needle precise ranking phrase")
+
+    assert target.id not in {result.memory.id for result in results}
+    assert runtime.last_retrieval_observability.candidate_count == 1000
