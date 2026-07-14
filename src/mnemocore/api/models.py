@@ -66,11 +66,26 @@ class StoreRequest(BaseModel):
                     f'Metadata key "{key}" is reserved for internal engine use'
                 )
 
-            # Metadata values can be Any, but limit strings
+            # Metadata values are primitives, except for a bounded list of tags.
             if isinstance(value, str) and len(value) > 1000:
                 raise ValueError(
                     f'Metadata value for "{key}" too long (max 1000 chars)'
                 )
+            if isinstance(value, dict):
+                raise ValueError(
+                    f'Metadata value for "{key}" must be a primitive type or a tags list'
+                )
+            if isinstance(value, list):
+                if key != "tags":
+                    raise ValueError(
+                        f'Metadata value for "{key}" must be a primitive type or a tags list'
+                    )
+                if len(value) > 50:
+                    raise ValueError("Metadata tags list is too large (max 50 items)")
+                if any(not isinstance(tag, str) or len(tag) > 128 for tag in value):
+                    raise ValueError(
+                        "Metadata tags must be strings of at most 128 characters"
+                    )
         return v
 
     @field_validator("agent_id")
