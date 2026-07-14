@@ -6,6 +6,7 @@ import pytest
 
 from mnemocore.agent_memory import (
     AgentMemory,
+    AgentMemoryError,
     MemoryScope,
     MemoryWrite,
     SyncAgentMemory,
@@ -163,6 +164,35 @@ def test_sync_runtime_applies_the_same_validated_remember_only_plan(tmp_path):
         assert {record.content for record in memory.list()} == {"sync proposed memory"}
 
 
+def test_sync_runtime_has_remember_get_and_forget_parity(tmp_path):
+    scope = _scope("local")
+    with SyncAgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        runtime = SyncHybridMemoryRuntime(memory, scope=scope)
+        remembered = runtime.remember(
+            "sync facade lifecycle memory",
+            kind=MemoryKind.FACT,
+            metadata={"origin": "sync-test"},
+            confidence=0.8,
+        )
+
+        fetched = runtime.get(remembered.id)
+        forgotten = runtime.forget(remembered.id, reason="test cleanup")
+
+    assert fetched == remembered
+    assert fetched.metadata == {"origin": "sync-test"}
+    assert forgotten.id == remembered.id
+
+
+def test_sync_runtime_rejects_use_inside_an_active_event_loop(tmp_path):
+    scope = _scope("local")
+
+    async def use_sync_facade() -> None:
+        with pytest.raises(AgentMemoryError, match="Use AgentMemory inside async code"):
+            SyncHybridMemoryRuntime.open(tmp_path / "memory.db", scope=scope)
+
+    asyncio.run(use_sync_facade())
+
+
 @pytest.mark.asyncio
 async def test_apply_persists_a_validated_plan_atomically_and_returns_content_free_receipt(
     tmp_path,
@@ -199,6 +229,42 @@ async def test_apply_persists_a_validated_plan_atomically_and_returns_content_fr
             "first proposed memory",
             "second proposed memory",
         }
+
+
+@pytest.mark.asyncio
+async def test_apply_persists_synthetic_provenance_and_source_ids(tmp_path):
+    scope = _scope("local")
+    plan = CognitivePlan(
+        scope=scope,
+        provenance="reconstructive-recall",
+        confidence=0.9,
+        proposals=(
+            ProposedMemory(
+                "synthetic memory with sources",
+                MemoryKind.SUMMARY,
+                "gap-filling-job",
+                0.8,
+                source_memory_ids=("source-1", "source-2"),
+            ),
+        ),
+    )
+
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        runtime = HybridMemoryRuntime(memory, scope=scope)
+        await runtime.apply(plan)
+        stored = (await memory.list())[0]
+        recalled = await runtime.recall(scope, "synthetic memory sources")
+
+    assert stored.metadata == {
+        "cognitive": {
+            "synthetic": True,
+            "plan_provenance": "reconstructive-recall",
+            "proposal_provenance": "gap-filling-job",
+            "source_memory_ids": ("source-1", "source-2"),
+        }
+    }
+    assert recalled[0].memory.id == stored.id
+    assert recalled[0].memory.metadata == stored.metadata
 
 
 @pytest.mark.asyncio

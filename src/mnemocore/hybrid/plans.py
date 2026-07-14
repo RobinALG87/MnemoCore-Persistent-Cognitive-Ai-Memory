@@ -35,6 +35,7 @@ class ProposedMemory:
     kind: MemoryKind
     provenance: str
     confidence: float
+    source_memory_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, str) or not self.content.strip():
@@ -43,6 +44,13 @@ class ProposedMemory:
             raise TypeError("kind must be a MemoryKind")
         object.__setattr__(self, "provenance", _require_provenance(self.provenance))
         object.__setattr__(self, "confidence", _require_confidence(self.confidence))
+        if not isinstance(self.source_memory_ids, tuple):
+            raise TypeError("source_memory_ids must be a tuple")
+        object.__setattr__(
+            self,
+            "source_memory_ids",
+            tuple(_require_provenance(memory_id) for memory_id in self.source_memory_ids),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +120,7 @@ def validate_plan(
                     kind=proposal.kind,
                     provenance=proposal.provenance,
                     confidence=proposal.confidence,
+                    source_memory_ids=proposal.source_memory_ids,
                 )
                 for proposal in plan.proposals
             ),

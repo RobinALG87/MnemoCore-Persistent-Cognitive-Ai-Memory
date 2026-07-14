@@ -25,6 +25,7 @@ class MemoryWrite:
     content: str
     kind: MemoryKind
     confidence: float
+    metadata: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, str) or not self.content.strip():
@@ -37,6 +38,8 @@ class MemoryWrite:
             or not 0.0 <= self.confidence <= 1.0
         ):
             raise ValueError("confidence must be between 0 and 1")
+        if self.metadata is not None and not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping")
 
 
 @runtime_checkable

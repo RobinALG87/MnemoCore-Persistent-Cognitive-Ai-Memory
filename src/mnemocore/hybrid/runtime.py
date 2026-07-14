@@ -68,6 +68,14 @@ def _plan_writes(validated_plan: ValidatedPlan) -> tuple[MemoryWrite, ...]:
             content=proposal.content,
             kind=proposal.kind,
             confidence=proposal.confidence,
+            metadata={
+                "cognitive": {
+                    "synthetic": True,
+                    "plan_provenance": plan.provenance,
+                    "proposal_provenance": proposal.provenance,
+                    "source_memory_ids": proposal.source_memory_ids,
+                }
+            },
         )
         for proposal in plan.proposals
     )
@@ -276,6 +284,29 @@ class SyncHybridMemoryRuntime:
             scoring_version=SCORING_VERSION,
         )
         return self._retriever.retrieve(request, records)
+
+    def remember(
+        self,
+        content: str,
+        *,
+        kind: MemoryKind = MemoryKind.OBSERVATION,
+        metadata: dict | None = None,
+        confidence: float = 1.0,
+    ) -> MemoryRecord:
+        """Persist one record in this runtime's exact scope."""
+        return self._memory.remember(
+            content, kind=kind, metadata=metadata, confidence=confidence
+        )
+
+    def get(self, memory_id: str) -> MemoryRecord:
+        """Get one active record from this runtime's exact scope."""
+        return self._memory.get(memory_id)
+
+    def forget(
+        self, memory_id: str, *, reason: str | None = None
+    ) -> MemoryRecord:
+        """Forget one record in this runtime's exact scope."""
+        return self._memory.forget(memory_id, reason=reason)
 
     def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:
         """Synchronously validate and atomically apply a remember-only plan."""
