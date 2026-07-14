@@ -1,7 +1,13 @@
 """
 MnemoCore API Package
 =====================
-FastAPI-based REST API for MnemoCore memory system.
+Legacy v2 FastAPI REST API for MnemoCore memory system.
+
+This package's ``main:app`` owns the HAIM lifecycle and legacy global
+JSONL/tiering semantics. It is retained for existing v2 deployments and is
+not AgentMemory-backed v3 persistence. New v3 HTTP deployments must compose
+``create_v3_app(sqlite_path, scope_authorizer=...)`` and authenticate the full
+requested MemoryScope before each operation.
 
 Provides HTTP endpoints for all memory operations:
 

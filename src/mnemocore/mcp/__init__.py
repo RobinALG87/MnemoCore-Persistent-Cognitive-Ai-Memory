@@ -1,7 +1,12 @@
 """
 MnemoCore MCP (Model Context Protocol) Module
 ==============================================
-MCP server implementation for AI agent integration.
+Legacy v2 MCP server implementation for AI agent integration.
+
+This package proxies the legacy HAIM REST surface, so it is not the v3
+AgentMemory persistence boundary. It remains for existing v2 clients. New
+scope-bound integrations should use ``mnemocore.integrations.mcp`` with an
+explicit AgentMemory client, or compose HybridMemoryRuntime directly.
 
 The Model Context Protocol (MCP) provides a standardized way for AI agents
 to interact with MnemoCore's memory system.

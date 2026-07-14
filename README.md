@@ -60,12 +60,14 @@ pip install -e ".[dev]"   # + pytest, mypy, black, etc.
 > # Linux / macOS
 > # export HAIM_API_KEY="your-secure-key"
 > ```
-> Then start the API locally: `mnemocore`.
+> Then start the legacy v2 API locally: `mnemocore`.
 
-`mnemocore` starts the REST server; `mnemocore-cli` is the legacy Click CLI.
-AgentMemory itself is local-first and does not require a running Redis or
-Qdrant service. Full setup, Docker, and configuration details are in
-[Installation](#installation) below.
+`mnemocore` starts the legacy v2 REST server; `mnemocore-cli` is the legacy
+Click CLI. Neither is the v3 AgentMemory persistence boundary. For v3, compose
+`HybridMemoryRuntime` over an explicit scope or deploy `create_v3_app` with a
+credential-to-scope authorizer. AgentMemory itself is local-first and does not
+require a running Redis or Qdrant service. Full legacy setup, Docker, and
+configuration details are in [Installation](#installation) below.
 
 ---
 
@@ -596,7 +598,13 @@ context = agent.recall("user preference", top_k=3)
 
 ---
 
-## API Reference
+## API Reference (v2 compatibility)
+
+This section documents the legacy HAIM REST service (`mnemocore.api.main:app`).
+It remains available for v2 clients but its global JSONL/tiering lifecycle is
+not AgentMemory-backed and must not be presented as v3 persistence. For v3,
+use `create_v3_app(sqlite_path, scope_authorizer=...)`; the authorizer must
+approve the caller's complete requested scope before each operation.
 
 ### Authentication
 
@@ -1100,14 +1108,17 @@ production gates.
 
 ---
 
-## MCP Server Integration
+## MCP Server Integration (v2 compatibility)
 
-MnemoCore exposes a **Model Context Protocol (MCP)** server, enabling direct integration with Claude, GPT-4, and any MCP-compatible agent framework.
+MnemoCore exposes a legacy **Model Context Protocol (MCP)** server for existing
+v2 integrations. It proxies the legacy HAIM REST API and is not backed by v3
+AgentMemory truth. New scoped integrations should use the AgentMemory MCP
+helpers in `mnemocore.integrations.mcp` (or build on `HybridMemoryRuntime`).
 
 ### Setup
 
 ```bash
-# Start API first
+# Start the legacy v2 API first
 uvicorn mnemocore.api.main:app --host 0.0.0.0 --port 8100
 
 # Configure MCP in config.yaml

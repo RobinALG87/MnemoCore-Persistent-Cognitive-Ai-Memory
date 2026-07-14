@@ -1,7 +1,11 @@
 """
 MnemoCore CLI - Main Entry Point
 
-Command-line interface for MnemoCore memory operations.
+Legacy v2 command-line interface for MnemoCore HAIM memory operations.
+
+This CLI is retained for existing v2 installations. It does not bind an exact
+AgentMemory scope and is not the v3 persistence/runtime path; new code should
+use AgentMemory or HybridMemoryRuntime explicitly.
 
 Usage:
     mnemocore store "Robin gillar Python"      # Store a memory

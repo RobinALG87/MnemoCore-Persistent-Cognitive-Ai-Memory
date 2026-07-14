@@ -1,4 +1,4 @@
-"""Optional Click-based MnemoCore CLI."""
+"""Optional legacy v2 Click CLI; it is not the scoped v3 runtime."""
 
 from typing import Any
 

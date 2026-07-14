@@ -1,4 +1,4 @@
-"""Optional legacy CLI console entrypoint."""
+"""Optional legacy v2 CLI entrypoint; use AgentMemory/HybridMemoryRuntime for v3."""
 
 from __future__ import annotations
 

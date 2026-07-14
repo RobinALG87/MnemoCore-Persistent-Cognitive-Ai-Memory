@@ -1,7 +1,9 @@
 """
-MnemoCore MCP Server
+MnemoCore legacy v2 MCP Server
 ====================
-MCP bridge exposing MnemoCore API tools for agent clients.
+MCP bridge exposing the legacy HAIM API tools for existing agent clients.
+It is not the v3 AgentMemory persistence boundary; new integrations should use
+the scope-bound helpers in ``mnemocore.integrations.mcp``.
 """
 
 from typing import Any, Callable, Dict, List, Optional

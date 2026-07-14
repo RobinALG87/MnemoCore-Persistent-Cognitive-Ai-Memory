@@ -1,14 +1,17 @@
 """
-MnemoCore REST API
+MnemoCore legacy v2 REST API
 ==================
-FastAPI server for MnemoCore (Phase 5.0+).
+FastAPI server for the HAIM-based v2 compatibility surface (Phase 5.0+).
 Fully Async I/O with Redis backing.
 
 This is the main entry point that:
 - Configures the FastAPI application
 - Sets up middleware and security
 - Includes route modules for different functional areas
-- Handles lifecycle management
+- Handles legacy HAIM lifecycle management
+
+This module is not the v3 AgentMemory persistence boundary. New deployments
+must use create_v3_app with a credential-to-exact-scope authorizer.
 """
 
 from contextlib import asynccontextmanager
