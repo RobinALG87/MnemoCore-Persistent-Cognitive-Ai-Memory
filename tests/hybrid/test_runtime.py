@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 
@@ -194,6 +196,39 @@ def test_sync_runtime_rejects_use_inside_an_active_event_loop(tmp_path):
     asyncio.run(use_sync_facade())
 
 
+def test_sync_runtime_rejects_an_inactive_plan_source_without_writing(tmp_path):
+    database = tmp_path / "memory.db"
+    scope = _scope("local")
+    with SyncAgentMemory.open(database, scope=scope) as memory:
+        source = memory.remember("sync superseded source", kind=MemoryKind.FACT)
+        memory.supersede(
+            source.id,
+            "sync replacement source",
+            effective_at=datetime.now(timezone.utc).isoformat(),
+        )
+        plan = CognitivePlan(
+            scope=scope,
+            provenance="reconstructive-recall",
+            confidence=0.9,
+            proposals=(
+                ProposedMemory(
+                    "sync plan must never be written",
+                    MemoryKind.SUMMARY,
+                    "gap-filling-job",
+                    0.8,
+                    source_memory_ids=(source.id,),
+                ),
+            ),
+        )
+
+        with pytest.raises(ValueError, match="source must be active"):
+            SyncHybridMemoryRuntime(memory, scope=scope).apply(plan)
+
+        assert "sync plan must never be written" not in {
+            record.content for record in memory.list()
+        }
+
+
 @pytest.mark.asyncio
 async def test_apply_persists_a_validated_plan_atomically_and_returns_content_free_receipt(
     tmp_path,
@@ -304,6 +339,48 @@ async def test_apply_rejects_a_foreign_source_id_without_local_writes(tmp_path):
             await HybridMemoryRuntime(local_memory, scope=local_scope).apply(plan)
 
         assert await local_memory.list() == []
+
+
+@pytest.mark.asyncio
+async def test_apply_rejects_superseded_or_contradicted_sources_without_writes(tmp_path):
+    database = tmp_path / "memory.db"
+    scope = _scope("local")
+    async with await AgentMemory.open(database, scope=scope) as memory:
+        superseded = await memory.remember("superseded source", kind=MemoryKind.FACT)
+        await memory.supersede(
+            superseded.id,
+            "replacement source",
+            effective_at=datetime.now(timezone.utc).isoformat(),
+        )
+        contradicted = await memory.remember("contradicted source")
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE memories SET status = ? WHERE id = ?",
+                ("contradicted", contradicted.id),
+            )
+
+        runtime = HybridMemoryRuntime(memory, scope=scope)
+        for source_id in (superseded.id, contradicted.id):
+            plan = CognitivePlan(
+                scope=scope,
+                provenance="reconstructive-recall",
+                confidence=0.9,
+                proposals=(
+                    ProposedMemory(
+                        "must never be written",
+                        MemoryKind.SUMMARY,
+                        "gap-filling-job",
+                        0.8,
+                        source_memory_ids=(source_id,),
+                    ),
+                ),
+            )
+            before = [record.id for record in await memory.list()]
+
+            with pytest.raises(ValueError, match="source must be active"):
+                await runtime.apply(plan)
+
+            assert [record.id for record in await memory.list()] == before
 
 
 @pytest.mark.asyncio

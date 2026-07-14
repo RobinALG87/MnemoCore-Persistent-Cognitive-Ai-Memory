@@ -11,6 +11,7 @@ from mnemocore.agent_memory import (
     MemoryKind,
     MemoryRecord,
     MemoryScope,
+    MemoryStatus,
     MemoryWrite,
     SyncAgentMemory,
 )
@@ -102,7 +103,9 @@ async def _resolve_plan_sources(
     for proposal in validated_plan.plan.proposals:
         for memory_id in proposal.source_memory_ids:
             if memory_id not in resolved_ids:
-                await memory.get(memory_id)
+                source = await memory.get(memory_id)
+                if source.status is not MemoryStatus.ACTIVE:
+                    raise ValueError("plan source must be active")
                 resolved_ids.add(memory_id)
 
 
@@ -114,7 +117,9 @@ def _resolve_plan_sources_sync(
     for proposal in validated_plan.plan.proposals:
         for memory_id in proposal.source_memory_ids:
             if memory_id not in resolved_ids:
-                memory.get(memory_id)
+                source = memory.get(memory_id)
+                if source.status is not MemoryStatus.ACTIVE:
+                    raise ValueError("plan source must be active")
                 resolved_ids.add(memory_id)
 
 
