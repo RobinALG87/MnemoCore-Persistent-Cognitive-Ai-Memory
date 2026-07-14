@@ -26,10 +26,11 @@ The supported runtime endpoints are:
 - `GET /metrics/` — Prometheus exposition on the API listener, port 8100. The
   trailing slash is canonical.
 
-## v3 scoped API composition
+## Unreleased v3 scoped API composition
 
-The v3 memory routes are deliberately **not** enabled by the legacy `app` by
-default. A global API key is not a sufficient authorization model for
+The published package remains v2.0.0. The unreleased v3 memory routes are
+deliberately **not** enabled by the legacy `app` by default. A global API key
+is not a sufficient authorization model for
 scope-isolated memory: callers must be authorized for the full requested
 `MemoryScope` before a database is opened.
 

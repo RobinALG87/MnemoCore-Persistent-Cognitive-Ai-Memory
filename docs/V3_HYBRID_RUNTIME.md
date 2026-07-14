@@ -1,7 +1,8 @@
 # v3 Hybrid Runtime Milestone
 
-This document describes the implemented v3 hybrid-runtime milestone. It is a
-safe migration layer, not a second memory database.
+This document describes the implemented but **unreleased** v3 hybrid-runtime
+milestone. The published package remains v2.0.0. It is a safe migration layer,
+not a second memory database.
 
 ## What is available
 
@@ -16,11 +17,11 @@ safe migration layer, not a second memory database.
   counts without logging memory content.
 - **Tier and graph projections are derivatives.** They can be rebuilt from the
   records in the same complete scope and are not an alternate write path.
-- **Cognitive jobs propose plans, not direct writes.** A plan must carry source
-  provenance, confidence, and synthetic-result marking. The runtime validates
-  the whole plan again immediately before an atomic AgentMemory batch write;
-  invalid scope, insufficient confidence, malformed provenance, or conflicts
-  leave no partial change.
+- **Cognitive jobs propose plans, not direct writes.** Plans and their proposals
+  require provenance and confidence. The runtime marks every persisted
+  cognitive output as synthetic, then validates the whole plan again immediately
+  before an atomic AgentMemory batch write; invalid scope, insufficient
+  confidence, malformed provenance, or conflicts leave no partial change.
 - **`HAIMEngineAdapter` is temporary.** It bridges legacy store/query/delete
   calls to a scope-bound AgentMemory client and emits a deprecation warning.
   `LiteEngine` and `Memory(profile="lite")` are removed; migrate to an explicit

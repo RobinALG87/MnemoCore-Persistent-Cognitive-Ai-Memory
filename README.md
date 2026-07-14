@@ -74,8 +74,9 @@ Qdrant service. Full setup, Docker, and configuration details are in
 **MnemoCore** is persistent memory and context infrastructure for agents.
 Its stable product track is **AgentMemory**: local-first, scope-isolated,
 bitemporal memory with receipts, timeline queries, deterministic context
-compilation, and rebuildable SQLite projections. The current v3 hybrid-runtime
-milestone builds on that store without adding a second persistence path.
+compilation, and rebuildable SQLite projections. The **unreleased** v3
+hybrid-runtime milestone builds on that store without adding a second
+persistence path.
 `HybridMemoryRuntime` adds deterministic lexical/HDV retrieval and safe
 cognitive projections over AgentMemory. The legacy HAIM stack remains available
 only as a temporary, deprecated compatibility surface; it is not the production
@@ -758,7 +759,7 @@ bitemporal recall, supersession, and evidence receipts, see the
 in this foundation is SQLite FTS5 lexical search only; it is not semantic or
 embedding retrieval.
 
-### v2 to v3 migration
+### Preparing for the unreleased v3 migration
 
 ```python
 from mnemocore.agent_memory import AgentMemory, MemoryScope
@@ -776,8 +777,9 @@ async def main():
 asyncio.run(main())
 ```
 
-The v2 `LiteEngine` and `Memory(profile="lite")` are removed in v3. They now
-fail with a migration error; use `AgentMemory` with an explicit `MemoryScope`.
+The published package remains v2.0.0. In the unreleased v3 migration path,
+`LiteEngine` and `Memory(profile="lite")` are removed and fail with a migration
+error; use `AgentMemory` with an explicit `MemoryScope`.
 Every runtime operation uses the complete scope tuple; there is no broader
 scope fallback. `HAIMEngine` remains available for legacy cognitive operations.
 For a temporary bridge of its legacy `store`/`query`/`delete_memory` shape, use

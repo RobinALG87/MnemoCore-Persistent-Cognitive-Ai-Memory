@@ -15,17 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   observability.
 - **Rebuildable cognitive derivatives** — tier and graph projections derive
   from AgentMemory records rather than creating another persistence path.
-- **Validated cognitive plans** — cognitive proposals carry provenance,
-  confidence, and synthetic-result markers; invalid, cross-scope, low-confidence,
-  or conflicting plans are rejected before an atomic AgentMemory write.
+- **Validated cognitive plans** — plans and proposals carry provenance and
+  confidence; the runtime marks each persisted cognitive output as synthetic.
+  Invalid, cross-scope, low-confidence, or conflicting plans are rejected before
+  an atomic AgentMemory write.
 - **Scoped v3 API composition** — `create_v3_app()` accepts an injected
   `ScopeAuthorizer`; without one, memory routes fail closed.
 
 ### Changed
 
 - `HAIMEngineAdapter` is the deprecated compatibility bridge for legacy
-  store/query/delete flows. `LiteEngine` and `Memory(profile="lite")` are
-  removed in v3 and raise a migration error instead of creating unscoped memory.
+  store/query/delete flows. In the unreleased v3 migration path, `LiteEngine`
+  and `Memory(profile="lite")` are removed and raise a migration error instead
+  of creating unscoped memory.
 
 ## [2.0.0] — 2026-02-28
 
