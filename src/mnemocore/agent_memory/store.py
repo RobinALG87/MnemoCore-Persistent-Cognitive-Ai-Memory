@@ -48,6 +48,14 @@ class MemoryStore(Protocol):
         self, scope: MemoryScope, writes: Sequence[MemoryWrite]
     ) -> builtins.list[MemoryRecord]: ...
 
+    async def remember_many_with_active_sources(
+        self,
+        scope: MemoryScope,
+        writes: Sequence[MemoryWrite],
+        *,
+        source_memory_ids: Sequence[str],
+    ) -> builtins.list[MemoryRecord]: ...
+
     async def remember(
         self,
         scope: MemoryScope,

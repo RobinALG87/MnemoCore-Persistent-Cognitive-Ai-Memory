@@ -17,6 +17,8 @@ from mnemocore.agent_memory import (
     MemoryScope,
     MemorySession,
     MemoryStatus,
+    MemoryWrite,
+    StorageError,
     SyncAgentMemory,
     SyncMemorySession,
     ValidationError,
@@ -88,6 +90,29 @@ async def test_list_preserves_legacy_store_call_shape_without_paging():
 
     assert await AgentMemory(store, scope).list() == []
     assert store.calls == [(scope, None, MemoryStatus.ACTIVE, 100)]
+
+
+@pytest.mark.asyncio
+async def test_atomic_source_checked_batch_rejects_a_store_without_that_capability():
+    class BatchOnlyStore:
+        def __init__(self):
+            self.remember_many_called = False
+
+        async def remember_many(self, scope, writes):
+            self.remember_many_called = True
+            return []
+
+    scope = MemoryScope(user_id="robin", agent_id="codex", project_id="mnemocore")
+    store = BatchOnlyStore()
+    memory = AgentMemory(store, scope)
+
+    with pytest.raises(StorageError, match="atomic active-source"):
+        await memory.remember_many_with_active_sources(
+            (MemoryWrite("safe write", MemoryKind.FACT, 0.8),),
+            source_memory_ids=("source-id",),
+        )
+
+    assert store.remember_many_called is False
 
 
 @pytest.mark.asyncio

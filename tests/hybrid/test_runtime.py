@@ -13,6 +13,7 @@ from mnemocore.agent_memory import (
     MemoryScope,
     MemoryWrite,
     SyncAgentMemory,
+    ValidationError,
 )
 from mnemocore.hybrid import (
     ExactScopeError,
@@ -221,7 +222,7 @@ def test_sync_runtime_rejects_an_inactive_plan_source_without_writing(tmp_path):
             ),
         )
 
-        with pytest.raises(ValueError, match="source must be active"):
+        with pytest.raises(ValidationError, match="source must be active"):
             SyncHybridMemoryRuntime(memory, scope=scope).apply(plan)
 
         assert "sync plan must never be written" not in {
@@ -377,7 +378,7 @@ async def test_apply_rejects_superseded_or_contradicted_sources_without_writes(t
             )
             before = [record.id for record in await memory.list()]
 
-            with pytest.raises(ValueError, match="source must be active"):
+            with pytest.raises(ValidationError, match="source must be active"):
                 await runtime.apply(plan)
 
             assert [record.id for record in await memory.list()] == before
@@ -389,14 +390,6 @@ async def test_apply_rejects_unvalidated_low_confidence_or_wrong_scope_before_wr
 ):
     scope = _scope("local")
     foreign_scope = _scope("foreign")
-    plan = CognitivePlan(
-        scope=scope,
-        provenance="cognitive-module",
-        confidence=0.8,
-        proposals=(
-            ProposedMemory("proposed memory", MemoryKind.FACT, "cognitive-module", 0.8),
-        ),
-    )
     low_confidence = CognitivePlan(
         scope=scope,
         provenance="cognitive-module",

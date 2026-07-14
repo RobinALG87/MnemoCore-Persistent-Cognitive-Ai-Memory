@@ -10,7 +10,7 @@ from typing import Any, Optional, TypeVar
 from uuid import uuid4
 
 from .context import CONTEXT_LEVELS, compile_context_pack
-from .errors import AgentMemoryError, ClosedStoreError
+from .errors import AgentMemoryError, ClosedStoreError, StorageError
 from .models import (
     ContextPack,
     MemoryHistoryEntry,
@@ -100,6 +100,27 @@ class AgentMemory:
         """Atomically persist a non-empty sequence of remember-only writes."""
         self._ensure_open()
         return await self._store.remember_many(self._scope, writes)
+
+    async def remember_many_with_active_sources(
+        self,
+        writes: Sequence[MemoryWrite],
+        *,
+        source_memory_ids: Sequence[str],
+    ) -> builtins.list[MemoryRecord]:
+        """Atomically require active exact-scope sources before a batch write.
+
+        Stores without this explicit capability are rejected rather than using
+        a check-then-write fallback that could violate cognitive provenance.
+        """
+        self._ensure_open()
+        operation = getattr(self._store, "remember_many_with_active_sources", None)
+        if not callable(operation):
+            raise StorageError(
+                "memory store does not support atomic active-source batch writes"
+            )
+        return await operation(
+            self._scope, writes, source_memory_ids=source_memory_ids
+        )
 
     async def recall(
         self,
@@ -338,6 +359,19 @@ class SyncAgentMemory:
     ) -> builtins.list[MemoryRecord]:
         """Synchronously persist a remember-only batch in one transaction."""
         return self._run(lambda: self._client.remember_many(writes))
+
+    def remember_many_with_active_sources(
+        self,
+        writes: Sequence[MemoryWrite],
+        *,
+        source_memory_ids: Sequence[str],
+    ) -> builtins.list[MemoryRecord]:
+        """Synchronously run an atomic active-source batch write."""
+        return self._run(
+            lambda: self._client.remember_many_with_active_sources(
+                writes, source_memory_ids=source_memory_ids
+            )
+        )
 
     def recall(
         self,

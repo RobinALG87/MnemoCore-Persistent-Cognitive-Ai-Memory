@@ -331,18 +331,36 @@ def _remember(
 
 
 def _remember_many(
-    path: Path, scope: MemoryScope, writes: Sequence[MemoryWrite]
+    path: Path,
+    scope: MemoryScope,
+    writes: Sequence[MemoryWrite],
+    *,
+    active_source_ids: Sequence[str] = (),
 ) -> builtins.list[MemoryRecord]:
     """Persist remember-only writes in one SQLite transaction."""
     if not writes:
         raise ValidationError("writes must not be empty")
     if any(not isinstance(write, MemoryWrite) for write in writes):
         raise ValidationError("writes must contain only MemoryWrite")
+    source_ids = tuple(dict.fromkeys(active_source_ids))
+    if any(not isinstance(memory_id, str) or not memory_id.strip() for memory_id in source_ids):
+        raise ValidationError("source_memory_ids must contain non-blank strings")
     try:
         with closing(_connect(path)) as connection:
             connection.row_factory = sqlite3.Row
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                for source_id in source_ids:
+                    source = connection.execute(
+                        "SELECT status FROM memories WHERE scope_key = ? AND id = ?",
+                        (scope.scope_key, source_id),
+                    ).fetchone()
+                    if source is None:
+                        raise MemoryNotFoundError(
+                            f"Memory {source_id!r} was not found in this scope"
+                        )
+                    if source["status"] != MemoryStatus.ACTIVE.value:
+                        raise ValidationError("plan source must be active")
                 records: builtins.list[MemoryRecord] = []
                 for write in writes:
                     now = utc_now()
@@ -2721,6 +2739,20 @@ class SQLiteMemoryStore:
         self, scope: MemoryScope, writes: Sequence[MemoryWrite]
     ) -> builtins.list[MemoryRecord]:
         return await self._run(_remember_many, scope, writes)
+
+    async def remember_many_with_active_sources(
+        self,
+        scope: MemoryScope,
+        writes: Sequence[MemoryWrite],
+        *,
+        source_memory_ids: Sequence[str],
+    ) -> builtins.list[MemoryRecord]:
+        return await self._run(
+            _remember_many,
+            scope,
+            writes,
+            active_source_ids=source_memory_ids,
+        )
 
     async def get(
         self,

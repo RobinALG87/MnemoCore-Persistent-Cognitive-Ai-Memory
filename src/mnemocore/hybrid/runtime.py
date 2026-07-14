@@ -11,7 +11,6 @@ from mnemocore.agent_memory import (
     MemoryKind,
     MemoryRecord,
     MemoryScope,
-    MemoryStatus,
     MemoryWrite,
     SyncAgentMemory,
 )
@@ -27,7 +26,6 @@ from .retrieval import DeterministicHybridRetriever
 from .plans import (
     MINIMUM_APPLY_CONFIDENCE,
     CognitivePlan,
-    ProposedMemory,
     ValidatedPlan,
     validate_plan,
 )
@@ -95,32 +93,15 @@ def _freshly_validate(
     )
 
 
-async def _resolve_plan_sources(
-    memory: AgentMemory, validated_plan: ValidatedPlan
-) -> None:
-    """Require each cognitive source to be active in this bound exact scope."""
-    resolved_ids: set[str] = set()
-    for proposal in validated_plan.plan.proposals:
-        for memory_id in proposal.source_memory_ids:
-            if memory_id not in resolved_ids:
-                source = await memory.get(memory_id)
-                if source.status is not MemoryStatus.ACTIVE:
-                    raise ValueError("plan source must be active")
-                resolved_ids.add(memory_id)
-
-
-def _resolve_plan_sources_sync(
-    memory: SyncAgentMemory, validated_plan: ValidatedPlan
-) -> None:
-    """Synchronous counterpart of exact-scope cognitive source resolution."""
-    resolved_ids: set[str] = set()
-    for proposal in validated_plan.plan.proposals:
-        for memory_id in proposal.source_memory_ids:
-            if memory_id not in resolved_ids:
-                source = memory.get(memory_id)
-                if source.status is not MemoryStatus.ACTIVE:
-                    raise ValueError("plan source must be active")
-                resolved_ids.add(memory_id)
+def _plan_source_ids(validated_plan: ValidatedPlan) -> tuple[str, ...]:
+    """Return deterministic de-duplicated source IDs for an atomic precondition."""
+    return tuple(
+        dict.fromkeys(
+            source_id
+            for proposal in validated_plan.plan.proposals
+            for source_id in proposal.source_memory_ids
+        )
+    )
 
 
 def _require_client_scope(memory: AgentMemory, scope: MemoryScope) -> None:
@@ -228,8 +209,10 @@ class HybridMemoryRuntime:
     async def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:
         """Freshly validate and atomically apply a remember-only cognitive plan."""
         validated_plan = _freshly_validate(self._scope, plan)
-        await _resolve_plan_sources(self._memory, validated_plan)
-        records = await self._memory.remember_many(_plan_writes(validated_plan))
+        records = await self._memory.remember_many_with_active_sources(
+            _plan_writes(validated_plan),
+            source_memory_ids=_plan_source_ids(validated_plan),
+        )
         return PlanApplyReceipt(
             proposal_count=validated_plan.proposal_count,
             applied_count=len(records),
@@ -341,8 +324,10 @@ class SyncHybridMemoryRuntime:
     def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:
         """Synchronously validate and atomically apply a remember-only plan."""
         validated_plan = _freshly_validate(self._scope, plan)
-        _resolve_plan_sources_sync(self._memory, validated_plan)
-        records = self._memory.remember_many(_plan_writes(validated_plan))
+        records = self._memory.remember_many_with_active_sources(
+            _plan_writes(validated_plan),
+            source_memory_ids=_plan_source_ids(validated_plan),
+        )
         return PlanApplyReceipt(
             proposal_count=validated_plan.proposal_count,
             applied_count=len(records),
