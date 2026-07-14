@@ -74,9 +74,12 @@ Qdrant service. Full setup, Docker, and configuration details are in
 **MnemoCore** is persistent memory and context infrastructure for agents.
 Its stable product track is **AgentMemory**: local-first, scope-isolated,
 bitemporal memory with receipts, timeline queries, deterministic context
-compilation, and rebuildable SQLite projections. The legacy HAIM stack remains
-available for compatibility and experimentation; it is not the production
-release baseline.
+compilation, and rebuildable SQLite projections. The current v3 hybrid-runtime
+milestone builds on that store without adding a second persistence path.
+`HybridMemoryRuntime` adds deterministic lexical/HDV retrieval and safe
+cognitive projections over AgentMemory. The legacy HAIM stack remains available
+only as a temporary, deprecated compatibility surface; it is not the production
+baseline.
 
 The current 2.x package keeps its established dependencies so existing HAIM
 and REST users are not broken. A dependency-minimal AgentMemory distribution
@@ -775,9 +778,17 @@ asyncio.run(main())
 
 The v2 `LiteEngine` and `Memory(profile="lite")` are removed in v3. They now
 fail with a migration error; use `AgentMemory` with an explicit `MemoryScope`.
-`HAIMEngine` remains available for legacy cognitive operations. For a temporary
-bridge of its legacy `store`/`query`/`delete_memory` shape, use the deprecated
-`HAIMEngineAdapter` with an already-open, scope-bound `AgentMemory` client.
+Every runtime operation uses the complete scope tuple; there is no broader
+scope fallback. `HAIMEngine` remains available for legacy cognitive operations.
+For a temporary bridge of its legacy `store`/`query`/`delete_memory` shape, use
+the deprecated `HAIMEngineAdapter` with an already-open, scope-bound
+`AgentMemory` client.
+
+The hybrid runtime also has an explicit synchronous facade for synchronous
+applications. Do not call it from an already-running event loop; use the async
+runtime there. See the [v3 hybrid-runtime guide](docs/V3_HYBRID_RUNTIME.md) for
+retrieval metadata, cognitive-plan safeguards, API composition, and the staged
+remaining work.
 
 ### Advanced / Low-level (full engine)
 

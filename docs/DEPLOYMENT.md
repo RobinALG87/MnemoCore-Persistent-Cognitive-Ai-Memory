@@ -26,6 +26,31 @@ The supported runtime endpoints are:
 - `GET /metrics/` — Prometheus exposition on the API listener, port 8100. The
   trailing slash is canonical.
 
+## v3 scoped API composition
+
+The v3 memory routes are deliberately **not** enabled by the legacy `app` by
+default. A global API key is not a sufficient authorization model for
+scope-isolated memory: callers must be authorized for the full requested
+`MemoryScope` before a database is opened.
+
+Deploy the standalone v3 application only through an explicit composition root
+that supplies a `ScopeAuthorizer` mapping authenticated credentials to allowed
+complete scopes:
+
+```python
+from mnemocore.api.v3_app import create_v3_app
+
+app = create_v3_app(
+    sqlite_path="/app/data/agent-memory.sqlite3",
+    scope_authorizer=my_scope_authorizer,
+)
+```
+
+If no authorizer is supplied, v3 memory requests fail closed. The library does
+not ship a credential-to-scope mapping because that mapping belongs to the
+deploying application's identity system. Do not expose a v3 application until
+that mapping, TLS, and the usual reverse-proxy controls are in place.
+
 ## Docker
 
 The image builds a wheel, installs it into the runtime stage, runs as an

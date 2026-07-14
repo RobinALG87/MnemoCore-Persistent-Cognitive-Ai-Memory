@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **v3 hybrid-runtime milestone** — `HybridMemoryRuntime` and its explicit
+  synchronous facade provide exact-scope lexical/BinaryHDV retrieval above
+  AgentMemory, with a versioned scoring identifier and content-free retrieval
+  observability.
+- **Rebuildable cognitive derivatives** — tier and graph projections derive
+  from AgentMemory records rather than creating another persistence path.
+- **Validated cognitive plans** — cognitive proposals carry provenance,
+  confidence, and synthetic-result markers; invalid, cross-scope, low-confidence,
+  or conflicting plans are rejected before an atomic AgentMemory write.
+- **Scoped v3 API composition** — `create_v3_app()` accepts an injected
+  `ScopeAuthorizer`; without one, memory routes fail closed.
+
+### Changed
+
+- `HAIMEngineAdapter` is the deprecated compatibility bridge for legacy
+  store/query/delete flows. `LiteEngine` and `Memory(profile="lite")` are
+  removed in v3 and raise a migration error instead of creating unscoped memory.
+
 ## [2.0.0] — 2026-02-28
 
 ### Fixed

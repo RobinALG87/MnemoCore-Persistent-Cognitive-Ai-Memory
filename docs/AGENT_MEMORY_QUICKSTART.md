@@ -164,18 +164,27 @@ If a projection or search index is damaged, `rebuild()` repairs the client's
 exact scope from its immutable events. It does not read or rewrite another
 scope.
 
-## Retrieval status
+## Hybrid retrieval runtime
 
-Recall currently uses only scoped SQLite FTS5 lexical retrieval, followed by
-validity-time, knowledge-time, and scope filtering. It does not perform vector,
-embedding, semantic, or model-based retrieval, and no benchmark leadership is
-claimed for this foundation. Queries therefore need useful lexical overlap
-with stored content.
+`HybridMemoryRuntime` is the v3 runtime layered over an already-open,
+scope-bound `AgentMemory` client. AgentMemory remains the only durable source
+of truth; retrieval indexes and tier projections are rebuildable derivatives.
+The runtime uses lexical candidates plus deterministic BinaryHDV reranking and
+reports a scoring-version identifier for observability. It does not log memory
+content as retrieval telemetry.
 
-The planned hybrid pipeline will combine lexical and vector candidates, apply
-scope and temporal policy before ranking, fuse and rerank candidates, and return
-evidence-bearing results. That pipeline is future work; applications should
-treat the current scores as lexical ranks.
+```python
+from mnemocore.hybrid import HybridMemoryRuntime
+
+runtime = HybridMemoryRuntime(memory, scope=scope)
+results = await runtime.recall(scope, "concise updates", limit=5)
+for result in results:
+    print(result.memory.id, result.score, result.scoring_version)
+```
+
+The scope passed to `recall` must exactly match the bound client scope. There is
+no cross-scope fallback. See [the v3 hybrid-runtime guide](V3_HYBRID_RUNTIME.md)
+for paging, plan validation, and the synchronous facade.
 
 ## Sessions and the core learning loop
 
