@@ -41,4 +41,3 @@ async def test_factory_close_closes_its_owned_runtime(tmp_path):
 
     with pytest.raises(ClosedStoreError, match="closed"):
         await runtime.recall(scope, "unseen query")
-
