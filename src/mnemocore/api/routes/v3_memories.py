@@ -2,17 +2,66 @@
 
 from __future__ import annotations
 
+import math
+import re
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from mnemocore.agent_memory import MemoryKind, MemoryNotFoundError, MemoryScope
 from mnemocore.api.scope_authorization import ScopeAuthorizer
 from mnemocore.hybrid import RuntimeFactory
 
 router = APIRouter(prefix="/v3/memories", tags=["v3 memories"])
+
+_METADATA_MAX_DEPTH = 3
+_METADATA_MAX_ITEMS = 50
+_METADATA_MAX_KEY_LENGTH = 64
+_METADATA_MAX_STRING_LENGTH = 1000
+_METADATA_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
+
+
+def _validate_metadata_value(value: Any, *, path: str, depth: int) -> None:
+    """Validate bounded JSON metadata accepted from the public v3 API."""
+    if depth > _METADATA_MAX_DEPTH:
+        raise ValueError(f"Metadata at '{path}' exceeds maximum nesting depth")
+    if isinstance(value, str):
+        if len(value) > _METADATA_MAX_STRING_LENGTH:
+            raise ValueError(f"Metadata value at '{path}' is too long")
+        return
+    if value is None or isinstance(value, (bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"Metadata value at '{path}' must be finite")
+        return
+    if isinstance(value, list):
+        if len(value) > _METADATA_MAX_ITEMS:
+            raise ValueError(f"Metadata list at '{path}' is too large")
+        for index, item in enumerate(value):
+            _validate_metadata_value(item, path=f"{path}[{index}]", depth=depth + 1)
+        return
+    if isinstance(value, dict):
+        if len(value) > _METADATA_MAX_ITEMS:
+            raise ValueError(f"Metadata object at '{path}' is too large")
+        for key, item in value.items():
+            _validate_metadata_key(key, path=path)
+            _validate_metadata_value(item, path=f"{path}.{key}", depth=depth + 1)
+        return
+    raise ValueError(f"Metadata value at '{path}' must be JSON-compatible")
+
+
+def _validate_metadata_key(key: Any, *, path: str) -> None:
+    if not isinstance(key, str):
+        raise ValueError(f"Metadata key at '{path}' must be a string")
+    if len(key) > _METADATA_MAX_KEY_LENGTH:
+        raise ValueError(f"Metadata key '{key[:20]}...' is too long")
+    if not _METADATA_KEY_PATTERN.match(key):
+        raise ValueError(f"Metadata key '{key}' contains invalid characters")
+    if key.startswith("_") or key.startswith("internal_"):
+        raise ValueError(f"Metadata key '{key}' is reserved for internal use")
 
 
 class V3ScopeRequest(BaseModel):
@@ -40,6 +89,18 @@ class V3RememberRequest(V3ScopeRequest):
     kind: MemoryKind = MemoryKind.OBSERVATION
     metadata: dict[str, Any] | None = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        if metadata is None:
+            return metadata
+        if len(metadata) > _METADATA_MAX_ITEMS:
+            raise ValueError("Metadata object is too large")
+        for key, value in metadata.items():
+            _validate_metadata_key(key, path="metadata")
+            _validate_metadata_value(value, path=key, depth=1)
+        return metadata
 
 
 class V3RecallRequest(V3ScopeRequest):

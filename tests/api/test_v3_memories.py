@@ -69,6 +69,51 @@ def test_v3_requires_every_required_scope_identifier(tmp_path):
     assert response.status_code == 422
 
 
+def test_v3_remember_rejects_deep_or_reserved_metadata(tmp_path):
+    client = _client(tmp_path / "v3.sqlite", authorizer=_HeaderScopeAuthorizer())
+    headers = {"X-Test-Subject": "user-a"}
+
+    deep = client.post(
+        "/v3/memories",
+        headers=headers,
+        json={
+            **_scope(),
+            "content": "must not persist",
+            "metadata": {"one": {"two": {"three": {"four": "too deep"}}}},
+        },
+    )
+    reserved = client.post(
+        "/v3/memories",
+        headers=headers,
+        json={
+            **_scope(),
+            "content": "must not persist",
+            "metadata": {"internal_state": "forbidden"},
+        },
+    )
+
+    assert deep.status_code == 422
+    assert reserved.status_code == 422
+
+
+def test_v3_remember_accepts_bounded_nested_metadata(tmp_path):
+    client = _client(tmp_path / "v3.sqlite", authorizer=_HeaderScopeAuthorizer())
+    response = client.post(
+        "/v3/memories",
+        headers={"X-Test-Subject": "user-a"},
+        json={
+            **_scope(),
+            "content": "release metadata",
+            "metadata": {"source": {"name": "brief", "tags": ["release"]}},
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["memory"]["metadata"] == {
+        "source": {"name": "brief", "tags": ["release"]}
+    }
+
+
 def test_v3_is_disabled_without_a_scope_authorizer(tmp_path):
     client = _client(tmp_path / "v3.sqlite")
 
