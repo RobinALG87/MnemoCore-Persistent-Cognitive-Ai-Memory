@@ -36,10 +36,10 @@ tags:
 
 ## Quick Install
 
-**Install from the public repository:**
+**Install v3.0.0 after publication:**
 
 ```bash
-pip install git+https://github.com/RobinALG87/MnemoCore-Persistent-Cognitive-Ai-Memory.git@main
+pip install mnemocore==3.0.0
 ```
 
 **Install from source (development):**
@@ -71,22 +71,33 @@ configuration details are in [Installation](#installation) below.
 
 ---
 
-## What is MnemoCore?
+## MnemoCore 3.0.0 beta
 
-**MnemoCore** is persistent memory and context infrastructure for agents.
-Its stable product track is **AgentMemory**: local-first, scope-isolated,
-bitemporal memory with receipts, timeline queries, deterministic context
-compilation, and rebuildable SQLite projections. The v3
-hybrid-runtime milestone builds on that store without adding a second
-persistence path.
-`HybridMemoryRuntime` adds deterministic lexical/HDV retrieval and safe
-cognitive projections over AgentMemory. The legacy HAIM stack remains available
-only as a temporary, deprecated compatibility surface; it is not the production
-baseline.
+MnemoCore is persistent memory and context infrastructure for agents. Version
+3.0.0 beta releases an **AgentMemory-first** runtime: local-first, exact-scope
+SQLite memory with timeline/history support, deterministic context compilation,
+and rebuildable projections. `HybridMemoryRuntime` adds deterministic lexical
+and BinaryHDV retrieval without adding a second persistence path.
+
+The v3 contract is explicit:
+
+- Every operation requires a complete `MemoryScope`; cross-scope fallback is
+  forbidden.
+- AgentMemory is the only durable source of truth for v3.
+- Cognitive effects are validated plans, not autonomous direct writes.
+- The v3 HTTP application is composed with a scope authorizer and fails closed
+  when one is absent.
+- v2 HAIM, REST, MCP, and CLI paths remain compatibility-only and are not the
+  v3 persistence layer.
 
 Version 3.0 retains the established dependency set for installation
 compatibility. A dependency-minimal AgentMemory distribution remains a future
 major-release migration.
+
+### Legacy cognitive capabilities (v2 compatibility only)
+
+The following HAIM description is retained as a reference for existing v2
+deployments. It is not a v3 persistence or deployment contract.
 
 Traditional vector stores retrieve. MnemoCore **thinks**. It is built on the mathematical framework of **Binary Hyperdimensional Computing (HDC)** and **Vector Symbolic Architectures (VSA)**, principles rooted in Pentti Kanerva's landmark 2009 theory of cognitive computing. Every memory is encoded as a **16,384-dimensional binary holographic vector** — a format that is simultaneously compact (2,048 bytes), noise-tolerant (Hamming geometry), and algebraically rich (XOR binding, majority bundling, circular permutation).
 
@@ -126,6 +137,9 @@ Phase 6 adds four research-backed services: **StrategyBank** (reasoning bank wit
 ---
 
 ## Architecture
+
+The diagram below documents the legacy v2 architecture. New v3 deployments use
+the scoped AgentMemory and HybridMemoryRuntime composition described above.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1220,7 +1234,17 @@ pytest tests/test_e2e_flow.py -v
 
 ## Roadmap
 
-### Current Release (v3.0.0)
+### v3.0.0 beta: released surface
+
+- [x] Exact-scope AgentMemory persistence, history, timeline, and context
+  compilation
+- [x] Hybrid lexical/BinaryHDV retrieval with versioned deterministic scoring
+- [x] Rebuildable tier and graph projections
+- [x] Validated, atomic cognitive plan application with provenance
+- [x] Scoped HTTP composition that fails closed without authorization
+- [x] Explicit migration away from LiteEngine and implicit `Memory(...)`
+
+### v2 compatibility inventory
 
 - [x] Binary HDV core (XOR bind / bundle / permute / Hamming)
 - [x] Three-tier HOT/WARM/COLD memory lifecycle
@@ -1244,7 +1268,7 @@ pytest tests/test_e2e_flow.py -v
 - [ ] Production hardening: distributed HOT-tier, CUDA kernels, chaos engineering
 - [ ] Self-improvement Phase 1: enable writes with human-in-the-loop approval
 - [ ] Multi-modal memory: image/audio embedding via CLIP/Whisper
-- [ ] Ecosystem: LangChain, LlamaIndex, CrewAI adapters
+- [ ] Additional first-party integration adapters
 - [ ] Extended observability standardization (`mnemocore_*` metric prefix)
 
 ---
