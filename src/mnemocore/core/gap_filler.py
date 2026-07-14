@@ -265,17 +265,17 @@ class GapFiller:
         for line in lines:
             # Strip bullets / numbering
             clean = re.sub(r"^[\s\-\*\d\.\)]+", "", line).strip()
-            if len(clean) > 20:  # skip header lines / blanks
+            if len(clean) >= 8 and clean.endswith((".", "!", "?")):
                 statements.append(clean)
         return statements[: self.cfg.max_statements_per_gap]
 
     def _rate_check(self) -> bool:
         """True if under the hourly rate limit."""
-        now = time.time()
+        now = time.monotonic()
         # Keep only calls within the last hour
         self._fill_timestamps = [t for t in self._fill_timestamps if now - t < 3600]
         return len(self._fill_timestamps) < self.cfg.max_fills_per_hour
 
     def _record_call(self) -> None:
         """Record a fill call timestamp for rate limiting."""
-        self._fill_timestamps.append(time.time())
+        self._fill_timestamps.append(time.monotonic())

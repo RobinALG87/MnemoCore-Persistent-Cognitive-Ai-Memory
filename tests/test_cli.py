@@ -181,8 +181,7 @@ class TestCLIGet:
 
     def test_get_basic(self, runner, mock_engine):
         """Test get memory by ID."""
-        mock_engine.tier_manager = MagicMock()
-        mock_engine.tier_manager.get_memory = AsyncMock(
+        mock_engine.get_memory = AsyncMock(
             return_value=MagicMock(
                 id="mem_test123",
                 content="Test content",

@@ -71,11 +71,6 @@ class StoreRequest(BaseModel):
                 raise ValueError(
                     f'Metadata value for "{key}" too long (max 1000 chars)'
                 )
-            # Limit nested structures
-            if isinstance(value, (dict, list)):
-                raise ValueError(
-                    f'Metadata value for "{key}" must be a primitive type (str, int, float, bool, null)'
-                )
         return v
 
     @field_validator("agent_id")

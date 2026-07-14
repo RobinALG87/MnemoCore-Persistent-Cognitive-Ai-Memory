@@ -384,7 +384,7 @@ class TestGapFillerRateLimit:
         filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
 
         # Add old calls (2 hours ago)
-        old_time = time.time() - 7200
+        old_time = time.monotonic() - 7200
         filler._fill_timestamps = [old_time, old_time]
 
         result = filler._rate_check()
