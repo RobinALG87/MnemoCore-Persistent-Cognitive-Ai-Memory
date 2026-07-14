@@ -283,7 +283,7 @@ class GapDetector:
                 rec.filled
                 and (now_ts - rec.last_seen.timestamp()) > self.cfg.gap_ttl_seconds
             )
-            or (now_ts - rec.last_seen.timestamp()) > self.cfg.gap_ttl_seconds * 2
+            or (now_ts - rec.last_seen.timestamp()) >= self.cfg.gap_ttl_seconds * 2
         ]
         for gid in stale:
             del self._registry[gid]
