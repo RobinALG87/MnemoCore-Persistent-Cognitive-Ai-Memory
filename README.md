@@ -24,7 +24,7 @@ tags:
 > *"Memory is not a container. It is a living process — a holographic continuum where every fragment contains the whole."*
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Release%202.0.0-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Beta%203.0.0-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/FastAPI-Async%20Ready-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" />
@@ -76,7 +76,7 @@ configuration details are in [Installation](#installation) below.
 **MnemoCore** is persistent memory and context infrastructure for agents.
 Its stable product track is **AgentMemory**: local-first, scope-isolated,
 bitemporal memory with receipts, timeline queries, deterministic context
-compilation, and rebuildable SQLite projections. The **unreleased** v3
+compilation, and rebuildable SQLite projections. The v3
 hybrid-runtime milestone builds on that store without adding a second
 persistence path.
 `HybridMemoryRuntime` adds deterministic lexical/HDV retrieval and safe
@@ -84,9 +84,9 @@ cognitive projections over AgentMemory. The legacy HAIM stack remains available
 only as a temporary, deprecated compatibility surface; it is not the production
 baseline.
 
-The current 2.x package keeps its established dependencies so existing HAIM
-and REST users are not broken. A dependency-minimal AgentMemory distribution
-will arrive only in a future major release with a migration guide.
+Version 3.0 retains the established dependency set for installation
+compatibility. A dependency-minimal AgentMemory distribution remains a future
+major-release migration.
 
 Traditional vector stores retrieve. MnemoCore **thinks**. It is built on the mathematical framework of **Binary Hyperdimensional Computing (HDC)** and **Vector Symbolic Architectures (VSA)**, principles rooted in Pentti Kanerva's landmark 2009 theory of cognitive computing. Every memory is encoded as a **16,384-dimensional binary holographic vector** — a format that is simultaneously compact (2,048 bytes), noise-tolerant (Hamming geometry), and algebraically rich (XOR binding, majority bundling, circular permutation).
 
@@ -767,7 +767,7 @@ bitemporal recall, supersession, and evidence receipts, see the
 in this foundation is SQLite FTS5 lexical search only; it is not semantic or
 embedding retrieval.
 
-### Preparing for the unreleased v3 migration
+### v3 scoped runtime
 
 ```python
 from mnemocore.agent_memory import AgentMemory, MemoryScope
@@ -785,8 +785,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The published package remains v2.0.0. In the unreleased v3 migration path,
-`LiteEngine` and the entire unscoped `Memory(...)` facade are removed and fail
+In v3, `LiteEngine` and the entire unscoped `Memory(...)` facade are removed and fail
 with a migration error; use `AgentMemory` with an explicit `MemoryScope`.
 Every runtime operation uses the complete scope tuple; there is no broader
 scope fallback. `HAIMEngine` remains available only for v2 compatibility: its
@@ -1221,7 +1220,7 @@ pytest tests/test_e2e_flow.py -v
 
 ## Roadmap
 
-### Current Release (v2.0.0)
+### Current Release (v3.0.0)
 
 - [x] Binary HDV core (XOR bind / bundle / permute / Hamming)
 - [x] Three-tier HOT/WARM/COLD memory lifecycle

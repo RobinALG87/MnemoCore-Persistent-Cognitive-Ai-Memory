@@ -31,22 +31,24 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
 
 if TYPE_CHECKING:
-    from ..core.engine import HAIMEngine
     from ..core.config import SelfImprovementConfig
+    from ..core.engine import HAIMEngine
 
 
 # ---------------------------------------------------------------------------
 # Internal models
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ImprovementCandidate:
     """A memory node selected for potential improvement."""
+
     node_id: str
     content: str
     metadata: Dict[str, Any]
@@ -58,6 +60,7 @@ class ImprovementCandidate:
 @dataclass
 class ImprovementProposal:
     """A proposed improvement to a candidate memory."""
+
     candidate: ImprovementCandidate
     improvement_type: str  # normalize | summarize | deduplicate | metadata_repair
     proposed_content: str
@@ -71,6 +74,7 @@ class ImprovementProposal:
 # ---------------------------------------------------------------------------
 # Metrics tracker (in-process counters, Prometheus-compatible names)
 # ---------------------------------------------------------------------------
+
 
 class SelfImprovementMetrics:
     """In-process counters matching the 7 proposed Prometheus metrics."""
@@ -90,16 +94,13 @@ class SelfImprovementMetrics:
             "mnemocore_self_improve_commits_total": self.commits_total,
             "mnemocore_self_improve_rejects_total": self.rejects_total,
             "mnemocore_self_improve_cycle_duration_seconds": (
-                round(self.cycle_durations[-1], 3)
-                if self.cycle_durations else 0.0
+                round(self.cycle_durations[-1], 3) if self.cycle_durations else 0.0
             ),
             "mnemocore_self_improve_candidates_in_cycle": (
-                self.candidates_per_cycle[-1]
-                if self.candidates_per_cycle else 0
+                self.candidates_per_cycle[-1] if self.candidates_per_cycle else 0
             ),
             "mnemocore_self_improve_quality_delta": (
-                round(self.quality_deltas[-1], 4)
-                if self.quality_deltas else 0.0
+                round(self.quality_deltas[-1], 4) if self.quality_deltas else 0.0
             ),
             "mnemocore_self_improve_backpressure_skips_total": (
                 self.backpressure_skips_total
@@ -111,6 +112,7 @@ class SelfImprovementMetrics:
 # ---------------------------------------------------------------------------
 # Validation Gates
 # ---------------------------------------------------------------------------
+
 
 class ValidationGates:
     """Five validation gates per SELF_IMPROVEMENT_DEEP_DIVE.md §9."""
@@ -164,9 +166,7 @@ class ValidationGates:
         return True
 
     # Gate 5: Resource — cycle budget / backpressure
-    def resource_gate(
-        self, cycle_elapsed: float, max_cycle_seconds: float
-    ) -> bool:
+    def resource_gate(self, cycle_elapsed: float, max_cycle_seconds: float) -> bool:
         """Check that cycle hasn't exceeded time budget."""
         return cycle_elapsed < max_cycle_seconds
 
@@ -195,6 +195,7 @@ class ValidationGates:
 # ---------------------------------------------------------------------------
 # Main Worker
 # ---------------------------------------------------------------------------
+
 
 class SelfImprovementWorker:
     """
@@ -288,9 +289,7 @@ class SelfImprovementWorker:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error(
-                    f"SelfImprovementWorker error: {exc}", exc_info=True
-                )
+                logger.error(f"SelfImprovementWorker error: {exc}", exc_info=True)
                 # Backoff on error
                 await asyncio.sleep(60)
 
@@ -481,9 +480,9 @@ class SelfImprovementWorker:
                     continue
 
             # Hash for duplicate detection
-            content_hash = hashlib.md5(
-                content.strip().lower().encode()
-            ).hexdigest()[:12]
+            content_hash = hashlib.sha256(content.strip().lower().encode()).hexdigest()[
+                :12
+            ]
             content_hashes[content_hash].append(node_id)
 
             # Heuristic 1: short content (< 20 chars) likely a stub
@@ -573,9 +572,7 @@ class SelfImprovementWorker:
         content = candidate.content
         # Simple normalization: collapse whitespace, strip
         normalized = " ".join(content.split()).strip()
-        improvement = (
-            abs(len(content) - len(normalized)) / max(len(content), 1)
-        )
+        improvement = abs(len(content) - len(normalized)) / max(len(content), 1)
         return ImprovementProposal(
             candidate=candidate,
             improvement_type="normalize",
@@ -592,9 +589,7 @@ class SelfImprovementWorker:
             candidate=candidate,
             improvement_type="metadata_repair",
             proposed_content=candidate.content,  # content unchanged
-            rationale=(
-                f"Repair missing metadata: {candidate.selection_reason}"
-            ),
+            rationale=(f"Repair missing metadata: {candidate.selection_reason}"),
             expected_improvement_score=0.2,
         )
 
@@ -606,9 +601,7 @@ class SelfImprovementWorker:
             candidate=candidate,
             improvement_type="deduplicate",
             proposed_content=candidate.content,
-            rationale=(
-                f"Near-duplicate detected: {candidate.selection_reason}"
-            ),
+            rationale=(f"Near-duplicate detected: {candidate.selection_reason}"),
             expected_improvement_score=0.4,
         )
 
@@ -634,7 +627,7 @@ class SelfImprovementWorker:
 
         # Cap log size
         if len(self._decision_log) > self._max_log_entries:
-            self._decision_log = self._decision_log[-self._max_log_entries:]
+            self._decision_log = self._decision_log[-self._max_log_entries :]
 
         level = "DEBUG" if proposal.accepted else "TRACE"
         logger.log(
@@ -644,7 +637,7 @@ class SelfImprovementWorker:
             f"type={proposal.improvement_type} "
             f"node={proposal.candidate.node_id} "
             f"score={proposal.expected_improvement_score:.3f} "
-            f"reasons={proposal.rejection_reasons}"
+            f"reasons={proposal.rejection_reasons}",
         )
 
     # ------------------------------------------------------------------
@@ -673,9 +666,7 @@ class SelfImprovementWorker:
     def get_stats(self) -> Dict[str, Any]:
         """Return combined stats and metrics snapshot."""
         return {
-            "last_run": (
-                self.last_run.isoformat() if self.last_run else None
-            ),
+            "last_run": (self.last_run.isoformat() if self.last_run else None),
             "running": self._running,
             "config": {
                 "enabled": self.cfg.enabled,
@@ -690,9 +681,7 @@ class SelfImprovementWorker:
             "last_cycle": self.stats,
         }
 
-    def get_decision_log(
-        self, last_n: int = 50
-    ) -> List[Dict[str, Any]]:
+    def get_decision_log(self, last_n: int = 50) -> List[Dict[str, Any]]:
         """Return recent decision log entries."""
         return self._decision_log[-last_n:]
 
@@ -700,6 +689,7 @@ class SelfImprovementWorker:
 # ---------------------------------------------------------------------------
 # Factory function
 # ---------------------------------------------------------------------------
+
 
 def create_self_improvement_worker(
     engine: "HAIMEngine",

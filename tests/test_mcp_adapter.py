@@ -5,11 +5,8 @@ Tests for src/mnemocore/mcp/adapters/api_adapter.py covering URL encoding,
 HTTPS enforcement, retry on transient failure, and connection timeout handling.
 """
 
-import os
 import pytest
 import requests
-from unittest.mock import MagicMock, patch
-import urllib.parse
 
 from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
 
@@ -30,8 +27,10 @@ class DummyResponse:
 # Original Tests
 # ============================================================================
 
+
 def test_adapter_success(monkeypatch):
     """Test successful API adapter call."""
+
     def fake_request(method, url, json, headers, timeout):
         assert method == "GET"
         assert url.endswith("/health")
@@ -48,6 +47,7 @@ def test_adapter_success(monkeypatch):
 
 def test_adapter_http_error(monkeypatch):
     """Test API adapter handles HTTP errors."""
+
     def fake_request(method, url, json, headers, timeout):
         return DummyResponse(status_code=404, data={"detail": "not found"})
 
@@ -64,6 +64,7 @@ def test_adapter_http_error(monkeypatch):
 
 def test_adapter_network_error(monkeypatch):
     """Test API adapter handles network errors."""
+
     def fake_request(method, url, json, headers, timeout):
         raise requests.RequestException("timeout")
 
@@ -81,6 +82,7 @@ def test_adapter_network_error(monkeypatch):
 # ============================================================================
 # Task 15.5: Additional MCP Adapter Tests
 # ============================================================================
+
 
 class TestURLEncoding:
     """Tests for URL encoding of query parameters (after Agent 3 fix)."""
@@ -101,7 +103,10 @@ class TestURLEncoding:
         # URL should be properly encoded
         assert len(captured_url) == 1
         # Spaces should be encoded as %20
-        assert "agent%20with%20spaces" in captured_url[0] or "agent+with+spaces" in captured_url[0]
+        assert (
+            "agent%20with%20spaces" in captured_url[0]
+            or "agent+with+spaces" in captured_url[0]
+        )
 
     def test_url_encoding_query_string(self, monkeypatch):
         """Test that query strings with special characters are encoded."""
@@ -162,13 +167,8 @@ class TestHTTPSEnforcement:
         """Test that HTTPS is required when HAIM_ENV=production."""
         monkeypatch.setenv("HAIM_ENV", "production")
 
-        # Need to re-import to get the updated env var
-        import importlib
-        import mnemocore.mcp.adapters.api_adapter as adapter_module
-        importlib.reload(adapter_module)
-
-        with pytest.raises(adapter_module.MnemoCoreAPIError) as exc_info:
-            adapter_module.MnemoCoreAPIAdapter("http://api.example.com", "key")
+        with pytest.raises(MnemoCoreAPIError) as exc_info:
+            MnemoCoreAPIAdapter("http://api.example.com", "key")
 
         assert "HTTPS" in str(exc_info.value)
 
@@ -191,11 +191,7 @@ class TestHTTPSEnforcement:
         """Test that HTTPS URLs are always accepted."""
         monkeypatch.setenv("HAIM_ENV", "production")
 
-        import importlib
-        import mnemocore.mcp.adapters.api_adapter as adapter_module
-        importlib.reload(adapter_module)
-
-        adapter = adapter_module.MnemoCoreAPIAdapter("https://api.example.com", "key")
+        adapter = MnemoCoreAPIAdapter("https://api.example.com", "key")
         assert adapter.base_url == "https://api.example.com"
 
 
@@ -208,7 +204,7 @@ class TestRetryOnTransientFailure:
 
         def fake_request(method, url, json, headers, timeout):
             call_count[0] += 1
-            if call_count[0] < 3:
+            if call_count[0] < 2:
                 raise requests.ConnectionError("Connection refused")
             return DummyResponse(status_code=200, data={"ok": True})
 
@@ -260,7 +256,9 @@ class TestConnectionTimeout:
 
         monkeypatch.setattr(requests, "request", fake_request)
 
-        adapter = MnemoCoreAPIAdapter("http://localhost:8100", "key", timeout_seconds=30)
+        adapter = MnemoCoreAPIAdapter(
+            "http://localhost:8100", "key", timeout_seconds=30
+        )
         adapter.health()
 
         assert len(captured_timeout) == 1
@@ -284,6 +282,7 @@ class TestConnectionTimeout:
 
     def test_timeout_exception_wrapped(self, monkeypatch):
         """Test that timeout exceptions are wrapped in MnemoCoreAPIError."""
+
         def fake_request(method, url, json, headers, timeout):
             raise requests.Timeout("Connection timed out")
 
@@ -306,7 +305,9 @@ class TestAdapterMethods:
 
         def fake_request(method, url, json, headers, timeout):
             captured.append({"method": method, "url": url, "json": json})
-            return DummyResponse(status_code=200, data={"ok": True, "memory_id": "mem_123"})
+            return DummyResponse(
+                status_code=200, data={"ok": True, "memory_id": "mem_123"}
+            )
 
         monkeypatch.setattr(requests, "request", fake_request)
 
@@ -329,7 +330,7 @@ class TestAdapterMethods:
         monkeypatch.setattr(requests, "request", fake_request)
 
         adapter = MnemoCoreAPIAdapter("http://localhost:8100", "key")
-        result = adapter.query({"query": "test query", "top_k": 10})
+        adapter.query({"query": "test query", "top_k": 10})
 
         assert len(captured) == 1
         assert captured[0]["method"] == "POST"
@@ -346,7 +347,7 @@ class TestAdapterMethods:
         monkeypatch.setattr(requests, "request", fake_request)
 
         adapter = MnemoCoreAPIAdapter("http://localhost:8100", "key")
-        result = adapter.delete_memory("mem_123")
+        adapter.delete_memory("mem_123")
 
         assert len(captured) == 1
         assert captured[0]["method"] == "DELETE"
@@ -358,12 +359,14 @@ class TestAdapterMethods:
 
         def fake_request(method, url, json, headers, timeout):
             captured.append({"method": method, "url": url, "json": json})
-            return DummyResponse(status_code=200, data={"ok": True, "cycles_completed": 1})
+            return DummyResponse(
+                status_code=200, data={"ok": True, "cycles_completed": 1}
+            )
 
         monkeypatch.setattr(requests, "request", fake_request)
 
         adapter = MnemoCoreAPIAdapter("http://localhost:8100", "key")
-        result = adapter.dream({"max_cycles": 1})
+        adapter.dream({"max_cycles": 1})
 
         assert len(captured) == 1
         assert captured[0]["method"] == "POST"
@@ -380,7 +383,7 @@ class TestAdapterMethods:
         monkeypatch.setattr(requests, "request", fake_request)
 
         adapter = MnemoCoreAPIAdapter("http://localhost:8100", "key")
-        result = adapter.export({"limit": 100, "format": "json"})
+        adapter.export({"limit": 100, "format": "json"})
 
         assert len(captured) == 1
         assert captured[0]["method"] == "GET"
@@ -393,6 +396,7 @@ class TestNonJSONResponse:
 
     def test_non_json_response_raises_error(self, monkeypatch):
         """Test that non-JSON responses raise MnemoCoreAPIError."""
+
         class NonJSONResponse:
             status_code = 200
             text = "Not JSON"

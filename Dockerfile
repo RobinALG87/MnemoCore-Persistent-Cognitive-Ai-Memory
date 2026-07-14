@@ -3,7 +3,7 @@
 # Multi-stage build for optimized production image
 
 # Build argument for version (can be overridden in CI)
-ARG VERSION=2.0.0
+ARG VERSION=3.0.0
 
 # Stage 1: Builder
 FROM python:3.11.8-slim-bookworm AS builder
@@ -29,7 +29,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels .
 FROM python:3.11.8-slim-bookworm AS production
 
 # Re-declare ARG in production stage to use it
-ARG VERSION=2.0.0
+ARG VERSION=3.0.0
 
 # Labels for container metadata
 LABEL maintainer="MnemoCore Team"

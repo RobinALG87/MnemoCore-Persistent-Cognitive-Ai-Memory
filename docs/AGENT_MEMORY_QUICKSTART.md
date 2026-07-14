@@ -164,10 +164,9 @@ If a projection or search index is damaged, `rebuild()` repairs the client's
 exact scope from its immutable events. It does not read or rewrite another
 scope.
 
-## Unreleased v3 hybrid retrieval runtime
+## v3 hybrid retrieval runtime
 
-The published package remains v2.0.0. `HybridMemoryRuntime` is the unreleased
-v3 runtime layered over an already-open,
+`HybridMemoryRuntime` is the v3 runtime layered over an already-open,
 scope-bound `AgentMemory` client. AgentMemory remains the only durable source
 of truth; retrieval indexes and tier projections are rebuildable derivatives.
 The runtime uses lexical candidates plus deterministic BinaryHDV reranking and

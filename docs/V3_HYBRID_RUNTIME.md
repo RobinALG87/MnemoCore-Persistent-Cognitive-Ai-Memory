@@ -1,7 +1,7 @@
 # v3 Hybrid Runtime Milestone
 
-This document describes the implemented but **unreleased** v3 hybrid-runtime
-milestone. The published package remains v2.0.0. It is a safe migration layer,
+This document describes the v3 hybrid-runtime release. Version 3.0.0 is a safe
+migration layer,
 not a second memory database.
 
 ## What is available

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-07-14
+
 ### Added
 
 - **v3 hybrid-runtime milestone** — `HybridMemoryRuntime` and its explicit
@@ -25,9 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `HAIMEngineAdapter` is the deprecated compatibility bridge for legacy
-  store/query/delete flows. In the unreleased v3 migration path, `LiteEngine`
+  store/query/delete flows. In the v3 migration path, `LiteEngine`
   and `Memory(profile="lite")` are removed and raise a migration error instead
   of creating unscoped memory.
+
+### Security
+
+- Replaced MD5-based duplicate detection in the legacy self-improvement worker
+  with SHA-256.
 
 ## [2.0.0] — 2026-02-28
 
