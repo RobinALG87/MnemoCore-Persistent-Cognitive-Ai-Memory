@@ -10,10 +10,7 @@ permissions:
 jobs:
   build:
     name: Build and verify release artifacts
-    if: >-
-      startsWith(github.event.release.tag_name, 'v') &&
-      !github.event.release.prerelease &&
-      !github.event.release.draft
+    if: startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}

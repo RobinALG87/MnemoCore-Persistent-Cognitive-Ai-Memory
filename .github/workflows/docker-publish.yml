@@ -14,9 +14,8 @@ on:
 
 env:
   REGISTRY_GHCR: ghcr.io
-  # OCI image references must be lowercase. GitHub preserves the owner's
-  # capitalization in github.repository, which caused Trivy to reject tags.
-  IMAGE_NAME: mnemocore-persistent-cognitive-ai-memory
+  # OCI image references are lowercase and must include the GHCR namespace.
+  IMAGE_NAME: robinalg87/mnemocore-persistent-cognitive-ai-memory
 
 jobs:
   # ===========================================================================
@@ -28,6 +27,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -74,7 +75,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8
         with:
           image-ref: ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
           format: 'table'
