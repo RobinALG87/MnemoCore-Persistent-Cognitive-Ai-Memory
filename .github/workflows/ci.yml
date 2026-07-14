@@ -70,7 +70,9 @@ jobs:
       - name: Run flake8 (changed Python files)
         if: steps.changed-python.outputs.present == 'true'
         # Complexity is tracked separately while the persistence monolith is split.
-        run: xargs flake8 --max-line-length=120 --extend-ignore=E203,W503,C901 < changed-python-files.txt
+        # Black formats Protocol stubs with ``...`` onto the definition line; flake8
+        # calls that E704 even though it is the canonical Black output.
+        run: xargs flake8 --max-line-length=120 --extend-ignore=E203,W503,C901,E704 < changed-python-files.txt
 
       - name: Run mypy (static type checker)
         run: mypy src/ --ignore-missing-imports --no-strict-optional
