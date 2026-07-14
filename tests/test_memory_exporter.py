@@ -396,6 +396,7 @@ class TestExportParquet:
         assert result.success is True
         assert result.format == ExportFormat.PARQUET
         assert output_path.exists()
+        assert mock_qdrant_store.scroll.await_count == 1
 
     @pytest.mark.asyncio
     async def test_export_parquet_compression(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):

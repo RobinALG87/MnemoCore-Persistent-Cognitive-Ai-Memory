@@ -436,9 +436,11 @@ class MemoryExporter:
                 )
                 progress_callback(progress)
 
-            # Check limit
+            # Stop when the requested limit is reached or Qdrant has no next page.
             if options.limit and len(all_records) >= options.limit:
                 all_records = all_records[:options.limit]
+                break
+            if offset is None:
                 break
 
         # Convert to Arrow table
