@@ -94,6 +94,30 @@ def _freshly_validate(
     )
 
 
+async def _resolve_plan_sources(
+    memory: AgentMemory, validated_plan: ValidatedPlan
+) -> None:
+    """Require each cognitive source to be active in this bound exact scope."""
+    resolved_ids: set[str] = set()
+    for proposal in validated_plan.plan.proposals:
+        for memory_id in proposal.source_memory_ids:
+            if memory_id not in resolved_ids:
+                await memory.get(memory_id)
+                resolved_ids.add(memory_id)
+
+
+def _resolve_plan_sources_sync(
+    memory: SyncAgentMemory, validated_plan: ValidatedPlan
+) -> None:
+    """Synchronous counterpart of exact-scope cognitive source resolution."""
+    resolved_ids: set[str] = set()
+    for proposal in validated_plan.plan.proposals:
+        for memory_id in proposal.source_memory_ids:
+            if memory_id not in resolved_ids:
+                memory.get(memory_id)
+                resolved_ids.add(memory_id)
+
+
 def _require_client_scope(memory: AgentMemory, scope: MemoryScope) -> None:
     """Reject an explicit runtime scope that is not the client's bound scope."""
     bound_scope = memory._scope
@@ -199,6 +223,7 @@ class HybridMemoryRuntime:
     async def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:
         """Freshly validate and atomically apply a remember-only cognitive plan."""
         validated_plan = _freshly_validate(self._scope, plan)
+        await _resolve_plan_sources(self._memory, validated_plan)
         records = await self._memory.remember_many(_plan_writes(validated_plan))
         return PlanApplyReceipt(
             proposal_count=validated_plan.proposal_count,
@@ -311,6 +336,7 @@ class SyncHybridMemoryRuntime:
     def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:
         """Synchronously validate and atomically apply a remember-only plan."""
         validated_plan = _freshly_validate(self._scope, plan)
+        _resolve_plan_sources_sync(self._memory, validated_plan)
         records = self._memory.remember_many(_plan_writes(validated_plan))
         return PlanApplyReceipt(
             proposal_count=validated_plan.proposal_count,

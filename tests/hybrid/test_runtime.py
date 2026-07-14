@@ -7,6 +7,7 @@ import pytest
 from mnemocore.agent_memory import (
     AgentMemory,
     AgentMemoryError,
+    MemoryNotFoundError,
     MemoryScope,
     MemoryWrite,
     SyncAgentMemory,
@@ -234,25 +235,31 @@ async def test_apply_persists_a_validated_plan_atomically_and_returns_content_fr
 @pytest.mark.asyncio
 async def test_apply_persists_synthetic_provenance_and_source_ids(tmp_path):
     scope = _scope("local")
-    plan = CognitivePlan(
-        scope=scope,
-        provenance="reconstructive-recall",
-        confidence=0.9,
-        proposals=(
-            ProposedMemory(
-                "synthetic memory with sources",
-                MemoryKind.SUMMARY,
-                "gap-filling-job",
-                0.8,
-                source_memory_ids=("source-1", "source-2"),
-            ),
-        ),
-    )
 
     async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        first_source = await memory.remember("first source memory")
+        second_source = await memory.remember("second source memory")
+        plan = CognitivePlan(
+            scope=scope,
+            provenance="reconstructive-recall",
+            confidence=0.9,
+            proposals=(
+                ProposedMemory(
+                    "synthetic memory with sources",
+                    MemoryKind.SUMMARY,
+                    "gap-filling-job",
+                    0.8,
+                    source_memory_ids=(first_source.id, second_source.id),
+                ),
+            ),
+        )
         runtime = HybridMemoryRuntime(memory, scope=scope)
         await runtime.apply(plan)
-        stored = (await memory.list())[0]
+        stored = next(
+            record
+            for record in await memory.list()
+            if record.content == "synthetic memory with sources"
+        )
         recalled = await runtime.recall(scope, "synthetic memory sources")
 
     assert stored.metadata == {
@@ -260,11 +267,43 @@ async def test_apply_persists_synthetic_provenance_and_source_ids(tmp_path):
             "synthetic": True,
             "plan_provenance": "reconstructive-recall",
             "proposal_provenance": "gap-filling-job",
-            "source_memory_ids": ("source-1", "source-2"),
+            "source_memory_ids": (first_source.id, second_source.id),
         }
     }
     assert recalled[0].memory.id == stored.id
     assert recalled[0].memory.metadata == stored.metadata
+
+
+@pytest.mark.asyncio
+async def test_apply_rejects_a_foreign_source_id_without_local_writes(tmp_path):
+    database = tmp_path / "memory.db"
+    local_scope = _scope("local")
+    foreign_scope = _scope("foreign")
+    async with await AgentMemory.open(database, scope=local_scope) as local_memory:
+        async with await AgentMemory.open(
+            database, scope=foreign_scope
+        ) as foreign_memory:
+            foreign = await foreign_memory.remember("foreign source memory")
+
+        plan = CognitivePlan(
+            scope=local_scope,
+            provenance="reconstructive-recall",
+            confidence=0.9,
+            proposals=(
+                ProposedMemory(
+                    "must never be written",
+                    MemoryKind.SUMMARY,
+                    "gap-filling-job",
+                    0.8,
+                    source_memory_ids=(foreign.id,),
+                ),
+            ),
+        )
+
+        with pytest.raises(MemoryNotFoundError, match="not found in this scope"):
+            await HybridMemoryRuntime(local_memory, scope=local_scope).apply(plan)
+
+        assert await local_memory.list() == []
 
 
 @pytest.mark.asyncio

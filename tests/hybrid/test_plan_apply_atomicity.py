@@ -17,29 +17,29 @@ def _scope() -> MemoryScope:
 async def test_apply_rolls_back_every_proposal_when_a_later_write_fails(tmp_path):
     database = tmp_path / "memory.db"
     scope = _scope()
-    plan = CognitivePlan(
-        scope=scope,
-        provenance="cognitive-module",
-        confidence=0.8,
-        proposals=(
-            ProposedMemory(
-                "first atomic memory",
-                MemoryKind.FACT,
-                "cognitive-module",
-                0.8,
-                source_memory_ids=("source-memory",),
-            ),
-            ProposedMemory(
-                "forced failure memory",
-                MemoryKind.FACT,
-                "cognitive-module",
-                0.8,
-                source_memory_ids=("source-memory",),
-            ),
-        ),
-    )
-
     async with await AgentMemory.open(database, scope=scope) as memory:
+        source = await memory.remember("source for atomic plan")
+        plan = CognitivePlan(
+            scope=scope,
+            provenance="cognitive-module",
+            confidence=0.8,
+            proposals=(
+                ProposedMemory(
+                    "first atomic memory",
+                    MemoryKind.FACT,
+                    "cognitive-module",
+                    0.8,
+                    source_memory_ids=(source.id,),
+                ),
+                ProposedMemory(
+                    "forced failure memory",
+                    MemoryKind.FACT,
+                    "cognitive-module",
+                    0.8,
+                    source_memory_ids=(source.id,),
+                ),
+            ),
+        )
         with sqlite3.connect(database) as connection:
             connection.execute(
                 """
@@ -53,4 +53,4 @@ async def test_apply_rolls_back_every_proposal_when_a_later_write_fails(tmp_path
         with pytest.raises(StorageError, match="injected mid-plan failure"):
             await HybridMemoryRuntime(memory, scope=scope).apply(plan)
 
-        assert await memory.list() == []
+        assert [record.id for record in await memory.list()] == [source.id]
