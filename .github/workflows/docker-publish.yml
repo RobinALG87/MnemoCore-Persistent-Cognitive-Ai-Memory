@@ -14,7 +14,9 @@ on:
 
 env:
   REGISTRY_GHCR: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # OCI image references must be lowercase. GitHub preserves the owner's
+  # capitalization in github.repository, which caused Trivy to reject tags.
+  IMAGE_NAME: mnemocore-persistent-cognitive-ai-memory
 
 jobs:
   # ===========================================================================
