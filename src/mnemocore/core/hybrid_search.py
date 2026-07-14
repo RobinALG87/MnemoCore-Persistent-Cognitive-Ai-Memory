@@ -7,14 +7,14 @@ Reciprocal Rank Fusion (RRF) and weighted alpha blending.
 Phase 4.6: Enhanced semantic retrieval with multi-modal search support.
 """
 
-from typing import List, Dict, Any, Optional, Tuple, Set
-from dataclasses import dataclass, field
-from collections import defaultdict
 import asyncio
 import re
-from loguru import logger
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
+from loguru import logger
 
 
 @dataclass

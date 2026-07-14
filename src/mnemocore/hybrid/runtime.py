@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from dataclasses import dataclass
+from pathlib import Path
 
 from mnemocore.agent_memory import (
     AgentMemory,
@@ -22,13 +21,13 @@ from .contracts import (
     RetrievalObservability,
     RetrievalRequest,
 )
-from .retrieval import DeterministicHybridRetriever
 from .plans import (
     MINIMUM_APPLY_CONFIDENCE,
     CognitivePlan,
     ValidatedPlan,
     validate_plan,
 )
+from .retrieval import DeterministicHybridRetriever
 
 
 @dataclass(frozen=True, slots=True)

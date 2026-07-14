@@ -9,6 +9,7 @@ import pytest
 from mnemocore.agent_memory import (
     AgentMemory,
     AgentMemoryError,
+    MemoryKind,
     MemoryNotFoundError,
     MemoryScope,
     MemoryWrite,
@@ -16,20 +17,19 @@ from mnemocore.agent_memory import (
     ValidationError,
 )
 from mnemocore.hybrid import (
-    ExactScopeError,
     SCORING_VERSION,
+    ExactScopeError,
     HybridMemoryRuntime,
     PlanApplyReceipt,
     SyncHybridMemoryRuntime,
 )
-from mnemocore.hybrid.retrieval import lexical_similarity
 from mnemocore.hybrid.plans import (
     CognitivePlan,
     ProposedMemory,
     ValidatedPlan,
     validate_plan,
 )
-from mnemocore.agent_memory import MemoryKind
+from mnemocore.hybrid.retrieval import lexical_similarity
 
 
 def _scope(user_id: str) -> MemoryScope:

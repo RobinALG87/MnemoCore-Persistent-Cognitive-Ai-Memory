@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
 from loguru import logger
 
 from .gap_detector import GapDetector, GapRecord

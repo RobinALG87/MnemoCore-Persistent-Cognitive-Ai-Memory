@@ -11,18 +11,19 @@ Coverage:
 - Error handling: LLM returns garbage
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from mnemocore.core.gap_detector import GapDetector, GapDetectorConfig, GapRecord
 from mnemocore.core.gap_filler import (
-    GapFiller,
-    GapFillerConfig,
     _FILL_PROMPT_TEMPLATE,
     _REFINE_PROMPT_TEMPLATE,
+    GapFiller,
+    GapFillerConfig,
 )
-from mnemocore.core.gap_detector import GapDetector, GapRecord, GapDetectorConfig
 
 # =============================================================================
 # Fixtures

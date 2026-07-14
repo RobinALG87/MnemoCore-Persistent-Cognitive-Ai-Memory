@@ -10,8 +10,8 @@ from typing import Any, Optional, Protocol, runtime_checkable
 from .models import (
     MemoryHistoryEntry,
     MemoryKind,
-    MemoryRecord,
     MemoryReceipt,
+    MemoryRecord,
     MemoryScope,
     MemoryStatus,
     RecallResult,

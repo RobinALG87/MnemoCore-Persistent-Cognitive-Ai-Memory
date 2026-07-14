@@ -21,9 +21,9 @@ Organization:
 
 import os
 import threading
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
-from dataclasses import dataclass, field, replace
 
 import yaml
 

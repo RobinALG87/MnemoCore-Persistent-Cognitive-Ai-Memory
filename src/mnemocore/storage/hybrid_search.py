@@ -10,16 +10,17 @@ Phase 4.6: Enhanced semantic retrieval with multi-modal search support.
 """
 
 from numbers import Real
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 from loguru import logger
 
 # Re-export core hybrid search components
+from mnemocore.core.hybrid_search import HybridSearchConfig as _HybridSearchConfig
+from mnemocore.core.hybrid_search import HybridSearchEngine as _HybridSearchEngine
 from mnemocore.core.hybrid_search import (
-    HybridSearchEngine as _HybridSearchEngine,
-    HybridSearchConfig as _HybridSearchConfig,
+    ReciprocalRankFusion,
     SearchResult,
     SparseEncoder,
-    ReciprocalRankFusion,
 )
 
 

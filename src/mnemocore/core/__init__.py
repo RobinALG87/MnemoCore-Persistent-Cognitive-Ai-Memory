@@ -68,83 +68,82 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-from .node import MemoryNode
-from .synapse import SynapticConnection
-from .engine import HAIMEngine
-from .exceptions import (
-    MnemoCoreError,
-    StorageError,
-    StorageConnectionError,
-    StorageTimeoutError,
-    DataCorruptionError,
-    VectorError,
-    DimensionMismatchError,
-    VectorOperationError,
-    ConfigurationError,
-    CircuitOpenError,
-    MemoryOperationError,
-)
-
 # ── Phase 4.0 ────────────────────────────────────────────────────────
-from .attention import XORAttentionMasker, AttentionConfig, AttentionResult
+from .attention import AttentionConfig, AttentionResult, XORAttentionMasker
 from .bayesian_ltp import BayesianLTPUpdater, BayesianState, get_bayesian_updater
-from .semantic_consolidation import (
-    SemanticConsolidationWorker,
-    SemanticConsolidationConfig,
-)
-from .immunology import ImmunologyLoop, ImmunologyConfig
-from .gap_detector import GapDetector, GapDetectorConfig, GapRecord
-from .gap_filler import GapFiller, GapFillerConfig
-from .hnsw_index import HNSWIndexManager
-from .synapse_index import SynapseIndex
-
-# ── Phase 6 Refactor ──────────────────────────────────────────────────
-from .tier_manager import TierManager
-from .tier_storage import (
-    TierInterface,
-    HotTierStorage,
-    WarmTierStorage,
-    ColdTierStorage,
-)
-from .tier_eviction import (
-    EvictionPolicy,
-    EvictionStrategy,
-    LRUEvictionStrategy,
-    LTPEvictionStrategy,
-    ImportanceEvictionStrategy,
-    DecayTriggeredStrategy,
-    TierEvictionManager,
-)
-from .tier_scoring import (
-    TierScore,
-    SearchResult,
-    LTPCalculator,
-    RecencyScorer,
-    ImportanceScorer,
-    TierScoringManager,
-    TemporalScorer,
-    SearchScorer,
-)
 
 # ── Phase 6.0: Embedding Version Registry ───────────────────────────────
 from .embedding_registry import (
     EmbeddingModelSpec,
-    MigrationTask,
-    MigrationPlan,
-    MigrationStatus,
-    Priority,
     EmbeddingRegistry,
-    MigrationPlanner,
-    ReEmbeddingWorker,
     EmbeddingVersionManager,
+    MigrationPlan,
+    MigrationPlanner,
+    MigrationStatus,
+    MigrationTask,
+    Priority,
+    ReEmbeddingWorker,
     create_vector_metadata,
     verify_vector_compatibility,
 )
+from .engine import HAIMEngine
+from .engine_coordinator import EngineCoordinator
 
 # ── Phase 6.0: Engine Refactor Modules ──────────────────────────────────
 from .engine_core import EngineCoreOperations
 from .engine_lifecycle import EngineLifecycleManager
-from .engine_coordinator import EngineCoordinator
+from .exceptions import (
+    CircuitOpenError,
+    ConfigurationError,
+    DataCorruptionError,
+    DimensionMismatchError,
+    MemoryOperationError,
+    MnemoCoreError,
+    StorageConnectionError,
+    StorageError,
+    StorageTimeoutError,
+    VectorError,
+    VectorOperationError,
+)
+from .gap_detector import GapDetector, GapDetectorConfig, GapRecord
+from .gap_filler import GapFiller, GapFillerConfig
+from .hnsw_index import HNSWIndexManager
+from .immunology import ImmunologyConfig, ImmunologyLoop
+from .node import MemoryNode
+from .semantic_consolidation import (
+    SemanticConsolidationConfig,
+    SemanticConsolidationWorker,
+)
+from .synapse import SynapticConnection
+from .synapse_index import SynapseIndex
+from .tier_eviction import (
+    DecayTriggeredStrategy,
+    EvictionPolicy,
+    EvictionStrategy,
+    ImportanceEvictionStrategy,
+    LRUEvictionStrategy,
+    LTPEvictionStrategy,
+    TierEvictionManager,
+)
+
+# ── Phase 6 Refactor ──────────────────────────────────────────────────
+from .tier_manager import TierManager
+from .tier_scoring import (
+    ImportanceScorer,
+    LTPCalculator,
+    RecencyScorer,
+    SearchResult,
+    SearchScorer,
+    TemporalScorer,
+    TierScore,
+    TierScoringManager,
+)
+from .tier_storage import (
+    ColdTierStorage,
+    HotTierStorage,
+    TierInterface,
+    WarmTierStorage,
+)
 
 __all__ = [
     "BinaryHDV",

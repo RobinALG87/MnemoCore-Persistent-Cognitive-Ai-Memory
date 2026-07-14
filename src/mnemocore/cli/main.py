@@ -22,10 +22,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from typing import Optional, Callable, Any
+from typing import Any, Callable, Optional
 
 import click
-
 from loguru import logger
 
 # ============================================================================
@@ -48,8 +47,8 @@ async def engine_context(config_path: Optional[Path] = None):
         async with engine_context(config_path) as engine:
             result = await engine.query("test")
     """
-    from mnemocore.core.engine import HAIMEngine
     from mnemocore.core.config import load_config
+    from mnemocore.core.engine import HAIMEngine
 
     # Load config
     config = load_config(config_path) if config_path and config_path.exists() else None

@@ -11,64 +11,65 @@ organization and keeping each module under 800 lines. It is not the v3 runtime
 or persistence boundary: new code must use AgentMemory and HybridMemoryRuntime.
 """
 
-from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING
 import warnings
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
 from loguru import logger
 
-from .config import get_config, HAIMConfig
+from ..agent_memory import AgentMemory, MemoryNotFoundError, MemoryScope
+from ..hybrid import ExactScopeError, HybridMemoryRuntime
+
+# Phase 4.0 imports
+from .attention import (
+    AttentionConfig,
+    IsolationConfig,
+    XORAttentionMasker,
+    XORIsolationMask,
+)
 from .binary_hdv import BinaryHDV, TextEncoder
-from .node import MemoryNode
-from .synapse import SynapticConnection
-from .tier_manager import TierManager
+from .config import HAIMConfig, get_config
+from .engine_coordinator import EngineCoordinator
 
 # Import the mixin modules
 from .engine_core import EngineCoreOperations
 from .engine_lifecycle import EngineLifecycleManager
-from .engine_coordinator import EngineCoordinator
-
-# Phase 4.0 imports
-from .attention import (
-    XORAttentionMasker,
-    AttentionConfig,
-    XORIsolationMask,
-    IsolationConfig,
-)
+from .episodic_store import EpisodicStoreService
 from .gap_detector import GapDetector, GapDetectorConfig
 from .gap_filler import GapFiller
-from .synapse_index import SynapseIndex
-
-# Phase 5 AGI Stores
-from .working_memory import WorkingMemoryService
-from .episodic_store import EpisodicStoreService
-from .semantic_store import SemanticStoreService
-from .procedural_store import ProceduralStoreService
-from .meta_memory import MetaMemoryService
-
-# Phase 6+ Research Services
-from .strategy_bank import StrategyBankService
+from .immunology import ImmunologyLoop
 from .knowledge_graph import KnowledgeGraphService
-from .memory_scheduler import MemoryScheduler
 from .memory_exchange import MemoryExchangeProtocol
-from ..agent_memory import AgentMemory, MemoryNotFoundError, MemoryScope
-from ..hybrid import ExactScopeError, HybridMemoryRuntime
+from .memory_scheduler import MemoryScheduler
+from .meta_memory import MetaMemoryService
+from .node import MemoryNode
+from .procedural_store import ProceduralStoreService
 
 # Phase 4.0 workers
 from .semantic_consolidation import SemanticConsolidationWorker
-from .immunology import ImmunologyLoop
+from .semantic_store import SemanticStoreService
+
+# Phase 6+ Research Services
+from .strategy_bank import StrategyBankService
+from .synapse import SynapticConnection
+from .synapse_index import SynapseIndex
+from .tier_manager import TierManager
+
+# Phase 5 AGI Stores
+from .working_memory import WorkingMemoryService
 
 # Task 4.6: Move inline imports to top-level with TYPE_CHECKING guard
 if TYPE_CHECKING:
-    from .topic_tracker import TopicTracker
-    from .preference_store import PreferenceStore
-    from .anticipatory import AnticipatoryEngine
     from ..cognitive.associations import (
-        AssociationsNetwork,
         AssociationConfig,
         AssociationRecallIntegrator,
+        AssociationsNetwork,
     )
+    from .anticipatory import AnticipatoryEngine
     from .holographic import ConceptualMemory
+    from .preference_store import PreferenceStore
+    from .topic_tracker import TopicTracker
 
 
 class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator):
@@ -200,16 +201,16 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         self.topic_tracker = TopicTracker(self.config.context, self.dimension)
 
         # ── Phase 12.3: Preference Learning (Task 4.6: top-level import) ──────────
-        from .preference_store import (
+        from .preference_store import (  # Local import to avoid circular deps
             PreferenceStore,
-        )  # Local import to avoid circular deps
+        )
 
         self.preference_store = PreferenceStore(self.config.preference, self.dimension)
 
         # ── Phase 13.2: Anticipatory Memory (Task 4.6: top-level import) ──────────
-        from .anticipatory import (
+        from .anticipatory import (  # Local import to avoid circular deps
             AnticipatoryEngine,
-        )  # Local import to avoid circular deps
+        )
 
         self.anticipatory_engine = AnticipatoryEngine(
             self.config.anticipatory,
@@ -223,9 +224,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         # ── Phase 6.0: Association Network (Task 4.6: top-level import) ───────────
         # Initialize the graph-based association tracking system
         from ..cognitive.associations import (  # Local import to avoid circular deps
-            AssociationsNetwork,
             AssociationConfig,
             AssociationRecallIntegrator,
+            AssociationsNetwork,
         )
 
         # Task 4.7: Direct config access (associations now in HAIMConfig)
@@ -314,8 +315,8 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
                 - direct_matches: List of (node_id, similarity) tuples
         """
         from ..cognitive.memory_reconstructor import (
-            ReconstructiveRecall,
             ReconstructionConfig,
+            ReconstructiveRecall,
         )
 
         # Lazy load the reconstructor
@@ -363,8 +364,8 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
             config: Optional configuration overrides as dictionary.
         """
         from ..cognitive.memory_reconstructor import (
-            ReconstructiveRecall,
             ReconstructionConfig,
+            ReconstructiveRecall,
         )
 
         # Build config using dataclasses.replace for safe mutation

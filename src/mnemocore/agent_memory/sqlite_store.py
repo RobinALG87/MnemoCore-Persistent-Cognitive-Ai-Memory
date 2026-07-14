@@ -49,12 +49,12 @@ from .sqlite_codecs import (
     _timestamp_from_storage,
     _timestamp_to_storage,
 )
+from .store import MemoryWrite
 from .timeline import (
     build_superseded_payload,
     normalize_timeline_query,
     parse_superseded_payload,
 )
-from .store import MemoryWrite
 
 _T = TypeVar("_T")
 

@@ -14,104 +14,103 @@ This module is not the v3 AgentMemory persistence boundary. New deployments
 must use create_v3_app with a credential-to-exact-scope authorizer.
 """
 
-from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
-import os
-import sys
 import asyncio
+import os
 import secrets
+import sys
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request, Security, Depends
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
-from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel, Field, field_validator
 from loguru import logger
+from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from mnemocore.api.middleware import (
+    RATE_LIMIT_CONFIGS,
+    AnalogyRateLimiter,
+    ConceptRateLimiter,
+    QueryRateLimiter,
+    RateLimiter,
+    SecurityHeadersMiddleware,
+    StoreRateLimiter,
+    rate_limit_exception_handler,
+)
+from mnemocore.api.models import (  # Phase 5.0: Cognitive models; Phase 6.0: Association models
+    AnalogyRequest,
+    AnalogyResponse,
+    AnalogyResult,
+    AssociatedMemoryModel,
+    AssociationsPathRequest,
+    AssociationsPathResponse,
+    AssociationsQueryRequest,
+    AssociationsQueryResponse,
+    ConceptRequest,
+    ConceptResponse,
+    CreatePredictionRequest,
+    DeleteResponse,
+    DreamRequest,
+    DreamResponse,
+    EmotionalTagPatchRequest,
+    EpisodeStartRequest,
+    ErrorResponse,
+    ExportResponse,
+    GraphMetricsResponse,
+    HealthResponse,
+    ObserveRequest,
+    ProcedureFeedbackRequest,
+    ProposalStatusUpdate,
+    QueryRequest,
+    QueryResponse,
+    QueryResult,
+    ReinforceAssociationRequest,
+    ReinforceAssociationResponse,
+    ResolveContradictionRequest,
+    RLMQueryRequest,
+    RLMQueryResponse,
+    RootResponse,
+    StoreRequest,
+    StoreResponse,
+    VerifyPredictionRequest,
+)
 
 # Version management - single source of truth
 from mnemocore.api.version import get_version as get_api_version
-
-from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.config import get_config
-from mnemocore.core.container import build_container, Container
-from mnemocore.api.middleware import (
-    SecurityHeadersMiddleware,
-    RateLimiter,
-    StoreRateLimiter,
-    QueryRateLimiter,
-    ConceptRateLimiter,
-    AnalogyRateLimiter,
-    rate_limit_exception_handler,
-    RATE_LIMIT_CONFIGS,
-)
-from mnemocore.api.models import (
-    StoreRequest,
-    QueryRequest,
-    ConceptRequest,
-    AnalogyRequest,
-    StoreResponse,
-    QueryResponse,
-    QueryResult,
-    DeleteResponse,
-    ConceptResponse,
-    AnalogyResponse,
-    AnalogyResult,
-    HealthResponse,
-    RootResponse,
-    ErrorResponse,
-    # Phase 5.0: Cognitive models
-    ObserveRequest,
-    EpisodeStartRequest,
-    ProcedureFeedbackRequest,
-    ProposalStatusUpdate,
-    RLMQueryRequest,
-    RLMQueryResponse,
-    ResolveContradictionRequest,
-    EmotionalTagPatchRequest,
-    CreatePredictionRequest,
-    VerifyPredictionRequest,
-    DreamRequest,
-    DreamResponse,
-    ExportResponse,
-    # Phase 6.0: Association models
-    AssociationsQueryRequest,
-    AssociationsQueryResponse,
-    AssociationsPathRequest,
-    AssociationsPathResponse,
-    GraphMetricsResponse,
-    ReinforceAssociationRequest,
-    ReinforceAssociationResponse,
-    AssociatedMemoryModel,
-)
-from mnemocore.core.logging_config import configure_logging
+from mnemocore.core.container import Container, build_container
+from mnemocore.core.engine import HAIMEngine
 from mnemocore.core.exceptions import (
-    MnemoCoreError,
-    RecoverableError,
     IrrecoverableError,
-    ValidationError,
-    NotFoundError,
     MemoryNotFoundError,
+    MnemoCoreError,
+    NotFoundError,
+    RecoverableError,
+    ValidationError,
     is_debug_mode,
 )
+from mnemocore.core.logging_config import configure_logging
 
 # Configure logging
 configure_logging()
 
 # --- Observability ---
 from prometheus_client import make_asgi_app
+
 from mnemocore.core.metrics import (
     API_REQUEST_COUNT,
     API_REQUEST_LATENCY,
-    timer,
+    OTEL_AVAILABLE,
     STORAGE_OPERATION_COUNT,
     extract_trace_context,
     get_trace_id,
     init_opentelemetry,
+    timer,
     update_memory_count,
     update_queue_length,
-    OTEL_AVAILABLE,
 )
 
 # Initialize OpenTelemetry (optional, gracefully degrades if not installed)
