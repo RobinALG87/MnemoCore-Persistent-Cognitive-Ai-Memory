@@ -9,7 +9,6 @@ import tempfile
 from mnemocore._version import __version__
 from mnemocore.agent_memory import AgentMemory, MemoryKind, MemoryScope
 
-
 EXPECTED_VERSION = "3.0.0"
 
 
@@ -48,7 +47,9 @@ async def main() -> None:
                 reason="release smoke",
                 idempotency_key="release-smoke-v3-revision",
             )
-            forgotten = await memory.forget(replacement.id, reason="release smoke cleanup")
+            forgotten = await memory.forget(
+                replacement.id, reason="release smoke cleanup"
+            )
             if forgotten.id != replacement.id:
                 raise RuntimeError("Forget returned an unexpected memory")
             await memory.rebuild()

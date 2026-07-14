@@ -20,6 +20,7 @@ import numpy as np
 @dataclass
 class SearchResult:
     """A single search result with combined scores."""
+
     id: str
     score: float
     payload: Dict[str, Any]
@@ -33,6 +34,7 @@ class SearchResult:
 @dataclass
 class HybridSearchConfig:
     """Configuration for hybrid search."""
+
     mode: str = "hybrid"  # "dense", "sparse", or "hybrid"
     hybrid_alpha: float = 0.7  # Weight for dense search (0-1)
     rrf_k: int = 60  # RRF constant (higher = more ranking focused)
@@ -92,7 +94,7 @@ class SparseEncoder:
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenization supporting alphanumeric sequences."""
         # Extract alphanumeric sequences
-        tokens = re.findall(r'\b\w+\b', text.lower())
+        tokens = re.findall(r"\b\w+\b", text.lower())
         return tokens
 
     def encode(self, text: str) -> Dict[str, float]:
@@ -156,7 +158,8 @@ class SparseEncoder:
                 # TF component
                 tf = token_counts[token]
                 tf_normalized = (tf * (self.k1 + 1)) / (
-                    tf + self.k1 * (1 - self.b + self.b * doc_length / self.avg_doc_length)
+                    tf
+                    + self.k1 * (1 - self.b + self.b * doc_length / self.avg_doc_length)
                 )
 
                 score += idf * tf_normalized
@@ -305,7 +308,7 @@ class HybridSearchEngine:
                     continue
             except (TypeError, ValueError):
                 pass  # Fallback to including result if comparison fails due to type mismatch
-            
+
             results.append(
                 SearchResult(
                     id=doc_id,
@@ -394,12 +397,16 @@ class HybridSearchEngine:
 
         # Process dense results
         for doc_id, dense_score in dense_results:
-            norm_dense = (dense_score - min_dense) / dense_range if dense_range > 0 else 0.0
+            norm_dense = (
+                (dense_score - min_dense) / dense_range if dense_range > 0 else 0.0
+            )
             combined_scores[doc_id] = (norm_dense, 0.0, 0.0)
 
         # Process sparse results
         for doc_id, sparse_score in sparse_scores.items():
-            norm_sparse = (sparse_score - min_sparse) / sparse_range if sparse_range > 0 else 0.0
+            norm_sparse = (
+                (sparse_score - min_sparse) / sparse_range if sparse_range > 0 else 0.0
+            )
 
             if doc_id in combined_scores:
                 norm_dense, _, _ = combined_scores[doc_id]
@@ -408,15 +415,17 @@ class HybridSearchEngine:
 
             # Alpha blending
             hybrid_score = (
-                self.config.hybrid_alpha * norm_dense +
-                (1 - self.config.hybrid_alpha) * norm_sparse
+                self.config.hybrid_alpha * norm_dense
+                + (1 - self.config.hybrid_alpha) * norm_sparse
             )
             combined_scores[doc_id] = (hybrid_score, norm_dense, norm_sparse)
 
         # Sort by hybrid score
         ranked = sorted(
-            [(doc_id, scores[0], scores[1], scores[2])
-             for doc_id, scores in combined_scores.items()],
+            [
+                (doc_id, scores[0], scores[1], scores[2])
+                for doc_id, scores in combined_scores.items()
+            ],
             key=lambda x: x[1],
             reverse=True,
         )
@@ -425,10 +434,7 @@ class HybridSearchEngine:
         results = []
         for doc_id, hybrid_score, dense_norm, sparse_norm in ranked[:limit]:
             # Reconstruct original scores for reporting
-            orig_dense = next(
-                (s for did, s in dense_results if did == doc_id),
-                None
-            )
+            orig_dense = next((s for did, s in dense_results if did == doc_id), None)
             orig_sparse = sparse_scores.get(doc_id, 0.0)
 
             results.append(

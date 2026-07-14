@@ -1,6 +1,5 @@
 """Removed v2 ``Memory`` facade kept only to provide a safe migration error."""
 
-
 _MEMORY_FACADE_REMOVAL_MESSAGE = (
     "v3 migration: Memory is no longer available because it cannot bind an explicit "
     "MemoryScope. Migrate to AgentMemory with an explicit MemoryScope (or "

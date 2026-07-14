@@ -44,7 +44,9 @@ class TestCLIStore:
     def test_store_with_tags(self, runner, mock_engine):
         """Test store with tags."""
         with patch("mnemocore.core.engine.HAIMEngine", return_value=mock_engine):
-            result = runner.invoke(cli, ["store", "Test memory", "-t", "tag1", "-t", "tag2"])
+            result = runner.invoke(
+                cli, ["store", "Test memory", "-t", "tag1", "-t", "tag2"]
+            )
             assert result.exit_code == 0
 
     def test_store_json_output(self, runner, mock_engine):
@@ -223,7 +225,9 @@ class TestCLIExport:
             output_path = Path(tmpdir) / "export.json"
 
             with patch("mnemocore.core.engine.HAIMEngine", return_value=mock_engine):
-                result = runner.invoke(cli, ["export", "-f", "json", "-o", str(output_path)])
+                result = runner.invoke(
+                    cli, ["export", "-f", "json", "-o", str(output_path)]
+                )
                 assert result.exit_code == 0
                 # The export command runs async, file may not be created in test
                 # Just verify the command runs successfully
@@ -250,7 +254,9 @@ class TestCLIExport:
             output_path = Path(tmpdir) / "export.jsonl"
 
             with patch("mnemocore.core.engine.HAIMEngine", return_value=mock_engine):
-                result = runner.invoke(cli, ["export", "-f", "jsonl", "-o", str(output_path)])
+                result = runner.invoke(
+                    cli, ["export", "-f", "jsonl", "-o", str(output_path)]
+                )
                 assert result.exit_code == 0
                 # The export command runs async, file may not be created in test
                 # Just verify the command runs successfully
@@ -270,7 +276,9 @@ class TestCLIDream:
         mock_engine.tier_manager = MagicMock()
         mock_engine.tier_manager.get_all_hot = AsyncMock(return_value=[])
 
-        with patch("mnemocore.subconscious.dream_pipeline.DreamPipeline") as mock_pipeline:
+        with patch(
+            "mnemocore.subconscious.dream_pipeline.DreamPipeline"
+        ) as mock_pipeline:
             mock_pipeline.return_value.run = AsyncMock(
                 return_value={
                     "success": True,

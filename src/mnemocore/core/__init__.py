@@ -55,14 +55,19 @@ Example:
 """
 
 from .binary_hdv import BinaryHDV
+
 # Backward-compatibility re-export – import HDV lazily to avoid triggering
 # the module-level DeprecationWarning at package import time.
 
+
 def __getattr__(name):
-    if name == 'HDV':
+    if name == "HDV":
         from .hdv import HDV  # Deprecated - kept for backward compatibility
+
         return HDV
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 from .node import MemoryNode
 from .synapse import SynapticConnection
 from .engine import HAIMEngine
@@ -83,7 +88,10 @@ from .exceptions import (
 # ── Phase 4.0 ────────────────────────────────────────────────────────
 from .attention import XORAttentionMasker, AttentionConfig, AttentionResult
 from .bayesian_ltp import BayesianLTPUpdater, BayesianState, get_bayesian_updater
-from .semantic_consolidation import SemanticConsolidationWorker, SemanticConsolidationConfig
+from .semantic_consolidation import (
+    SemanticConsolidationWorker,
+    SemanticConsolidationConfig,
+)
 from .immunology import ImmunologyLoop, ImmunologyConfig
 from .gap_detector import GapDetector, GapDetectorConfig, GapRecord
 from .gap_filler import GapFiller, GapFillerConfig

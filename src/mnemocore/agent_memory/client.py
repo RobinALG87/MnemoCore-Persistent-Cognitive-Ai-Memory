@@ -118,9 +118,7 @@ class AgentMemory:
             raise StorageError(
                 "memory store does not support atomic active-source batch writes"
             )
-        return await operation(
-            self._scope, writes, source_memory_ids=source_memory_ids
-        )
+        return await operation(self._scope, writes, source_memory_ids=source_memory_ids)
 
     async def recall(
         self,

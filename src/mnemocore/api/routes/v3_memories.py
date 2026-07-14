@@ -92,7 +92,9 @@ class V3RememberRequest(V3ScopeRequest):
 
     @field_validator("metadata")
     @classmethod
-    def validate_metadata(cls, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    def validate_metadata(
+        cls, metadata: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         if metadata is None:
             return metadata
         if len(metadata) > _METADATA_MAX_ITEMS:

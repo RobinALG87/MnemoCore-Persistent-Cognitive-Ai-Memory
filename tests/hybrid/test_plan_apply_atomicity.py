@@ -47,14 +47,12 @@ async def test_apply_rolls_back_every_proposal_when_a_later_write_fails(tmp_path
             ),
         )
         with sqlite3.connect(database) as connection:
-            connection.execute(
-                """
+            connection.execute("""
                 CREATE TRIGGER fail_second_plan_write
                 BEFORE INSERT ON memories
                 WHEN NEW.content = 'forced failure memory'
                 BEGIN SELECT RAISE(ABORT, 'injected mid-plan failure'); END;
-                """
-            )
+                """)
 
         with pytest.raises(StorageError, match="injected mid-plan failure"):
             await HybridMemoryRuntime(memory, scope=scope).apply(plan)
@@ -63,7 +61,9 @@ async def test_apply_rolls_back_every_proposal_when_a_later_write_fails(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_apply_rechecks_a_source_invalidated_after_proposal_without_writing(tmp_path):
+async def test_apply_rechecks_a_source_invalidated_after_proposal_without_writing(
+    tmp_path,
+):
     database = tmp_path / "memory.db"
     scope = _scope()
     async with await AgentMemory.open(database, scope=scope) as memory:

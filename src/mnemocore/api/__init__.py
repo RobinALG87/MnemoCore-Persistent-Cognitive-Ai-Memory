@@ -46,4 +46,3 @@ Example:
             headers={"X-API-Key": "your-key"}
         )
 """
-

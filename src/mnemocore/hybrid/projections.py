@@ -52,7 +52,9 @@ class GraphProjection:
     edges: tuple[tuple[str, str], ...]
 
 
-def _exact_scope_records(scope: MemoryScope, records: Iterable[MemoryRecord]) -> tuple[MemoryRecord, ...]:
+def _exact_scope_records(
+    scope: MemoryScope, records: Iterable[MemoryRecord]
+) -> tuple[MemoryRecord, ...]:
     if not isinstance(scope, MemoryScope):
         raise TypeError("scope must be a MemoryScope")
     materialized = tuple(records)
@@ -64,7 +66,9 @@ def _exact_scope_records(scope: MemoryScope, records: Iterable[MemoryRecord]) ->
     return materialized
 
 
-def rebuild_tier_projection(scope: MemoryScope, records: Iterable[MemoryRecord]) -> TierProjection:
+def rebuild_tier_projection(
+    scope: MemoryScope, records: Iterable[MemoryRecord]
+) -> TierProjection:
     """Build a stable tier projection without persisting any duplicate state."""
     by_tier: dict[MemoryTier, list[str]] = {tier: [] for tier in MemoryTier}
     for record in _exact_scope_records(scope, records):
@@ -75,7 +79,9 @@ def rebuild_tier_projection(scope: MemoryScope, records: Iterable[MemoryRecord])
     )
 
 
-def rebuild_graph_projection(scope: MemoryScope, records: Iterable[MemoryRecord]) -> GraphProjection:
+def rebuild_graph_projection(
+    scope: MemoryScope, records: Iterable[MemoryRecord]
+) -> GraphProjection:
     """Build a stable graph using only ``related_memory_ids`` in records' metadata."""
     exact_records = _exact_scope_records(scope, records)
     node_ids = tuple(sorted(record.id for record in exact_records))

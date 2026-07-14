@@ -9,7 +9,6 @@ from mnemocore.agent_memory import MemoryKind, MemoryScope
 
 from .contracts import ExactScopeError
 
-
 MINIMUM_APPLY_CONFIDENCE = 0.5
 
 
@@ -20,7 +19,11 @@ def _require_provenance(value: object) -> str:
 
 
 def _require_confidence(value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
         raise ValueError("confidence must be between 0 and 1")
     if not 0.0 <= value <= 1.0:
         raise ValueError("confidence must be between 0 and 1")
@@ -49,7 +52,9 @@ class ProposedMemory:
         object.__setattr__(
             self,
             "source_memory_ids",
-            tuple(_require_provenance(memory_id) for memory_id in self.source_memory_ids),
+            tuple(
+                _require_provenance(memory_id) for memory_id in self.source_memory_ids
+            ),
         )
 
 
@@ -80,6 +85,7 @@ class ValidatedPlan:
     scope: MemoryScope
     plan: CognitivePlan
     proposal_count: int
+
     def __post_init__(self) -> None:
         if not isinstance(self.scope, MemoryScope):
             raise TypeError("scope must be a MemoryScope")

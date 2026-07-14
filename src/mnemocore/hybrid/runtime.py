@@ -315,9 +315,7 @@ class SyncHybridMemoryRuntime:
         """Get one active record from this runtime's exact scope."""
         return self._memory.get(memory_id)
 
-    def forget(
-        self, memory_id: str, *, reason: str | None = None
-    ) -> MemoryRecord:
+    def forget(self, memory_id: str, *, reason: str | None = None) -> MemoryRecord:
         """Forget one record in this runtime's exact scope."""
         return self._memory.forget(memory_id, reason=reason)
 

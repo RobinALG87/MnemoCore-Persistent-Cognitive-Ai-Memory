@@ -33,10 +33,10 @@ from mnemocore.storage.memory_exporter import (
 )
 from mnemocore.utils.json_compat import dumps, loads
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def temp_export_dir(tmp_path):
@@ -62,6 +62,7 @@ def mock_qdrant_store():
 @dataclass
 class MockRecord:
     """Mock Qdrant record for testing."""
+
     id: str
     vector: list
     payload: dict
@@ -72,16 +73,18 @@ def sample_records():
     """Create sample records for testing."""
     records = []
     for i in range(10):
-        records.append(MockRecord(
-            id=f"point_{i:04d}",
-            vector=[float(i) * 0.1] * 128,
-            payload={
-                "content": f"Test content {i}",
-                "tier": "hot" if i % 2 == 0 else "warm",
-                "timestamp": datetime.now().isoformat(),
-                "metadata": {"index": i},
-            },
-        ))
+        records.append(
+            MockRecord(
+                id=f"point_{i:04d}",
+                vector=[float(i) * 0.1] * 128,
+                payload={
+                    "content": f"Test content {i}",
+                    "tier": "hot" if i % 2 == 0 else "warm",
+                    "timestamp": datetime.now().isoformat(),
+                    "metadata": {"index": i},
+                },
+            )
+        )
     return records
 
 
@@ -90,14 +93,16 @@ def large_record_set():
     """Create 1000+ records for large export testing."""
     records = []
     for i in range(1500):
-        records.append(MockRecord(
-            id=f"large_point_{i:05d}",
-            vector=[float(i % 100) * 0.01] * 256,
-            payload={
-                "content": f"Large export content {i}" * 10,
-                "index": i,
-            },
-        ))
+        records.append(
+            MockRecord(
+                id=f"large_point_{i:05d}",
+                vector=[float(i % 100) * 0.01] * 256,
+                payload={
+                    "content": f"Large export content {i}" * 10,
+                    "index": i,
+                },
+            )
+        )
     return records
 
 
@@ -121,6 +126,7 @@ def exporter_with_options(mock_qdrant_store):
 # =============================================================================
 # ExportOptions Tests
 # =============================================================================
+
 
 class TestExportOptions:
     """Tests for ExportOptions configuration."""
@@ -211,11 +217,14 @@ class TestExportResult:
 # JSON Export Tests
 # =============================================================================
 
+
 class TestExportJSON:
     """Tests for JSON export format."""
 
     @pytest.mark.asyncio
-    async def test_export_json_basic(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_json_basic(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Basic JSON export works correctly."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -238,12 +247,14 @@ class TestExportJSON:
         assert output_path.exists()
 
         # Verify JSON is valid
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_export_json_with_vectors(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_json_with_vectors(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """JSON export includes vectors when requested."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -260,7 +271,7 @@ class TestExportJSON:
 
         await exporter.export("test_collection", output_path, options)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
 
         assert len(data) == 2
@@ -268,7 +279,9 @@ class TestExportJSON:
         assert len(data[0]["vector"]) == 128
 
     @pytest.mark.asyncio
-    async def test_export_json_without_vectors(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_json_without_vectors(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """JSON export excludes vectors when requested."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -285,13 +298,15 @@ class TestExportJSON:
 
         await exporter.export("test_collection", output_path, options)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
 
         assert "vector" not in data[0]
 
     @pytest.mark.asyncio
-    async def test_export_json_pretty_print(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_json_pretty_print(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """JSON export with pretty print formatting."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -308,23 +323,26 @@ class TestExportJSON:
 
         await exporter.export("test_collection", output_path, options)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             content = f.read()
 
         # Pretty printed JSON should have newlines and indentation
-        assert '\n' in content
-        assert '  ' in content or '\t' in content
+        assert "\n" in content
+        assert "  " in content or "\t" in content
 
 
 # =============================================================================
 # JSONL Export Tests
 # =============================================================================
 
+
 class TestExportJSONL:
     """Tests for JSONL export format."""
 
     @pytest.mark.asyncio
-    async def test_export_jsonl_basic(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_jsonl_basic(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Basic JSONL export works correctly."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -342,7 +360,7 @@ class TestExportJSONL:
         assert result.format == ExportFormat.JSONL
 
         # Verify JSONL format - one JSON object per line
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             lines = f.readlines()
 
         assert len(lines) == 10
@@ -351,7 +369,9 @@ class TestExportJSONL:
             assert "id" in record
 
     @pytest.mark.asyncio
-    async def test_export_jsonl_line_format(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_jsonl_line_format(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Each line in JSONL is a valid JSON object."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -364,7 +384,7 @@ class TestExportJSONL:
 
         await exporter.export("test_collection", output_path, options)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             for i, line in enumerate(f):
                 record = json.loads(line.strip())
                 assert record["id"] == f"point_{i:04d}"
@@ -374,11 +394,14 @@ class TestExportJSONL:
 # Parquet Export Tests
 # =============================================================================
 
+
 class TestExportParquet:
     """Tests for Parquet export format."""
 
     @pytest.mark.asyncio
-    async def test_export_parquet_basic(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_parquet_basic(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Basic Parquet export works correctly."""
         pytest.importorskip("pyarrow")
 
@@ -399,7 +422,9 @@ class TestExportParquet:
         assert mock_qdrant_store.scroll.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_export_parquet_compression(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_parquet_compression(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Parquet export with compression options."""
         pytest.importorskip("pyarrow")
 
@@ -419,9 +444,11 @@ class TestExportParquet:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_export_parquet_missing_dependency(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_parquet_missing_dependency(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Parquet export fails gracefully without PyArrow."""
-        with patch.dict('sys.modules', {'pyarrow': None, 'pyarrow.parquet': None}):
+        with patch.dict("sys.modules", {"pyarrow": None, "pyarrow.parquet": None}):
             mock_qdrant_store.scroll = AsyncMock(
                 side_effect=[
                     (sample_records, None),
@@ -441,11 +468,14 @@ class TestExportParquet:
 # Vector Compression Tests
 # =============================================================================
 
+
 class TestVectorCompression:
     """Tests for vector compression in exports."""
 
     @pytest.mark.asyncio
-    async def test_compressed_vector_structure(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_compressed_vector_structure(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Compressed vectors have correct structure."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -462,7 +492,7 @@ class TestVectorCompression:
 
         await exporter.export("test_collection", output_path, options)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
 
         vector = data[0]["vector"]
@@ -491,7 +521,9 @@ class TestVectorCompression:
         assert compressed["max"] == 1.0
 
     @pytest.mark.asyncio
-    async def test_compression_reduces_size(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_compression_reduces_size(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Compressed vectors are smaller than full vectors."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -526,15 +558,20 @@ class TestVectorCompression:
 # Empty Collection Tests
 # =============================================================================
 
+
 class TestEmptyCollectionExport:
     """Tests for exporting empty collections."""
 
     @pytest.mark.asyncio
-    async def test_export_empty_json(self, exporter, mock_qdrant_store, temp_export_dir):
+    async def test_export_empty_json(
+        self, exporter, mock_qdrant_store, temp_export_dir
+    ):
         """Empty collection exports as empty JSON array."""
         mock_collection_info = MagicMock()
         mock_collection_info.points_count = 0
-        mock_qdrant_store.get_collection_info = AsyncMock(return_value=mock_collection_info)
+        mock_qdrant_store.get_collection_info = AsyncMock(
+            return_value=mock_collection_info
+        )
         mock_qdrant_store.scroll = AsyncMock(return_value=([], None))
 
         output_path = temp_export_dir / "empty.json"
@@ -543,16 +580,20 @@ class TestEmptyCollectionExport:
         assert result.success is True
         assert result.records_exported == 0
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
         assert data == []
 
     @pytest.mark.asyncio
-    async def test_export_empty_jsonl(self, exporter, mock_qdrant_store, temp_export_dir):
+    async def test_export_empty_jsonl(
+        self, exporter, mock_qdrant_store, temp_export_dir
+    ):
         """Empty collection exports as empty JSONL file."""
         mock_collection_info = MagicMock()
         mock_collection_info.points_count = 0
-        mock_qdrant_store.get_collection_info = AsyncMock(return_value=mock_collection_info)
+        mock_qdrant_store.get_collection_info = AsyncMock(
+            return_value=mock_collection_info
+        )
         mock_qdrant_store.scroll = AsyncMock(return_value=([], None))
 
         output_path = temp_export_dir / "empty.jsonl"
@@ -567,15 +608,21 @@ class TestEmptyCollectionExport:
 # Large Export Tests
 # =============================================================================
 
+
 class TestLargeExport:
     """Tests for exporting large collections (1000+ records)."""
 
     @pytest.mark.asyncio
-    async def test_large_export_batching(self, exporter, mock_qdrant_store, large_record_set, temp_export_dir):
+    async def test_large_export_batching(
+        self, exporter, mock_qdrant_store, large_record_set, temp_export_dir
+    ):
         """Large export batches correctly."""
         # Simulate batching with scroll
         batch_size = 100
-        batches = [large_record_set[i:i+batch_size] for i in range(0, len(large_record_set), batch_size)]
+        batches = [
+            large_record_set[i : i + batch_size]
+            for i in range(0, len(large_record_set), batch_size)
+        ]
 
         scroll_results = []
         for i, batch in enumerate(batches):
@@ -592,11 +639,16 @@ class TestLargeExport:
         assert result.records_exported == len(large_record_set)
 
     @pytest.mark.asyncio
-    async def test_large_export_streaming_write(self, exporter, mock_qdrant_store, large_record_set, temp_export_dir):
+    async def test_large_export_streaming_write(
+        self, exporter, mock_qdrant_store, large_record_set, temp_export_dir
+    ):
         """Large export uses streaming write to avoid memory issues."""
         # Setup scroll to return batches
         batch_size = 100
-        batches = [large_record_set[i:i+batch_size] for i in range(0, len(large_record_set), batch_size)]
+        batches = [
+            large_record_set[i : i + batch_size]
+            for i in range(0, len(large_record_set), batch_size)
+        ]
 
         scroll_results = []
         for i, batch in enumerate(batches):
@@ -612,15 +664,20 @@ class TestLargeExport:
         assert result.success is True
 
         # Verify file was written incrementally (check line count)
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             line_count = sum(1 for _ in f)
         assert line_count == len(large_record_set)
 
     @pytest.mark.asyncio
-    async def test_large_export_progress_callback(self, exporter, mock_qdrant_store, large_record_set, temp_export_dir):
+    async def test_large_export_progress_callback(
+        self, exporter, mock_qdrant_store, large_record_set, temp_export_dir
+    ):
         """Progress callback is invoked during large export."""
         batch_size = 100
-        batches = [large_record_set[i:i+batch_size] for i in range(0, len(large_record_set), batch_size)]
+        batches = [
+            large_record_set[i : i + batch_size]
+            for i in range(0, len(large_record_set), batch_size)
+        ]
 
         scroll_results = []
         for i, batch in enumerate(batches):
@@ -637,7 +694,9 @@ class TestLargeExport:
         output_path = temp_export_dir / "progress.json"
         options = ExportOptions(batch_size=100)
 
-        await exporter.export("large_collection", output_path, options, progress_callback)
+        await exporter.export(
+            "large_collection", output_path, options, progress_callback
+        )
 
         # Progress callback should have been called multiple times
         assert len(progress_calls) > 0
@@ -651,11 +710,14 @@ class TestLargeExport:
 # Limit and Filtering Tests
 # =============================================================================
 
+
 class TestExportLimit:
     """Tests for export limit functionality."""
 
     @pytest.mark.asyncio
-    async def test_export_limit(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_limit(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Export limit is respected."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -669,7 +731,7 @@ class TestExportLimit:
         result = await exporter.export("test_collection", output_path, options)
 
         # Should only export 5 records
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
         assert len(data) == 5
 
@@ -678,11 +740,14 @@ class TestExportLimit:
 # Round-Trip Integrity Tests
 # =============================================================================
 
+
 class TestRoundTripIntegrity:
     """Tests for export -> import round-trip integrity."""
 
     @pytest.mark.asyncio
-    async def test_json_roundtrip_data_integrity(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_json_roundtrip_data_integrity(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Exported JSON data maintains integrity for re-import."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -693,7 +758,7 @@ class TestRoundTripIntegrity:
         output_path = temp_export_dir / "roundtrip.json"
         await exporter.export("test_collection", output_path)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             exported_data = json.load(f)
 
         # Verify all records are present
@@ -706,7 +771,9 @@ class TestRoundTripIntegrity:
             assert "vector" in record
 
     @pytest.mark.asyncio
-    async def test_jsonl_roundtrip_data_integrity(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_jsonl_roundtrip_data_integrity(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Exported JSONL data maintains integrity for re-import."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -719,7 +786,7 @@ class TestRoundTripIntegrity:
         await exporter.export("test_collection", output_path, options)
 
         # Read back and verify
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             lines = f.readlines()
 
         assert len(lines) == len(sample_records)
@@ -729,7 +796,9 @@ class TestRoundTripIntegrity:
             assert record["id"] == f"point_{i:04d}"
 
     @pytest.mark.asyncio
-    async def test_vector_values_preserved(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_vector_values_preserved(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Vector values are preserved during export."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -742,7 +811,7 @@ class TestRoundTripIntegrity:
         options = ExportOptions(vector_mode=VectorExportMode.FULL)
         await exporter.export("test_collection", output_path, options)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
 
         # Compare vectors with tolerance for floating point
@@ -756,6 +825,7 @@ class TestRoundTripIntegrity:
 # =============================================================================
 # Record Serialization Tests
 # =============================================================================
+
 
 class TestRecordSerialization:
     """Tests for record serialization."""
@@ -806,11 +876,14 @@ class TestRecordSerialization:
 # Error Handling Tests
 # =============================================================================
 
+
 class TestExportErrorHandling:
     """Tests for error handling during export."""
 
     @pytest.mark.asyncio
-    async def test_export_creates_output_directory(self, exporter, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_creates_output_directory(
+        self, exporter, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """Export creates output directory if it doesn't exist."""
         new_dir = temp_export_dir / "new_subdir" / "deep"
         output_path = new_dir / "export.json"
@@ -828,7 +901,9 @@ class TestExportErrorHandling:
         assert new_dir.exists()
 
     @pytest.mark.asyncio
-    async def test_export_handles_scroll_error(self, exporter, mock_qdrant_store, temp_export_dir):
+    async def test_export_handles_scroll_error(
+        self, exporter, mock_qdrant_store, temp_export_dir
+    ):
         """Export handles scroll errors gracefully."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=Exception("Database connection lost")
@@ -845,14 +920,20 @@ class TestExportErrorHandling:
 # Batch Export Tests
 # =============================================================================
 
+
 class TestBatchExport:
     """Tests for batch export functionality."""
 
     @pytest.mark.asyncio
-    async def test_export_batch_creates_multiple_files(self, exporter, mock_qdrant_store, large_record_set, temp_export_dir):
+    async def test_export_batch_creates_multiple_files(
+        self, exporter, mock_qdrant_store, large_record_set, temp_export_dir
+    ):
         """Batch export creates multiple files for large collections."""
         batch_size = 100
-        batches = [large_record_set[i:i+batch_size] for i in range(0, len(large_record_set), batch_size)]
+        batches = [
+            large_record_set[i : i + batch_size]
+            for i in range(0, len(large_record_set), batch_size)
+        ]
 
         scroll_results = []
         for i, batch in enumerate(batches):
@@ -880,11 +961,14 @@ class TestBatchExport:
 # Convenience Function Tests
 # =============================================================================
 
+
 class TestExportMemoriesFunction:
     """Tests for the export_memories convenience function."""
 
     @pytest.mark.asyncio
-    async def test_export_memories_function(self, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_memories_function(
+        self, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """export_memories convenience function works correctly."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[
@@ -905,7 +989,9 @@ class TestExportMemoriesFunction:
         assert output_path.exists()
 
     @pytest.mark.asyncio
-    async def test_export_memories_with_options(self, mock_qdrant_store, sample_records, temp_export_dir):
+    async def test_export_memories_with_options(
+        self, mock_qdrant_store, sample_records, temp_export_dir
+    ):
         """export_memories accepts additional options."""
         mock_qdrant_store.scroll = AsyncMock(
             side_effect=[

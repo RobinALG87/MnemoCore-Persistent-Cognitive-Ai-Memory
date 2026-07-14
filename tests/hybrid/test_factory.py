@@ -12,7 +12,9 @@ def _scope(user_id: str = "user") -> MemoryScope:
 
 
 @pytest.mark.asyncio
-async def test_factory_opens_an_exact_scope_runtime_and_exposes_content_free_metadata(tmp_path):
+async def test_factory_opens_an_exact_scope_runtime_and_exposes_content_free_metadata(
+    tmp_path,
+):
     scope = _scope()
     factory = RuntimeFactory(tmp_path / "memory.db")
 

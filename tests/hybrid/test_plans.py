@@ -78,9 +78,7 @@ def test_validated_plan_rejects_direct_construction_with_a_different_scope():
         scope=scope,
         provenance="cognitive-module",
         confidence=0.5,
-        proposals=(
-            ProposedMemory("memory", MemoryKind.FACT, "cognitive-module", 0.5),
-        ),
+        proposals=(ProposedMemory("memory", MemoryKind.FACT, "cognitive-module", 0.5),),
     )
 
     with pytest.raises(ValueError, match="does not match the plan scope"):
@@ -93,10 +91,10 @@ def test_validated_plan_rejects_direct_construction_with_an_incorrect_count():
         scope=scope,
         provenance="cognitive-module",
         confidence=0.5,
-        proposals=(
-            ProposedMemory("memory", MemoryKind.FACT, "cognitive-module", 0.5),
-        ),
+        proposals=(ProposedMemory("memory", MemoryKind.FACT, "cognitive-module", 0.5),),
     )
 
-    with pytest.raises(ValueError, match="proposal_count must match the plan proposals"):
+    with pytest.raises(
+        ValueError, match="proposal_count must match the plan proposals"
+    ):
         ValidatedPlan(scope=scope, plan=plan, proposal_count=0)

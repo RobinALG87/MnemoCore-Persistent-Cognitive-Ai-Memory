@@ -24,10 +24,10 @@ from mnemocore.core.gap_filler import (
 )
 from mnemocore.core.gap_detector import GapDetector, GapRecord, GapDetectorConfig
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def gap_filler_config():
@@ -101,13 +101,16 @@ def mock_engine():
 def mock_llm_integrator():
     """Create a mock LLM integrator."""
     integrator = MagicMock()
-    integrator._call_llm = MagicMock(return_value="- Statement one about the topic.\n- Statement two with more info.\n- Statement three with details.")
+    integrator._call_llm = MagicMock(
+        return_value="- Statement one about the topic.\n- Statement two with more info.\n- Statement three with details."
+    )
     return integrator
 
 
 # =============================================================================
 # GapFillerConfig Tests
 # =============================================================================
+
 
 class TestGapFillerConfig:
     """Test GapFillerConfig dataclass."""
@@ -143,6 +146,7 @@ class TestGapFillerConfig:
 # GapFiller Initialization Tests
 # =============================================================================
 
+
 class TestGapFillerInit:
     """Test GapFiller initialization."""
 
@@ -155,9 +159,13 @@ class TestGapFillerInit:
         assert filler.detector == gap_detector
         assert filler.cfg.max_fills_per_hour == 20  # Default
 
-    def test_init_with_custom_config(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_init_with_custom_config(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """GapFiller should use custom config when provided."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         assert filler.cfg.max_fills_per_hour == 10
         assert filler.cfg.min_priority_to_fill == 0.3
@@ -176,14 +184,19 @@ class TestGapFillerInit:
 # GapFiller Lifecycle Tests
 # =============================================================================
 
+
 class TestGapFillerLifecycle:
     """Test GapFiller start/stop lifecycle."""
 
     @pytest.mark.asyncio
-    async def test_start_enabled(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_start_enabled(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """GapFiller should start when enabled."""
         gap_filler_config.poll_interval_seconds = 0.1  # Short for testing
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         await filler.start()
         await asyncio.sleep(0.05)
@@ -197,7 +210,9 @@ class TestGapFillerLifecycle:
     async def test_start_disabled(self, mock_engine, mock_llm_integrator, gap_detector):
         """GapFiller should not start when disabled."""
         config = GapFillerConfig(enabled=False)
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=config
+        )
 
         await filler.start()
 
@@ -205,10 +220,14 @@ class TestGapFillerLifecycle:
         assert filler._task is None
 
     @pytest.mark.asyncio
-    async def test_stop(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_stop(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """GapFiller should stop cleanly."""
         gap_filler_config.poll_interval_seconds = 0.1
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         await filler.start()
         await asyncio.sleep(0.05)
@@ -217,10 +236,14 @@ class TestGapFillerLifecycle:
         assert filler._running is False
 
     @pytest.mark.asyncio
-    async def test_poll_loop_calls_fill_now(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_poll_loop_calls_fill_now(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Poll loop should call fill_now periodically."""
         gap_filler_config.poll_interval_seconds = 0.1
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         # Track fill_now calls
         fill_now_calls = [0]
@@ -243,13 +266,18 @@ class TestGapFillerLifecycle:
 # GapFiller fill_now Tests
 # =============================================================================
 
+
 class TestGapFillerFillNow:
     """Test fill_now method."""
 
     @pytest.mark.asyncio
-    async def test_fill_now_with_gaps(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_fill_now_with_gaps(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """fill_now should fill eligible gaps."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=5)
 
@@ -258,10 +286,14 @@ class TestGapFillerFillNow:
         assert filler.stats["llm_calls"] > 0
 
     @pytest.mark.asyncio
-    async def test_fill_now_respects_rate_limit(self, mock_engine, mock_llm_integrator, gap_detector):
+    async def test_fill_now_respects_rate_limit(
+        self, mock_engine, mock_llm_integrator, gap_detector
+    ):
         """fill_now should respect rate limit."""
         config = GapFillerConfig(max_fills_per_hour=1)
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=config
+        )
 
         # Fill rate limit
         filler._fill_timestamps.append(asyncio.get_event_loop().time())
@@ -272,10 +304,14 @@ class TestGapFillerFillNow:
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_fill_now_filters_by_priority(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_fill_now_filters_by_priority(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """fill_now should filter gaps below priority threshold."""
         gap_filler_config.min_priority_to_fill = 0.7
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=5)
 
@@ -284,10 +320,14 @@ class TestGapFillerFillNow:
         assert all(gid == "gap1" for gid in filled_ids)
 
     @pytest.mark.asyncio
-    async def test_fill_now_filters_by_seen_count(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_fill_now_filters_by_seen_count(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """fill_now should filter gaps with too few seen counts."""
         gap_filler_config.min_seen_before_fill = 5
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=5)
 
@@ -299,50 +339,73 @@ class TestGapFillerFillNow:
 # GapFiller Statement Parsing Tests
 # =============================================================================
 
+
 class TestGapFillerParseStatements:
     """Test statement parsing from LLM response."""
 
-    def test_parse_statements_with_bullets(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_parse_statements_with_bullets(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Should parse bullet-pointed statements."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
-        raw = "- First statement here.\n- Second statement here.\n- Third statement here."
+        raw = (
+            "- First statement here.\n- Second statement here.\n- Third statement here."
+        )
         statements = filler._parse_statements(raw)
 
         assert len(statements) == 3
         assert "First statement" in statements[0]
 
-    def test_parse_statements_with_numbers(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_parse_statements_with_numbers(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Should parse numbered statements."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         raw = "1. First statement here.\n2. Second statement here.\n3. Third statement here."
         statements = filler._parse_statements(raw)
 
         assert len(statements) == 3
 
-    def test_parse_statements_respects_max(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_parse_statements_respects_max(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Should limit to max_statements_per_gap."""
         gap_filler_config.max_statements_per_gap = 2
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         raw = "- Statement 1.\n- Statement 2.\n- Statement 3.\n- Statement 4."
         statements = filler._parse_statements(raw)
 
         assert len(statements) == 2
 
-    def test_parse_statements_filters_short(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_parse_statements_filters_short(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Should filter out very short lines."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         raw = "Short\nThis is a valid statement that is long enough.\nAlso too short"
         statements = filler._parse_statements(raw)
 
         assert len(statements) == 1
 
-    def test_parse_statements_empty_input(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_parse_statements_empty_input(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Should handle empty input."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         statements = filler._parse_statements("")
 
@@ -353,21 +416,30 @@ class TestGapFillerParseStatements:
 # GapFiller Rate Limiting Tests
 # =============================================================================
 
+
 class TestGapFillerRateLimit:
     """Test rate limiting enforcement."""
 
-    def test_rate_check_under_limit(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_rate_check_under_limit(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """_rate_check should return True when under limit."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         result = filler._rate_check()
 
         assert result is True
 
-    def test_rate_check_at_limit(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_rate_check_at_limit(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """_rate_check should return False when at limit."""
         gap_filler_config.max_fills_per_hour = 2
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         # Fill up rate limit
         filler._record_call()
@@ -377,11 +449,16 @@ class TestGapFillerRateLimit:
 
         assert result is False
 
-    def test_rate_check_expires_old_calls(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_rate_check_expires_old_calls(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Old calls should expire after 1 hour."""
         import time
+
         gap_filler_config.max_fills_per_hour = 2
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         # Add old calls (2 hours ago)
         old_time = time.monotonic() - 7200
@@ -393,9 +470,13 @@ class TestGapFillerRateLimit:
         assert result is True
         assert len(filler._fill_timestamps) == 0
 
-    def test_record_call(self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config):
+    def test_record_call(
+        self, mock_engine, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """_record_call should add timestamp."""
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         filler._record_call()
 
@@ -406,17 +487,24 @@ class TestGapFillerRateLimit:
 # GapFiller Error Handling Tests
 # =============================================================================
 
+
 class TestGapFillerErrorHandling:
     """Test error handling in gap filling."""
 
     @pytest.mark.asyncio
-    async def test_llm_returns_garbage(self, mock_engine, gap_detector, gap_filler_config):
+    async def test_llm_returns_garbage(
+        self, mock_engine, gap_detector, gap_filler_config
+    ):
         """Should handle unparseable LLM response gracefully."""
         # LLM returns garbage
         mock_llm = MagicMock()
-        mock_llm._call_llm = MagicMock(return_value="This is not valid JSON or statements")
+        mock_llm._call_llm = MagicMock(
+            return_value="This is not valid JSON or statements"
+        )
 
-        filler = GapFiller(mock_engine, mock_llm, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=1)
 
@@ -425,13 +513,17 @@ class TestGapFillerErrorHandling:
             assert results[0]["status"] in ["empty_response", "error"]
 
     @pytest.mark.asyncio
-    async def test_llm_raises_exception(self, mock_engine, gap_detector, gap_filler_config):
+    async def test_llm_raises_exception(
+        self, mock_engine, gap_detector, gap_filler_config
+    ):
         """Should handle LLM exceptions gracefully."""
         # LLM raises exception
         mock_llm = MagicMock()
         mock_llm._call_llm = MagicMock(side_effect=Exception("LLM connection failed"))
 
-        filler = GapFiller(mock_engine, mock_llm, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=1)
 
@@ -443,13 +535,17 @@ class TestGapFillerErrorHandling:
         assert filler.stats["errors"] > 0
 
     @pytest.mark.asyncio
-    async def test_store_raises_exception(self, mock_llm_integrator, gap_detector, gap_filler_config):
+    async def test_store_raises_exception(
+        self, mock_llm_integrator, gap_detector, gap_filler_config
+    ):
         """Should handle store exceptions gracefully."""
         # Engine store raises exception
         mock_engine = MagicMock()
         mock_engine.store = AsyncMock(side_effect=Exception("Storage failed"))
 
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=1)
 
@@ -462,14 +558,19 @@ class TestGapFillerErrorHandling:
 # GapFiller Dry Run Tests
 # =============================================================================
 
+
 class TestGapFillerDryRun:
     """Test dry run mode."""
 
     @pytest.mark.asyncio
-    async def test_dry_run_does_not_store(self, mock_engine, mock_llm_integrator, gap_detector):
+    async def test_dry_run_does_not_store(
+        self, mock_engine, mock_llm_integrator, gap_detector
+    ):
         """In dry_run mode, statements should not be stored."""
         config = GapFillerConfig(dry_run=True, enabled=True)
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=config
+        )
 
         await filler.fill_now(n=1)
 
@@ -477,10 +578,14 @@ class TestGapFillerDryRun:
         mock_engine.store.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_dry_run_marks_gap_filled(self, mock_engine, mock_llm_integrator, gap_detector):
+    async def test_dry_run_marks_gap_filled(
+        self, mock_engine, mock_llm_integrator, gap_detector
+    ):
         """In dry_run mode, gap should still be marked filled."""
         config = GapFillerConfig(dry_run=True, enabled=True)
-        filler = GapFiller(mock_engine, mock_llm_integrator, gap_detector, config=config)
+        filler = GapFiller(
+            mock_engine, mock_llm_integrator, gap_detector, config=config
+        )
 
         results = await filler.fill_now(n=2)
 
@@ -494,6 +599,7 @@ class TestGapFillerDryRun:
 # GapFiller Integration Tests
 # =============================================================================
 
+
 class TestGapFillerIntegration:
     """Integration tests for GapFiller."""
 
@@ -504,11 +610,13 @@ class TestGapFillerIntegration:
         mock_llm = MagicMock()
         mock_llm._call_llm = MagicMock(
             return_value="- Quantum entanglement is a physical phenomenon.\n"
-                         "- When particles are entangled, measuring one affects the other.\n"
-                         "- This happens regardless of the distance between them."
+            "- When particles are entangled, measuring one affects the other.\n"
+            "- This happens regardless of the distance between them."
         )
 
-        filler = GapFiller(mock_engine, mock_llm, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm, gap_detector, config=gap_filler_config
+        )
 
         results = await filler.fill_now(n=1)
 
@@ -523,12 +631,16 @@ class TestGapFillerIntegration:
         assert filler.stats["statements_stored"] > 0
 
     @pytest.mark.asyncio
-    async def test_gap_marked_filled_after_fill(self, mock_engine, gap_detector, gap_filler_config):
+    async def test_gap_marked_filled_after_fill(
+        self, mock_engine, gap_detector, gap_filler_config
+    ):
         """Gap should be marked as filled after successful fill."""
         mock_llm = MagicMock()
         mock_llm._call_llm = MagicMock(return_value="- Some statement about the topic.")
 
-        filler = GapFiller(mock_engine, mock_llm, gap_detector, config=gap_filler_config)
+        filler = GapFiller(
+            mock_engine, mock_llm, gap_detector, config=gap_filler_config
+        )
 
         await filler.fill_now(n=1)
 

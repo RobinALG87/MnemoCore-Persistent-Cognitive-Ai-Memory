@@ -13,8 +13,12 @@ import asyncio
 from mnemocore.core.config import get_config, HAIMConfig
 from mnemocore.mcp.adapters.api_adapter import MnemoCoreAPIAdapter, MnemoCoreAPIError
 from mnemocore.mcp.schemas import (
-    StoreToolInput, QueryToolInput, MemoryIdInput,
-    ObserveToolInput, ContextToolInput, EpisodeToolInput
+    StoreToolInput,
+    QueryToolInput,
+    MemoryIdInput,
+    ObserveToolInput,
+    ContextToolInput,
+    EpisodeToolInput,
 )
 from mnemocore.core.exceptions import (
     DependencyMissingError,
@@ -37,8 +41,7 @@ def build_server(config: HAIMConfig | None = None):
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:
         raise DependencyMissingError(
-            dependency="mcp",
-            message="Install package 'mcp' to run the MCP server."
+            dependency="mcp", message="Install package 'mcp' to run the MCP server."
         ) from exc
 
     adapter = MnemoCoreAPIAdapter(
@@ -65,7 +68,9 @@ def build_server(config: HAIMConfig | None = None):
         except Exception as exc:
             # SECURITY: Sanitize error messages to avoid leaking internal paths, SQL queries, etc.
             logger.exception(exc)  # Log full exception internally for debugging
-            return _result_error(_sanitize_error(f"Unexpected error: {exc}", is_debug=False))
+            return _result_error(
+                _sanitize_error(f"Unexpected error: {exc}", is_debug=False)
+            )
 
     def _sanitize_error(error_msg: str, is_debug: bool = False) -> str:
         """
@@ -93,15 +98,29 @@ def build_server(config: HAIMConfig | None = None):
 
         # Remove file paths (Unix and Windows style)
         import re
-        sanitized = re.sub(r'/[\w/.-]+\.(py|yaml|yml|json|txt|log|db|sqlite)', '[FILE]', sanitized)
-        sanitized = re.sub(r'[A-Za-z]:\\[\w\\.-]+\.(py|yaml|yml|json|txt|log|db|sqlite)', '[FILE]', sanitized)
+
+        sanitized = re.sub(
+            r"/[\w/.-]+\.(py|yaml|yml|json|txt|log|db|sqlite)", "[FILE]", sanitized
+        )
+        sanitized = re.sub(
+            r"[A-Za-z]:\\[\w\\.-]+\.(py|yaml|yml|json|txt|log|db|sqlite)",
+            "[FILE]",
+            sanitized,
+        )
 
         # Remove SQL-like patterns
-        sanitized = re.sub(r'\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b.*?(FROM|INTO|SET|WHERE|TABLE)', '[QUERY]', sanitized, flags=re.IGNORECASE)
+        sanitized = re.sub(
+            r"\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b.*?(FROM|INTO|SET|WHERE|TABLE)",
+            "[QUERY]",
+            sanitized,
+            flags=re.IGNORECASE,
+        )
 
         # Remove stack trace patterns
-        sanitized = re.sub(r'File ".*", line \d+', '[STACK]', sanitized)
-        sanitized = re.sub(r'Traceback \(most recent call last\):', '[STACK]', sanitized)
+        sanitized = re.sub(r'File ".*", line \d+', "[STACK]", sanitized)
+        sanitized = re.sub(
+            r"Traceback \(most recent call last\):", "[STACK]", sanitized
+        )
 
         # Truncate very long errors
         if len(sanitized) > 200:
@@ -170,10 +189,14 @@ def build_server(config: HAIMConfig | None = None):
             content: str,
             kind: str = "observation",
             importance: float = 0.5,
-            tags: list[str] | None = None
+            tags: list[str] | None = None,
         ) -> Dict[str, Any]:
             payload = ObserveToolInput(
-                agent_id=agent_id, content=content, kind=kind, importance=importance, tags=tags
+                agent_id=agent_id,
+                content=content,
+                kind=kind,
+                importance=importance,
+                tags=tags,
             ).model_dump(exclude_none=True)
             return with_error_handling(lambda: adapter.observe_context(payload))
 
@@ -181,11 +204,15 @@ def build_server(config: HAIMConfig | None = None):
         @server.tool()
         def recall_context(agent_id: str, limit: int = 16) -> Dict[str, Any]:
             data = ContextToolInput(agent_id=agent_id, limit=limit)
-            return with_error_handling(lambda: adapter.get_working_context(data.agent_id, data.limit))
+            return with_error_handling(
+                lambda: adapter.get_working_context(data.agent_id, data.limit)
+            )
 
     def register_start_episode() -> None:
         @server.tool()
-        def start_episode(agent_id: str, goal: str, context: str | None = None) -> Dict[str, Any]:
+        def start_episode(
+            agent_id: str, goal: str, context: str | None = None
+        ) -> Dict[str, Any]:
             payload = EpisodeToolInput(
                 agent_id=agent_id, goal=goal, context=context
             ).model_dump(exclude_none=True)
@@ -199,17 +226,25 @@ def build_server(config: HAIMConfig | None = None):
     def register_get_subtle_thoughts() -> None:
         @server.tool()
         def get_subtle_thoughts(agent_id: str, limit: int = 5) -> Dict[str, Any]:
-            return with_error_handling(lambda: adapter.get_subtle_thoughts(agent_id, limit))
+            return with_error_handling(
+                lambda: adapter.get_subtle_thoughts(agent_id, limit)
+            )
 
     def register_search_procedures() -> None:
         @server.tool()
-        def search_procedures(query: str, agent_id: str | None = None, top_k: int = 5) -> Dict[str, Any]:
-            return with_error_handling(lambda: adapter.search_procedures(query, agent_id, top_k))
+        def search_procedures(
+            query: str, agent_id: str | None = None, top_k: int = 5
+        ) -> Dict[str, Any]:
+            return with_error_handling(
+                lambda: adapter.search_procedures(query, agent_id, top_k)
+            )
 
     def register_procedure_feedback() -> None:
         @server.tool()
         def procedure_feedback(proc_id: str, success: bool) -> Dict[str, Any]:
-            return with_error_handling(lambda: adapter.procedure_feedback(proc_id, success))
+            return with_error_handling(
+                lambda: adapter.procedure_feedback(proc_id, success)
+            )
 
     def register_get_self_improvement_proposals() -> None:
         @server.tool()
@@ -345,7 +380,9 @@ def build_server(config: HAIMConfig | None = None):
     register_tool("get_subtle_thoughts", register_get_subtle_thoughts)
     register_tool("search_procedures", register_search_procedures)
     register_tool("procedure_feedback", register_procedure_feedback)
-    register_tool("get_self_improvement_proposals", register_get_self_improvement_proposals)
+    register_tool(
+        "get_self_improvement_proposals", register_get_self_improvement_proposals
+    )
     register_tool("memory_synthesize", register_memory_synthesize)
     register_tool("memory_dream", register_memory_dream)
     register_tool("memory_export", register_memory_export)
@@ -369,8 +406,7 @@ def main() -> None:
         return
 
     raise UnsupportedTransportError(
-        transport=cfg.mcp.transport,
-        supported_transports=["stdio", "sse"]
+        transport=cfg.mcp.transport, supported_transports=["stdio", "sse"]
     )
 
 

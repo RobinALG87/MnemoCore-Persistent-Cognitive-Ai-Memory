@@ -15,14 +15,20 @@ def _scope(user_id: str) -> MemoryScope:
     return MemoryScope(tenant_id="tenant", user_id=user_id, agent_id="agent")
 
 
-def test_tier_projection_is_deterministic_and_derived_only_from_exact_scope_records(tmp_path):
+def test_tier_projection_is_deterministic_and_derived_only_from_exact_scope_records(
+    tmp_path,
+):
     from mnemocore.agent_memory import SyncAgentMemory
 
     scope = _scope("local")
     database = tmp_path / "memory.db"
     with SyncAgentMemory.open(database, scope=scope) as memory:
-        observation = memory.remember("observed an orchard", kind=MemoryKind.OBSERVATION)
-        procedure = memory.remember("follow the orchard procedure", kind=MemoryKind.PROCEDURE)
+        observation = memory.remember(
+            "observed an orchard", kind=MemoryKind.OBSERVATION
+        )
+        procedure = memory.remember(
+            "follow the orchard procedure", kind=MemoryKind.PROCEDURE
+        )
         fact = memory.remember("orchards have trees", kind=MemoryKind.FACT)
         records = memory.list(limit=10)
 

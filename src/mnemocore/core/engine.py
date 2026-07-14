@@ -29,7 +29,12 @@ from .engine_lifecycle import EngineLifecycleManager
 from .engine_coordinator import EngineCoordinator
 
 # Phase 4.0 imports
-from .attention import XORAttentionMasker, AttentionConfig, XORIsolationMask, IsolationConfig
+from .attention import (
+    XORAttentionMasker,
+    AttentionConfig,
+    XORIsolationMask,
+    IsolationConfig,
+)
 from .gap_detector import GapDetector, GapDetectorConfig
 from .gap_filler import GapFiller
 from .synapse_index import SynapseIndex
@@ -166,10 +171,12 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         self.attention_masker = XORAttentionMasker(AttentionConfig())
 
         # ── Phase 4.1: XOR project isolation masker (Task 4.7: direct config access) ────
-        self.isolation_masker = XORIsolationMask(IsolationConfig(
-            enabled=self.config.attention_masking.enabled,
-            dimension=self.dimension,
-        ))
+        self.isolation_masker = XORIsolationMask(
+            IsolationConfig(
+                enabled=self.config.attention_masking.enabled,
+                dimension=self.dimension,
+            )
+        )
 
         # ── Phase 4.0: gap detector & filler ──
         self.gap_detector = GapDetector(GapDetectorConfig())
@@ -189,19 +196,26 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
 
         # ── Phase 12.2: Contextual Topic Tracker (Task 4.6: top-level import) ────
         from .topic_tracker import TopicTracker  # Local import to avoid circular deps
+
         self.topic_tracker = TopicTracker(self.config.context, self.dimension)
 
         # ── Phase 12.3: Preference Learning (Task 4.6: top-level import) ──────────
-        from .preference_store import PreferenceStore  # Local import to avoid circular deps
+        from .preference_store import (
+            PreferenceStore,
+        )  # Local import to avoid circular deps
+
         self.preference_store = PreferenceStore(self.config.preference, self.dimension)
 
         # ── Phase 13.2: Anticipatory Memory (Task 4.6: top-level import) ──────────
-        from .anticipatory import AnticipatoryEngine  # Local import to avoid circular deps
+        from .anticipatory import (
+            AnticipatoryEngine,
+        )  # Local import to avoid circular deps
+
         self.anticipatory_engine = AnticipatoryEngine(
             self.config.anticipatory,
             self._synapse_index,
             self.tier_manager,
-            self.topic_tracker
+            self.topic_tracker,
         )
 
         data_dir = Path(self.config.paths.data_dir)
@@ -213,6 +227,7 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
             AssociationConfig,
             AssociationRecallIntegrator,
         )
+
         # Task 4.7: Direct config access (associations now in HAIMConfig)
         associations_config = AssociationConfig(
             persist_path=str(data_dir / "associations.json"),
@@ -231,7 +246,10 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
 
         # Conceptual Layer (VSA Soul) (Task 4.6: top-level import)
         from .holographic import ConceptualMemory  # Local import to avoid circular deps
-        self.soul: Any = ConceptualMemory(dimension=self.dimension, storage_dir=str(data_dir))
+
+        self.soul: Any = ConceptualMemory(
+            dimension=self.dimension, storage_dir=str(data_dir)
+        )
 
         # ── Phase 3.x: synapse raw dicts (kept for backward compat) ──
         self.synapses: Dict[Tuple[str, str], SynapticConnection] = {}
@@ -256,7 +274,7 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
     @property
     def subconscious(self) -> Optional[Any]:
         """Access to the SubconsciousAI worker, if enabled."""
-        return getattr(self, '_subconscious_ai', None)
+        return getattr(self, "_subconscious_ai", None)
 
     @subconscious.setter
     def subconscious(self, value: Optional[Any]):
@@ -295,10 +313,13 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
                 - fragments: List of fragments used
                 - direct_matches: List of (node_id, similarity) tuples
         """
-        from ..cognitive.memory_reconstructor import ReconstructiveRecall, ReconstructionConfig
+        from ..cognitive.memory_reconstructor import (
+            ReconstructiveRecall,
+            ReconstructionConfig,
+        )
 
         # Lazy load the reconstructor
-        if not hasattr(self, '_reconstructive_recall'):
+        if not hasattr(self, "_reconstructive_recall"):
             config = ReconstructionConfig(
                 enable_gap_detection=True,
                 enable_persistent_storage=False,  # Don't auto-store by default
@@ -324,7 +345,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
             "confidence": result.confidence_breakdown.get("overall_confidence", 0.0),
             "fragments": [f.to_dict() for f in result.fragments],
             "direct_matches": result.direct_matches,
-            "reconstructed": result.reconstructed.to_dict() if result.reconstructed else None,
+            "reconstructed": (
+                result.reconstructed.to_dict() if result.reconstructed else None
+            ),
             "confidence_breakdown": result.confidence_breakdown,
             "gap_detected": len(result.gap_records) > 0,
         }
@@ -339,7 +362,10 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         Args:
             config: Optional configuration overrides as dictionary.
         """
-        from ..cognitive.memory_reconstructor import ReconstructiveRecall, ReconstructionConfig
+        from ..cognitive.memory_reconstructor import (
+            ReconstructiveRecall,
+            ReconstructionConfig,
+        )
 
         # Build config using dataclasses.replace for safe mutation
         cfg = ReconstructionConfig()
@@ -368,8 +394,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         Returns a prioritizer that can rank and filter memories to fit within
         a model's context window, preserving the most relevant information.
         """
-        if not hasattr(self, '_context_prioritizer'):
+        if not hasattr(self, "_context_prioritizer"):
             from ..cognitive.context_optimizer import create_prioritizer
+
             self._context_prioritizer = create_prioritizer()
         return self._context_prioritizer
 
@@ -380,8 +407,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         Uses episodic memories to simulate plausible future scenarios,
         supporting anticipatory reasoning and planning.
         """
-        if not hasattr(self, '_future_simulator'):
+        if not hasattr(self, "_future_simulator"):
             from ..cognitive.future_thinking import create_future_thinking_pipeline
+
             self._future_simulator = create_future_thinking_pipeline(
                 config=self.config.eft,
                 tier_manager=self.tier_manager,
@@ -395,8 +423,9 @@ class HAIMEngine(EngineCoreOperations, EngineLifecycleManager, EngineCoordinator
         Get or create the ForgettingAnalytics module for SM-2 spaced
         repetition analytics and memory health dashboards.
         """
-        if not hasattr(self, '_forgetting_analytics'):
+        if not hasattr(self, "_forgetting_analytics"):
             from ..cognitive.forgetting_analytics import create_forgetting_analytics
+
             self._forgetting_analytics = create_forgetting_analytics()
         return self._forgetting_analytics
 

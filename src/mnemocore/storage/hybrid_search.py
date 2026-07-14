@@ -25,6 +25,7 @@ from mnemocore.core.hybrid_search import (
 
 class HybridSearchConfig(_HybridSearchConfig):
     """Storage-layer specific hybrid search configuration."""
+
     pass
 
 
@@ -61,10 +62,7 @@ class HybridSearchEngine(_HybridSearchEngine):
                 (str(point.id), score if isinstance(score, Real) else 0.0)
             )
 
-        payloads = {
-            str(p.id): p.payload or {}
-            for p in qdrant_points
-        }
+        payloads = {str(p.id): p.payload or {} for p in qdrant_points}
 
         return await self.search(
             query=query,

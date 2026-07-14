@@ -52,7 +52,6 @@ from mnemocore.core.exceptions import (
 )
 from mnemocore.utils.json_compat import dumps, loads
 
-
 # =============================================================================
 # Enums and Configuration
 # =============================================================================
@@ -60,21 +59,24 @@ from mnemocore.utils.json_compat import dumps, loads
 
 class ExportFormat(Enum):
     """Supported export formats."""
-    JSON = "json"           # Single JSON array
-    JSONL = "jsonl"         # JSON Lines (one JSON object per line)
-    PARQUET = "parquet"     # Apache Parquet format
+
+    JSON = "json"  # Single JSON array
+    JSONL = "jsonl"  # JSON Lines (one JSON object per line)
+    PARQUET = "parquet"  # Apache Parquet format
 
 
 class VectorExportMode(Enum):
     """How to handle vectors in exports."""
-    FULL = "full"               # Export complete vectors
-    COMPRESSED = "compressed"   # Export compressed/quantized vectors
-    NONE = "none"              # Skip vectors (metadata only)
+
+    FULL = "full"  # Export complete vectors
+    COMPRESSED = "compressed"  # Export compressed/quantized vectors
+    NONE = "none"  # Skip vectors (metadata only)
 
 
 @dataclass
 class ExportOptions:
     """Options for memory export."""
+
     # Format settings
     format: ExportFormat = ExportFormat.JSON
     vector_mode: VectorExportMode = VectorExportMode.FULL
@@ -98,6 +100,7 @@ class ExportOptions:
 @dataclass
 class ExportResult:
     """Result of an export operation."""
+
     success: bool
     output_path: Path
     format: ExportFormat
@@ -124,6 +127,7 @@ class ExportResult:
 @dataclass
 class ExportProgress:
     """Progress information for an export operation."""
+
     total_records: int
     exported_records: int
     current_batch: int
@@ -272,9 +276,9 @@ class MemoryExporter:
 
         offset = None
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             # Start JSON array
-            f.write('[')
+            f.write("[")
             first_record = True
 
             while True:
@@ -297,7 +301,7 @@ class MemoryExporter:
 
                     # Write comma separator for non-first records
                     if not first_record:
-                        f.write(',')
+                        f.write(",")
                         size_bytes += 1
 
                     # Write record
@@ -306,7 +310,7 @@ class MemoryExporter:
                         indent=2 if options.pretty_print else None,
                     )
                     f.write(json_str)
-                    size_bytes += len(json_str.encode('utf-8'))
+                    size_bytes += len(json_str.encode("utf-8"))
                     total_exported += 1
                     first_record = False
 
@@ -317,16 +321,22 @@ class MemoryExporter:
                         total_records=total_records,
                         exported_records=total_exported,
                         current_batch=batch_num,
-                        percent_complete=(total_exported / total_records * 100) if total_records > 0 else 0,
+                        percent_complete=(
+                            (total_exported / total_records * 100)
+                            if total_records > 0
+                            else 0
+                        ),
                     )
                     progress_callback(progress)
 
                 # Check if limit reached or no more data
-                if (options.limit and total_exported >= options.limit) or offset is None:
+                if (
+                    options.limit and total_exported >= options.limit
+                ) or offset is None:
                     break
 
             # Close JSON array
-            f.write(']')
+            f.write("]")
             size_bytes += 1  # For the closing bracket
 
         return total_exported, size_bytes
@@ -346,7 +356,7 @@ class MemoryExporter:
 
         offset = None
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             while True:
                 batch_records, offset = await self.qdrant.scroll(
                     collection_name=collection_name,
@@ -364,9 +374,9 @@ class MemoryExporter:
                         break
 
                     data = self._serialize_record(record, options)
-                    line = dumps(data) + '\n'
+                    line = dumps(data) + "\n"
                     f.write(line)
-                    size_bytes += len(line.encode('utf-8'))
+                    size_bytes += len(line.encode("utf-8"))
                     total_exported += 1
 
                 # Report progress
@@ -376,12 +386,18 @@ class MemoryExporter:
                         total_records=total_records,
                         exported_records=total_exported,
                         current_batch=batch_num,
-                        percent_complete=(total_exported / total_records * 100) if total_records > 0 else 0,
+                        percent_complete=(
+                            (total_exported / total_records * 100)
+                            if total_records > 0
+                            else 0
+                        ),
                     )
                     progress_callback(progress)
 
                 # Check if limit reached or no more data
-                if (options.limit and total_exported >= options.limit) or offset is None:
+                if (
+                    options.limit and total_exported >= options.limit
+                ) or offset is None:
                     break
 
         return total_exported, size_bytes
@@ -432,13 +448,17 @@ class MemoryExporter:
                     total_records=total_records,
                     exported_records=len(all_records),
                     current_batch=batch_num,
-                    percent_complete=(len(all_records) / total_records * 100) if total_records > 0 else 0,
+                    percent_complete=(
+                        (len(all_records) / total_records * 100)
+                        if total_records > 0
+                        else 0
+                    ),
                 )
                 progress_callback(progress)
 
             # Stop when the requested limit is reached or Qdrant has no next page.
             if options.limit and len(all_records) >= options.limit:
-                all_records = all_records[:options.limit]
+                all_records = all_records[: options.limit]
                 break
             if offset is None:
                 break
@@ -473,7 +493,7 @@ class MemoryExporter:
 
         # Handle vector
         if options.vector_mode != VectorExportMode.NONE:
-            if hasattr(record, 'vector') and record.vector is not None:
+            if hasattr(record, "vector") and record.vector is not None:
                 if isinstance(record.vector, dict):
                     # Named vectors
                     if options.vector_mode == VectorExportMode.COMPRESSED:
@@ -484,7 +504,7 @@ class MemoryExporter:
                         }
                     else:
                         result["vector"] = {
-                            k: v.tolist() if hasattr(v, 'tolist') else list(v)
+                            k: v.tolist() if hasattr(v, "tolist") else list(v)
                             for k, v in record.vector.items()
                         }
                 else:
@@ -494,16 +514,16 @@ class MemoryExporter:
                     else:
                         result["vector"] = (
                             record.vector.tolist()
-                            if hasattr(record.vector, 'tolist')
+                            if hasattr(record.vector, "tolist")
                             else list(record.vector)
                         )
 
         # Handle payload
-        if options.include_payload and hasattr(record, 'payload'):
+        if options.include_payload and hasattr(record, "payload"):
             result["payload"] = record.payload or {}
 
         # Handle other attributes
-        if hasattr(record, 'shard_key') and record.shard_key is not None:
+        if hasattr(record, "shard_key") and record.shard_key is not None:
             result["shard_key"] = record.shard_key
 
         return result
@@ -560,26 +580,42 @@ class MemoryExporter:
             if isinstance(sample["vector"], dict):
                 # Check if it's compressed format
                 if "data" in sample.get("vector", {}):
-                    fields.append(pa.field("vector", pa.struct([
-                        pa.field("data", pa.list_(pa.uint8())),
-                        pa.field("shape", pa.list_(pa.int64())),
-                        pa.field("min", pa.float64()),
-                        pa.field("max", pa.float64()),
-                        pa.field("dtype", pa.string()),
-                    ])))
+                    fields.append(
+                        pa.field(
+                            "vector",
+                            pa.struct(
+                                [
+                                    pa.field("data", pa.list_(pa.uint8())),
+                                    pa.field("shape", pa.list_(pa.int64())),
+                                    pa.field("min", pa.float64()),
+                                    pa.field("max", pa.float64()),
+                                    pa.field("dtype", pa.string()),
+                                ]
+                            ),
+                        )
+                    )
                 else:
                     # Named vectors - use map type
-                    fields.append(pa.field("vector", pa.map_(pa.string(), pa.list_(pa.float64()))))
+                    fields.append(
+                        pa.field("vector", pa.map_(pa.string(), pa.list_(pa.float64())))
+                    )
             else:
                 # Single vector
                 if options.vector_mode == VectorExportMode.COMPRESSED:
-                    fields.append(pa.field("vector", pa.struct([
-                        pa.field("data", pa.list_(pa.uint8())),
-                        pa.field("shape", pa.list_(pa.int64())),
-                        pa.field("min", pa.float64()),
-                        pa.field("max", pa.float64()),
-                        pa.field("dtype", pa.string()),
-                    ])))
+                    fields.append(
+                        pa.field(
+                            "vector",
+                            pa.struct(
+                                [
+                                    pa.field("data", pa.list_(pa.uint8())),
+                                    pa.field("shape", pa.list_(pa.int64())),
+                                    pa.field("min", pa.float64()),
+                                    pa.field("max", pa.float64()),
+                                    pa.field("dtype", pa.string()),
+                                ]
+                            ),
+                        )
+                    )
                 else:
                     fields.append(pa.field("vector", pa.list_(pa.float64())))
 
@@ -639,30 +675,34 @@ class MemoryExporter:
                 if v is None:
                     struct_arrays.append(None)
                 else:
-                    struct_arrays.append({
-                        'data': v['data'],
-                        'shape': v['shape'],
-                        'min': v['min'],
-                        'max': v['max'],
-                        'dtype': v['dtype'],
-                    })
-            return pa.array(struct_arrays, type=pa.struct([
-                pa.field("data", pa.list_(pa.uint8())),
-                pa.field("shape", pa.list_(pa.int64())),
-                pa.field("min", pa.float64()),
-                pa.field("max", pa.float64()),
-                pa.field("dtype", pa.string()),
-            ]))
+                    struct_arrays.append(
+                        {
+                            "data": v["data"],
+                            "shape": v["shape"],
+                            "min": v["min"],
+                            "max": v["max"],
+                            "dtype": v["dtype"],
+                        }
+                    )
+            return pa.array(
+                struct_arrays,
+                type=pa.struct(
+                    [
+                        pa.field("data", pa.list_(pa.uint8())),
+                        pa.field("shape", pa.list_(pa.int64())),
+                        pa.field("min", pa.float64()),
+                        pa.field("max", pa.float64()),
+                        pa.field("dtype", pa.string()),
+                    ]
+                ),
+            )
         elif isinstance(sample, dict):
             # Named vectors - serialize as JSON
             json_data = [dumps(v) if v is not None else None for v in vectors_clean]
             return pa.array(json_data, pa.string())
         else:
             # Simple vector list
-            list_data = [
-                list(v) if v is not None else None
-                for v in vectors_clean
-            ]
+            list_data = [list(v) if v is not None else None for v in vectors_clean]
             return pa.array(list_data, pa.list_(pa.float64()))
 
     async def export_batch(
@@ -718,12 +758,12 @@ class MemoryExporter:
 
             # Write file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_name = f"{collection_name}_{timestamp}_{file_num:04d}.{opts.format.value}"
+            file_name = (
+                f"{collection_name}_{timestamp}_{file_num:04d}.{opts.format.value}"
+            )
             file_path = output_dir / file_name
 
-            result = await self._write_batch_file(
-                file_records, file_path, opts
-            )
+            result = await self._write_batch_file(file_records, file_path, opts)
             results.append(result)
             total_exported += result.records_exported
 
@@ -753,16 +793,16 @@ class MemoryExporter:
         start_time = asyncio.get_event_loop().time()
 
         if options.format == ExportFormat.JSON:
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 data = [self._serialize_record(r, options) for r in records]
                 f.write(dumps(data, indent=2 if options.pretty_print else None))
             size_bytes = output_path.stat().st_size
 
         elif options.format == ExportFormat.JSONL:
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 for record in records:
                     data = self._serialize_record(record, options)
-                    f.write(dumps(data) + '\n')
+                    f.write(dumps(data) + "\n")
             size_bytes = output_path.stat().st_size
 
         elif options.format == ExportFormat.PARQUET:
@@ -770,6 +810,7 @@ class MemoryExporter:
             table = self._records_to_arrow_table(serialized, options)
 
             import pyarrow.parquet as pq
+
             pq.write_table(
                 table,
                 output_path,

@@ -47,10 +47,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
-
 # =============================================================================
 # Base Event Schema
 # =============================================================================
+
 
 @dataclass
 class EventSchema:
@@ -142,6 +142,7 @@ class EventSchema:
 # =============================================================================
 # Memory Event Schemas
 # =============================================================================
+
 
 class MemoryCreatedSchema(EventSchema):
     """Schema for memory.created events."""
@@ -332,6 +333,7 @@ class MemoryConsolidatedSchema(EventSchema):
 # Consolidation Event Schemas
 # =============================================================================
 
+
 class ConsolidationCompletedSchema(EventSchema):
     """Schema for consolidation.completed events."""
 
@@ -382,6 +384,7 @@ class ConsolidationCompletedSchema(EventSchema):
 # =============================================================================
 # Contradiction Event Schemas
 # =============================================================================
+
 
 class ContradictionDetectedSchema(EventSchema):
     """Schema for contradiction.detected events."""
@@ -467,6 +470,7 @@ class ContradictionResolvedSchema(EventSchema):
 # =============================================================================
 # Dream Event Schemas
 # =============================================================================
+
 
 class DreamStartedSchema(EventSchema):
     """Schema for dream.started events."""
@@ -619,6 +623,7 @@ class DreamFailedSchema(EventSchema):
 # Synapse Event Schemas
 # =============================================================================
 
+
 class SynapseFormedSchema(EventSchema):
     """Schema for synapse.formed events."""
 
@@ -713,6 +718,7 @@ class SynapseFiredSchema(EventSchema):
 # =============================================================================
 # Gap Event Schemas
 # =============================================================================
+
 
 class GapDetectedSchema(EventSchema):
     """Schema for gap.detected events."""
@@ -837,6 +843,7 @@ _initialize_schemas()
 # Validation Functions
 # =============================================================================
 
+
 def validate_event(event_type: str, data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
     Validate event data against its schema.
@@ -885,10 +892,7 @@ def get_json_schema(event_type: Optional[str] = None) -> Dict[str, Any]:
         return {}
 
     # Return all schemas as a mapping
-    return {
-        event_type: schema.schema
-        for event_type, schema in _SCHEMAS.items()
-    }
+    return {event_type: schema.schema for event_type, schema in _SCHEMAS.items()}
 
 
 def export_openapi_spec() -> Dict[str, Any]:
@@ -904,9 +908,7 @@ def export_openapi_spec() -> Dict[str, Any]:
             "version": "1.0.0",
             "description": "Webhook event schemas for MnemoCore",
         },
-        "components": {
-            "schemas": {}
-        },
+        "components": {"schemas": {}},
     }
 
     for event_type, schema in _SCHEMAS.items():

@@ -28,10 +28,10 @@ import click
 
 from loguru import logger
 
-
 # ============================================================================
 # Engine Lifecycle Decorator / Context Manager
 # ============================================================================
+
 
 @asynccontextmanager
 async def engine_context(config_path: Optional[Path] = None):
@@ -93,6 +93,7 @@ def with_engine(func: Callable) -> Callable:
     Returns:
         Wrapped function that handles engine lifecycle
     """
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         # Find click context in args
@@ -106,25 +107,36 @@ def with_engine(func: Callable) -> Callable:
             ctx = click.get_current_context()
 
         # Get config path from context
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
+        config_path = (
+            Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
+        )
 
         async def run_with_engine():
             async with engine_context(config_path) as engine:
                 # Check if function expects ctx as first arg
                 import inspect
+
                 sig = inspect.signature(func)
                 params = list(sig.parameters.keys())
 
-                if params and params[0] in ('ctx', 'context'):
+                if params and params[0] in ("ctx", "context"):
                     return await func(*args, engine=engine, **kwargs)
                 else:
                     # Inject engine as first arg after ctx
                     new_args = list(args)
                     # Find position to insert engine
-                    if 'engine' in kwargs:
+                    if "engine" in kwargs:
                         return await func(*args, **kwargs)
                     else:
-                        return await func(engine, *args[1:] if len(args) > 1 and isinstance(args[0], click.Context) else args, **kwargs)
+                        return await func(
+                            engine,
+                            *(
+                                args[1:]
+                                if len(args) > 1 and isinstance(args[0], click.Context)
+                                else args
+                            ),
+                            **kwargs,
+                        )
 
         return asyncio.run(run_with_engine())
 
@@ -145,9 +157,12 @@ def with_engine_simple(func: Callable) -> Callable:
 
     The decorated function must be async and accept (ctx, engine, ...).
     """
+
     @wraps(func)
     def wrapper(ctx, *args, **kwargs):
-        config_path = Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
+        config_path = (
+            Path(ctx.obj["config_path"]) if ctx.obj.get("config_path") else None
+        )
 
         async def run():
             async with engine_context(config_path) as engine:
@@ -161,6 +176,7 @@ def with_engine_simple(func: Callable) -> Callable:
 # ============================================================================
 # CLI Group and Main Entry
 # ============================================================================
+
 
 @click.group()
 @click.option(
@@ -210,6 +226,7 @@ def cli(ctx, config: Optional[str], verbose: bool, data_dir: str):
 # CLI Commands
 # ============================================================================
 
+
 @cli.command()
 @click.argument("content", required=True)
 @click.option(
@@ -242,13 +259,22 @@ def cli(ctx, config: Optional[str], verbose: bool, data_dir: str):
     help="Output as JSON",
 )
 @click.pass_context
-def store(ctx, content: str, metadata: Optional[str], tags: tuple, importance: float, category: Optional[str], output_json: bool):
+def store(
+    ctx,
+    content: str,
+    metadata: Optional[str],
+    tags: tuple,
+    importance: float,
+    category: Optional[str],
+    output_json: bool,
+):
     """
     Store a new memory.
 
     Example:
         mnemocore store "Robin gillar Python programmering"
     """
+
     @with_engine_simple
     async def _store(ctx, engine):
         # Build metadata
@@ -283,7 +309,9 @@ def store(ctx, content: str, metadata: Optional[str], tags: tuple, importance: f
                 click.echo(json.dumps(result, indent=2))
             else:
                 click.echo(f"Stored memory: {memory_id}")
-                click.echo(f"Content: {content[:100]}{'...' if len(content) > 100 else ''}")
+                click.echo(
+                    f"Content: {content[:100]}{'...' if len(content) > 100 else ''}"
+                )
                 if tags:
                     click.echo(f"Tags: {', '.join(tags)}")
 
@@ -326,7 +354,9 @@ def store(ctx, content: str, metadata: Optional[str], tags: tuple, importance: f
     help="Show full content in results",
 )
 @click.pass_context
-def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, show_content: bool):
+def recall(
+    ctx, query: str, top_k: int, min_score: float, output_json: bool, show_content: bool
+):
     """
     Recall/search memories.
 
@@ -334,6 +364,7 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
         mnemocore recall "vad gillar Robin?"
         mnemocore recall "Python" -k 10 --json
     """
+
     @with_engine_simple
     async def _recall(ctx, engine):
         try:
@@ -349,14 +380,20 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
                 for memory_id, score in filtered:
                     node = await engine.get_memory(memory_id)
                     if node:
-                        memories.append({
-                            "id": memory_id,
-                            "score": round(score, 4),
-                            "content": node.content,
-                            "created_at": node.created_at.isoformat() if node.created_at else None,
-                            "tier": node.tier,
-                            "metadata": node.metadata,
-                        })
+                        memories.append(
+                            {
+                                "id": memory_id,
+                                "score": round(score, 4),
+                                "content": node.content,
+                                "created_at": (
+                                    node.created_at.isoformat()
+                                    if node.created_at
+                                    else None
+                                ),
+                                "tier": node.tier,
+                                "metadata": node.metadata,
+                            }
+                        )
 
                 result = {
                     "query": query,
@@ -376,8 +413,14 @@ def recall(ctx, query: str, top_k: int, min_score: float, output_json: bool, sho
                 for i, (memory_id, score) in enumerate(filtered[:top_k], 1):
                     node = await engine.get_memory(memory_id)
                     if node:
-                        content_preview = node.content[:80] + "..." if len(node.content) > 80 else node.content
-                        click.echo(f"{i}. [{memory_id}] (score: {score:.2f}) [{node.tier.upper()}]")
+                        content_preview = (
+                            node.content[:80] + "..."
+                            if len(node.content) > 80
+                            else node.content
+                        )
+                        click.echo(
+                            f"{i}. [{memory_id}] (score: {score:.2f}) [{node.tier.upper()}]"
+                        )
                         click.echo(f"   {content_preview}")
 
                         if show_content:
@@ -438,7 +481,10 @@ def dream(ctx, now: bool, report_path: Optional[str], output_json: bool):
 
     @with_engine_simple
     async def _dream(ctx, engine):
-        from mnemocore.subconscious.dream_pipeline import DreamPipeline, DreamPipelineConfig
+        from mnemocore.subconscious.dream_pipeline import (
+            DreamPipeline,
+            DreamPipelineConfig,
+        )
 
         try:
             click.echo("Starting dream session...", err=True)
@@ -471,14 +517,30 @@ def dream(ctx, now: bool, report_path: Optional[str], output_json: bool):
                 if result.get("success"):
                     click.echo("Dream session completed successfully")
                     click.echo()
-                    click.echo(f"Duration: {result.get('duration_seconds', 0):.1f} seconds")
-                    click.echo(f"Memories processed: {result.get('memories_processed', 0)}")
-                    click.echo(f"Episodic clusters: {result.get('episodic_clusters_count', 0)}")
-                    click.echo(f"Patterns extracted: {result.get('patterns_extracted_count', 0)}")
-                    click.echo(f"Synthesis results: {result.get('synthesis_results_count', 0)}")
-                    click.echo(f"Contradictions found: {result.get('contradictions_found', 0)}")
-                    click.echo(f"Contradictions resolved: {result.get('contradictions_resolved', 0)}")
-                    click.echo(f"Semantic promotions: {result.get('semantic_promotions', 0)}")
+                    click.echo(
+                        f"Duration: {result.get('duration_seconds', 0):.1f} seconds"
+                    )
+                    click.echo(
+                        f"Memories processed: {result.get('memories_processed', 0)}"
+                    )
+                    click.echo(
+                        f"Episodic clusters: {result.get('episodic_clusters_count', 0)}"
+                    )
+                    click.echo(
+                        f"Patterns extracted: {result.get('patterns_extracted_count', 0)}"
+                    )
+                    click.echo(
+                        f"Synthesis results: {result.get('synthesis_results_count', 0)}"
+                    )
+                    click.echo(
+                        f"Contradictions found: {result.get('contradictions_found', 0)}"
+                    )
+                    click.echo(
+                        f"Contradictions resolved: {result.get('contradictions_resolved', 0)}"
+                    )
+                    click.echo(
+                        f"Semantic promotions: {result.get('semantic_promotions', 0)}"
+                    )
 
                     # Show recommendations if available
                     report = result.get("dream_report")
@@ -488,7 +550,10 @@ def dream(ctx, now: bool, report_path: Optional[str], output_json: bool):
                         for rec in report["recommendations"]:
                             click.echo(f"  - {rec}")
                 else:
-                    click.echo(f"Dream session failed: {result.get('error', 'Unknown error')}", err=True)
+                    click.echo(
+                        f"Dream session failed: {result.get('error', 'Unknown error')}",
+                        err=True,
+                    )
 
         except Exception as e:
             if output_json:
@@ -524,6 +589,7 @@ def stats(ctx, output_json: bool, tier: str):
         mnemocore stats --json
         mnemocore stats -t hot
     """
+
     @with_engine_simple
     async def _stats(ctx, engine):
         try:
@@ -539,7 +605,9 @@ def stats(ctx, output_json: bool, tier: str):
                 click.echo("=" * 50)
                 click.echo()
 
-                click.echo(f"Engine Version: {stats_data.get('engine_version', 'unknown')}")
+                click.echo(
+                    f"Engine Version: {stats_data.get('engine_version', 'unknown')}"
+                )
                 click.echo(f"Dimension: {stats_data.get('dimension', 'unknown')}")
                 click.echo(f"Encoding: {stats_data.get('encoding', 'unknown')}")
                 click.echo()
@@ -550,10 +618,14 @@ def stats(ctx, output_json: bool, tier: str):
                 if tiers:
                     if tier in ("hot", "all"):
                         hot = tiers.get("hot", {})
-                        click.echo(f"  HOT:   {hot.get('count', 0):>6} memories (max: {hot.get('max', 'N/A')})")
+                        click.echo(
+                            f"  HOT:   {hot.get('count', 0):>6} memories (max: {hot.get('max', 'N/A')})"
+                        )
                     if tier in ("warm", "all"):
                         warm = tiers.get("warm", {})
-                        click.echo(f"  WARM:  {warm.get('count', 0):>6} memories (max: {warm.get('max', 'N/A')})")
+                        click.echo(
+                            f"  WARM:  {warm.get('count', 0):>6} memories (max: {warm.get('max', 'N/A')})"
+                        )
                     if tier in ("cold", "all"):
                         cold = tiers.get("cold", {})
                         click.echo(f"  COLD:  {cold.get('count', 0):>6} memories")
@@ -633,7 +705,14 @@ def stats(ctx, output_json: bool, tier: str):
     help="Include vector embeddings in export",
 )
 @click.pass_context
-def export(ctx, format: str, output: str, collection: str, limit: Optional[int], include_vectors: bool):
+def export(
+    ctx,
+    format: str,
+    output: str,
+    collection: str,
+    limit: Optional[int],
+    include_vectors: bool,
+):
     """
     Export memories to a file.
 
@@ -641,6 +720,7 @@ def export(ctx, format: str, output: str, collection: str, limit: Optional[int],
         mnemocore export --format json -o backup.json
         mnemocore export -f jsonl -o backup.jsonl -c hot --limit 1000
     """
+
     @with_engine_simple
     async def _export(ctx, engine):
         try:
@@ -657,21 +737,31 @@ def export(ctx, format: str, output: str, collection: str, limit: Optional[int],
                 if tier_name == "hot":
                     tier_memories = await engine.tier_manager.get_all_hot()
                 else:  # warm
-                    tier_memories = await engine.tier_manager.get_hot_recent(limit or 10000)
+                    tier_memories = await engine.tier_manager.get_hot_recent(
+                        limit or 10000
+                    )
 
                 for mem in tier_memories:
-                    memories_to_export.append({
-                        "id": mem.id,
-                        "content": mem.content,
-                        "created_at": mem.created_at.isoformat() if mem.created_at else None,
-                        "tier": mem.tier,
-                        "ltp_strength": mem.ltp_strength,
-                        "access_count": getattr(mem, "access_count", 0),
-                        "metadata": mem.metadata or {},
-                    })
+                    memories_to_export.append(
+                        {
+                            "id": mem.id,
+                            "content": mem.content,
+                            "created_at": (
+                                mem.created_at.isoformat() if mem.created_at else None
+                            ),
+                            "tier": mem.tier,
+                            "ltp_strength": mem.ltp_strength,
+                            "access_count": getattr(mem, "access_count", 0),
+                            "metadata": mem.metadata or {},
+                        }
+                    )
 
                     if include_vectors:
-                        memories_to_export[-1]["vector"] = mem.hdv.tolist() if hasattr(mem.hdv, "tolist") else list(mem.hdv)
+                        memories_to_export[-1]["vector"] = (
+                            mem.hdv.tolist()
+                            if hasattr(mem.hdv, "tolist")
+                            else list(mem.hdv)
+                        )
 
                     if limit and len(memories_to_export) >= limit:
                         break
@@ -719,6 +809,7 @@ def delete(ctx, memory_id: str, force: bool):
         mnemocore delete mem_abc123
         mnemocore delete mem_abc123 --force
     """
+
     @with_engine_simple
     async def _delete(ctx, engine):
         try:
@@ -761,6 +852,7 @@ def get(ctx, memory_id: str, output_json: bool):
         mnemocore get mem_abc123
         mnemocore get mem_abc123 --json
     """
+
     @with_engine_simple
     async def _get(ctx, engine):
         try:
@@ -774,7 +866,9 @@ def get(ctx, memory_id: str, output_json: bool):
                 result = {
                     "id": node.id,
                     "content": node.content,
-                    "created_at": node.created_at.isoformat() if node.created_at else None,
+                    "created_at": (
+                        node.created_at.isoformat() if node.created_at else None
+                    ),
                     "tier": node.tier,
                     "ltp_strength": node.ltp_strength,
                     "access_count": getattr(node, "access_count", 0),
@@ -785,7 +879,9 @@ def get(ctx, memory_id: str, output_json: bool):
                 click.echo(f"ID: {node.id}")
                 click.echo(f"Tier: {node.tier.upper()}")
                 click.echo(f"LTP Strength: {node.ltp_strength:.3f}")
-                click.echo(f"Created: {node.created_at.isoformat() if node.created_at else 'N/A'}")
+                click.echo(
+                    f"Created: {node.created_at.isoformat() if node.created_at else 'N/A'}"
+                )
                 click.echo()
                 click.echo("Content:")
                 click.echo(node.content)
@@ -810,6 +906,7 @@ def health(ctx):
     Example:
         mnemocore health
     """
+
     @with_engine_simple
     async def _health(ctx, engine):
         try:
@@ -864,6 +961,7 @@ def health(ctx):
 
 # Import and register additional commands
 from .commands import register_commands
+
 register_commands(cli)
 
 

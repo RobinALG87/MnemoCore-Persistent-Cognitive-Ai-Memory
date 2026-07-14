@@ -343,7 +343,10 @@ def _remember_many(
     if any(not isinstance(write, MemoryWrite) for write in writes):
         raise ValidationError("writes must contain only MemoryWrite")
     source_ids = tuple(dict.fromkeys(active_source_ids))
-    if any(not isinstance(memory_id, str) or not memory_id.strip() for memory_id in source_ids):
+    if any(
+        not isinstance(memory_id, str) or not memory_id.strip()
+        for memory_id in source_ids
+    ):
         raise ValidationError("source_memory_ids must contain non-blank strings")
     try:
         with closing(_connect(path)) as connection:

@@ -44,7 +44,7 @@ from mnemocore.api.middleware import (
     ConceptRateLimiter,
     AnalogyRateLimiter,
     rate_limit_exception_handler,
-    RATE_LIMIT_CONFIGS
+    RATE_LIMIT_CONFIGS,
 )
 from mnemocore.api.models import (
     StoreRequest,
@@ -111,7 +111,7 @@ from mnemocore.core.metrics import (
     init_opentelemetry,
     update_memory_count,
     update_queue_length,
-    OTEL_AVAILABLE
+    OTEL_AVAILABLE,
 )
 
 # Initialize OpenTelemetry (optional, gracefully degrades if not installed)
@@ -137,6 +137,7 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
         if trace_id:
             # Set trace ID in context for downstream operations
             from mnemocore.core.metrics import set_trace_id
+
             set_trace_id(trace_id)
         else:
             # Try to extract from W3C Trace Context format
@@ -156,6 +157,7 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
 
 # --- Lifecycle Management ---
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Security Check
@@ -163,7 +165,9 @@ async def lifespan(app: FastAPI):
     security = config.security if config else None
     _api_key = (security.api_key if security else None) or os.getenv("HAIM_API_KEY", "")
     if not _api_key:
-        logger.critical("No API Key configured! Set HAIM_API_KEY env var or security.api_key in config.")
+        logger.critical(
+            "No API Key configured! Set HAIM_API_KEY env var or security.api_key in config."
+        )
         sys.exit(1)
 
     # Startup: Build dependency container
@@ -175,13 +179,16 @@ async def lifespan(app: FastAPI):
     logger.info("Checking Redis connection...")
     if container.redis_storage:
         if not await container.redis_storage.check_health():
-            logger.warning("Redis connection failed. Running in degraded mode (local only).")
+            logger.warning(
+                "Redis connection failed. Running in degraded mode (local only)."
+            )
     else:
         logger.warning("Redis storage not available.")
 
     # Initialize implementation of engine with injected dependencies
     logger.info("Initializing HAIMEngine...")
     from mnemocore.core.tier_manager import TierManager
+
     tier_manager = TierManager(config=config, qdrant_store=container.qdrant_store)
     engine = HAIMEngine(
         persist_path=config.paths.memory_file,
@@ -195,6 +202,7 @@ async def lifespan(app: FastAPI):
     app.state.engine = engine
     # Also expose the cognitive client to app state for agentic frameworks
     from mnemocore.agent_interface import CognitiveMemoryClient
+
     app.state.cognitive_client = CognitiveMemoryClient(
         engine=engine,
         wm=container.working_memory,
@@ -222,13 +230,13 @@ app = FastAPI(
     title="MnemoCore API",
     description="MnemoCore - Infrastructure for Persistent Cognitive Memory - REST API (Async)",
     version=API_VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 from mnemocore.core.reliability import (
     CircuitBreakerError,
     storage_circuit_breaker,
-    vector_circuit_breaker
+    vector_circuit_breaker,
 )
 
 
@@ -237,7 +245,10 @@ async def circuit_breaker_exception_handler(request: Request, exc: CircuitBreake
     logger.error(f"Service Unavailable (Circuit Open): {exc}")
     return JSONResponse(
         status_code=503,
-        content={"detail": "Service Unavailable: Storage backend is down or overloaded.", "error": str(exc)},
+        content={
+            "detail": "Service Unavailable: Storage backend is down or overloaded.",
+            "error": str(exc),
+        },
     )
 
 
@@ -297,25 +308,24 @@ app.mount("/metrics", metrics_app)
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
+
 async def get_api_key(api_key: str = Security(api_key_header)):
     config = get_config()
     # Phase 3.5.1 Security - Prioritize config.security.api_key, fallback to env var
     security = config.security if config else None
-    expected_key = (security.api_key if security else None) or os.getenv("HAIM_API_KEY", "")
+    expected_key = (security.api_key if security else None) or os.getenv(
+        "HAIM_API_KEY", ""
+    )
 
     if not expected_key:
         # Should be caught by startup check, but double check
         logger.error("API Key not configured during request processing.")
         raise HTTPException(
-            status_code=500,
-            detail="Server Misconfiguration: API Key not set"
+            status_code=500, detail="Server Misconfiguration: API Key not set"
         )
 
     if not api_key or not secrets.compare_digest(api_key, expected_key):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid or missing API Key"
-        )
+        raise HTTPException(status_code=403, detail="Invalid or missing API Key")
     return api_key
 
 
@@ -336,10 +346,12 @@ def get_container(request: Request) -> Container:
 
 # Health routes (no API key required for /health, /, /rate-limits, /stats)
 from mnemocore.api.routes.health import router as health_router
+
 app.include_router(health_router, dependencies=[])
 
 # Memory routes (API key required)
 from mnemocore.api.routes.memories import router as memories_router
+
 app.include_router(memories_router, dependencies=[Depends(get_api_key)])
 
 # v3 runs as an isolated, request-scoped SQLite composition root.  It does
@@ -348,30 +360,37 @@ app.include_router(memories_router, dependencies=[Depends(get_api_key)])
 # the router fails closed.  Deploy v3 through ``create_v3_app`` with a real
 # credential-to-scope authorizer.
 from mnemocore.api.routes.v3_memories import router as v3_memories_router
+
 app.include_router(v3_memories_router, dependencies=[Depends(get_api_key)])
 
 # Episode routes
 from mnemocore.api.routes.episodes import router as episodes_router
+
 app.include_router(episodes_router, dependencies=[Depends(get_api_key)])
 
 # Observation routes
 from mnemocore.api.routes.observations import router as observations_router
+
 app.include_router(observations_router, dependencies=[Depends(get_api_key)])
 
 # Dream routes (includes rate limiting)
 from mnemocore.api.routes.dreams import router as dreams_router
+
 app.include_router(dreams_router, dependencies=[Depends(get_api_key)])
 
 # Export routes
 from mnemocore.api.routes.export import router as export_router
+
 app.include_router(export_router, dependencies=[Depends(get_api_key)])
 
 # Procedure routes
 from mnemocore.api.routes.procedures import router as procedures_router
+
 app.include_router(procedures_router, dependencies=[Depends(get_api_key)])
 
 # Prediction routes
 from mnemocore.api.routes.predictions import router as predictions_router
+
 app.include_router(predictions_router, dependencies=[Depends(get_api_key)])
 
 
@@ -381,10 +400,11 @@ app.include_router(predictions_router, dependencies=[Depends(get_api_key)])
 
 # --- Conceptual Endpoints ---
 
+
 @app.post(
     "/concept",
     response_model=ConceptResponse,
-    dependencies=[Depends(get_api_key), Depends(ConceptRateLimiter())]
+    dependencies=[Depends(get_api_key), Depends(ConceptRateLimiter())],
 )
 async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_engine)):
     """Define a concept with attributes. Rate limit: 100/minute."""
@@ -395,25 +415,28 @@ async def define_concept(req: ConceptRequest, engine: HAIMEngine = Depends(get_e
 @app.post(
     "/analogy",
     response_model=AnalogyResponse,
-    dependencies=[Depends(get_api_key), Depends(AnalogyRateLimiter())]
+    dependencies=[Depends(get_api_key), Depends(AnalogyRateLimiter())],
 )
 async def solve_analogy(req: AnalogyRequest, engine: HAIMEngine = Depends(get_engine)):
     """Solve an analogy. Rate limit: 100/minute."""
     results = await engine.reason_by_analogy(
-        req.source_concept,
-        req.source_value,
-        req.target_concept
+        req.source_concept, req.source_value, req.target_concept
     )
     return {
         "ok": True,
         "analogy": f"{req.source_concept}:{req.source_value} :: {req.target_concept}:?",
-        "results": [{"value": v, "score": float(s)} for v, s in results[:10]]
+        "results": [{"value": v, "score": float(s)} for v, s in results[:10]],
     }
 
 
 # --- Meta Memory Endpoints ---
 
-@app.get("/meta/proposals", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 - Autonomy"])
+
+@app.get(
+    "/meta/proposals",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 - Autonomy"],
+)
 async def get_meta_proposals(status: Optional[str] = None, request: Request = None):
     """List all self-improvement proposals generated by the AGI loop."""
     client = request.app.state.cognitive_client
@@ -425,11 +448,22 @@ async def get_meta_proposals(status: Optional[str] = None, request: Request = No
         proposals = [p for p in proposals if p.status == status]
 
     import dataclasses
-    return {"ok": True, "count": len(proposals), "proposals": [dataclasses.asdict(p) for p in proposals]}
+
+    return {
+        "ok": True,
+        "count": len(proposals),
+        "proposals": [dataclasses.asdict(p) for p in proposals],
+    }
 
 
-@app.post("/meta/proposals/{proposal_id}/status", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 - Autonomy"])
-async def update_proposal_status(proposal_id: str, req: ProposalStatusUpdate, request: Request = None):
+@app.post(
+    "/meta/proposals/{proposal_id}/status",
+    dependencies=[Depends(get_api_key)],
+    tags=["Phase 5.0 - Autonomy"],
+)
+async def update_proposal_status(
+    proposal_id: str, req: ProposalStatusUpdate, request: Request = None
+):
     """Mark a generated self-improvement proposal as accepted, rejected, or implemented."""
     client = request.app.state.cognitive_client
     if not client:
@@ -441,18 +475,26 @@ async def update_proposal_status(proposal_id: str, req: ProposalStatusUpdate, re
 
 # --- Maintenance Endpoints ---
 
+
 @app.post("/maintenance/cleanup", dependencies=[Depends(get_api_key)])
-async def cleanup_maintenance(threshold: float = 0.1, engine: HAIMEngine = Depends(get_engine)):
+async def cleanup_maintenance(
+    threshold: float = 0.1, engine: HAIMEngine = Depends(get_engine)
+):
     """Remove decayed synapses and stale index nodes."""
     await engine.cleanup_decay(threshold=threshold)
-    return {"ok": True, "message": f"Synapse cleanup triggered with threshold {threshold}"}
+    return {
+        "ok": True,
+        "message": f"Synapse cleanup triggered with threshold {threshold}",
+    }
 
 
 @app.post("/maintenance/consolidate", dependencies=[Depends(get_api_key)])
 async def consolidate_maintenance(engine: HAIMEngine = Depends(get_engine)):
     """Trigger manual semantic consolidation pulse."""
     if not engine._semantic_worker:
-        raise HTTPException(status_code=503, detail="Consolidation worker not initialized")
+        raise HTTPException(
+            status_code=503, detail="Consolidation worker not initialized"
+        )
 
     stats = await engine._semantic_worker.run_once()
     return {"ok": True, "stats": stats}
@@ -470,8 +512,11 @@ async def sweep_maintenance(engine: HAIMEngine = Depends(get_engine)):
 
 # --- Subtle Thoughts Endpoint ---
 
+
 @app.get("/agents/{agent_id}/subtle-thoughts", dependencies=[Depends(get_api_key)])
-async def get_subtle_thoughts(agent_id: str, limit: int = 5, engine: HAIMEngine = Depends(get_engine)):
+async def get_subtle_thoughts(
+    agent_id: str, limit: int = 5, engine: HAIMEngine = Depends(get_engine)
+):
     """Retrieve subtle thoughts (associations) generated from active working memory and episodic history."""
     if not hasattr(engine, "generate_subtle_thoughts"):
         return {"ok": True, "associations": []}
@@ -481,6 +526,7 @@ async def get_subtle_thoughts(agent_id: str, limit: int = 5, engine: HAIMEngine 
 
 
 # --- Phase 4.5: Recursive Synthesis Engine Endpoint ---
+
 
 @app.post(
     "/rlm/query",
@@ -513,7 +559,10 @@ async def rlm_query(
     """
     API_REQUEST_COUNT.labels(method="POST", endpoint="/rlm/query", status="200").inc()
 
-    from mnemocore.core.recursive_synthesizer import RecursiveSynthesizer, SynthesizerConfig
+    from mnemocore.core.recursive_synthesizer import (
+        RecursiveSynthesizer,
+        SynthesizerConfig,
+    )
     from mnemocore.core.ripple_context import RippleContext
 
     # Build config from request overrides
@@ -550,6 +599,7 @@ async def rlm_query(
 
 
 # --- Phase 5.0: Trust & Provenance Endpoints ---
+
 
 @app.get(
     "/memory/{memory_id}/lineage",
@@ -616,6 +666,7 @@ async def get_memory_confidence(
 
 # --- Phase 5.0: Proactive Recall ---
 
+
 @app.get(
     "/proactive",
     dependencies=[Depends(get_api_key)],
@@ -631,25 +682,33 @@ async def get_proactive_memories(
     Proactive recall stub (Phase 5.0 / Agent 3).
     Returns the most recently active high-LTP memories.
     """
-    nodes = await engine.tier_manager.get_hot_snapshot() if hasattr(engine, "tier_manager") else []
+    nodes = (
+        await engine.tier_manager.get_hot_snapshot()
+        if hasattr(engine, "tier_manager")
+        else []
+    )
     sorted_nodes = sorted(nodes, key=lambda n: n.ltp_strength, reverse=True)[:limit]
 
     from mnemocore.core.confidence import build_confidence_envelope
+
     results = []
     for n in sorted_nodes:
         prov = getattr(n, "provenance", None)
-        results.append({
-            "id": n.id,
-            "content": n.content,
-            "ltp_strength": round(n.ltp_strength, 4),
-            "confidence": build_confidence_envelope(n, prov),
-            "tier": getattr(n, "tier", "hot"),
-        })
+        results.append(
+            {
+                "id": n.id,
+                "content": n.content,
+                "ltp_strength": round(n.ltp_strength, 4),
+                "confidence": build_confidence_envelope(n, prov),
+                "tier": getattr(n, "tier", "hot"),
+            }
+        )
 
     return {"ok": True, "proactive_results": results, "count": len(results)}
 
 
 # --- Phase 5.0: Contradiction Endpoints ---
+
 
 @app.get(
     "/contradictions",
@@ -664,6 +723,7 @@ async def list_contradictions(
     Returns all detected contradiction groups from the ContradictionRegistry.
     """
     from mnemocore.core.contradiction import get_contradiction_detector
+
     detector = get_contradiction_detector()
     records = detector.registry.list_all(unresolved_only=unresolved_only)
     return {
@@ -682,14 +742,18 @@ async def list_contradictions(
 async def resolve_contradiction(group_id: str, req: ResolveContradictionRequest):
     """Manually resolve a detected contradiction."""
     from mnemocore.core.contradiction import get_contradiction_detector
+
     detector = get_contradiction_detector()
     success = detector.registry.resolve(group_id, note=req.note)
     if not success:
-        raise HTTPException(status_code=404, detail=f"Contradiction group {group_id!r} not found.")
+        raise HTTPException(
+            status_code=404, detail=f"Contradiction group {group_id!r} not found."
+        )
     return {"ok": True, "resolved_group_id": group_id}
 
 
 # --- Phase 5.0: Emotional Tag Endpoints ---
+
 
 @app.get(
     "/memory/{memory_id}/emotional-tag",
@@ -703,6 +767,7 @@ async def get_emotional_tag_ep(
 ):
     """Return the valence/arousal emotional metadata for a memory."""
     from mnemocore.core.emotional_tag import get_emotional_tag
+
     node = await engine.get_memory(memory_id)
     if not node:
         raise MemoryNotFoundError(memory_id)
@@ -730,6 +795,7 @@ async def patch_emotional_tag(
     engine: HAIMEngine = Depends(get_engine),
 ):
     from mnemocore.core.emotional_tag import EmotionalTag, attach_emotional_tag
+
     node = await engine.get_memory(memory_id)
     if not node:
         raise MemoryNotFoundError(memory_id)
@@ -739,6 +805,7 @@ async def patch_emotional_tag(
 
 
 # --- Knowledge Gaps Endpoint ---
+
 
 @app.get("/gaps", dependencies=[Depends(get_api_key)], tags=["Phase 5.0 - Autonomy"])
 async def get_knowledge_gaps(engine: HAIMEngine = Depends(get_engine)):
@@ -750,11 +817,12 @@ async def get_knowledge_gaps(engine: HAIMEngine = Depends(get_engine)):
     return {
         "ok": True,
         "gaps": [g.to_dict() if hasattr(g, "to_dict") else g for g in gaps],
-        "count": len(gaps)
+        "count": len(gaps),
     }
 
 
 # --- Phase 6.0: Association Network Endpoints ---
+
 
 @app.get(
     "/associations/{node_id}",
@@ -812,10 +880,7 @@ async def find_association_path(
     Find paths connecting two memory nodes through the association network.
     """
     if not hasattr(engine, "associations"):
-        raise HTTPException(
-            status_code=503,
-            detail="Association network not available"
-        )
+        raise HTTPException(status_code=503, detail="Association network not available")
 
     paths = engine.associations.find_associations_path(
         source_id=req.from_id,
@@ -847,10 +912,7 @@ async def get_node_clusters(
     Find clusters (groups of strongly associated memories) that contain this node.
     """
     if not hasattr(engine, "associations"):
-        raise HTTPException(
-            status_code=503,
-            detail="Association network not available"
-        )
+        raise HTTPException(status_code=503, detail="Association network not available")
 
     clusters = engine.associations.find_clusters(
         min_cluster_size=min_cluster_size,
@@ -863,10 +925,7 @@ async def get_node_clusters(
     return {
         "ok": True,
         "node_id": node_id,
-        "clusters": [
-            {"size": len(c), "nodes": list(c)}
-            for c in node_clusters
-        ],
+        "clusters": [{"size": len(c), "nodes": list(c)} for c in node_clusters],
         "count": len(node_clusters),
     }
 
@@ -885,14 +944,12 @@ async def get_association_metrics(
     Get structural metrics about the association network.
     """
     if not hasattr(engine, "associations"):
-        raise HTTPException(
-            status_code=503,
-            detail="Association network not available"
-        )
+        raise HTTPException(status_code=503, detail="Association network not available")
 
     metrics = engine.associations.compute_metrics()
 
     from mnemocore.api.models import GraphMetricsModel
+
     return GraphMetricsResponse(
         ok=True,
         metrics=GraphMetricsModel(
@@ -922,10 +979,7 @@ async def reinforce_association(
     Manually reinforce the association between two memory nodes.
     """
     if not hasattr(engine, "associations"):
-        raise HTTPException(
-            status_code=503,
-            detail="Association network not available"
-        )
+        raise HTTPException(status_code=503, detail="Association network not available")
 
     from mnemocore.cognitive.associations import AssociationType
 
@@ -937,6 +991,7 @@ async def reinforce_association(
 
     if edge:
         from mnemocore.api.models import AssociationEdgeModel
+
         return ReinforceAssociationResponse(
             ok=True,
             edge=AssociationEdgeModel(
@@ -974,10 +1029,7 @@ async def visualize_associations(
     Generate an HTML visualization of the association network.
     """
     if not hasattr(engine, "associations"):
-        raise HTTPException(
-            status_code=503,
-            detail="Association network not available"
-        )
+        raise HTTPException(status_code=503, detail="Association network not available")
 
     html = engine.associations.visualize(
         max_nodes=max_nodes,
@@ -988,13 +1040,15 @@ async def visualize_associations(
     if html is None:
         raise HTTPException(
             status_code=503,
-            detail="Visualization not available (Plotly not installed or no data)"
+            detail="Visualization not available (Plotly not installed or no data)",
         )
 
     from fastapi.responses import HTMLResponse
+
     return HTMLResponse(content=html)
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8100)

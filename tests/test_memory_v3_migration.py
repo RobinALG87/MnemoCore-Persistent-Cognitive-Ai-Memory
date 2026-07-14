@@ -17,7 +17,9 @@ def test_default_memory_is_treated_as_the_removed_lite_profile():
 
 
 @pytest.mark.parametrize("profile", ["full", "production", "custom"])
-def test_all_memory_profiles_fail_closed_before_loading_legacy_haim(monkeypatch, profile):
+def test_all_memory_profiles_fail_closed_before_loading_legacy_haim(
+    monkeypatch, profile
+):
     """The v2 facade must never be an unscoped escape hatch in v3."""
     import mnemocore._memory as memory_module
 
