@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from mnemocore.agent_memory import MemoryKind, MemoryNotFoundError, MemoryScope
-from mnemocore.core.config import get_config
+from mnemocore.api.scope_authorization import ScopeAuthorizer
 from mnemocore.hybrid import RuntimeFactory
 
 router = APIRouter(prefix="/v3/memories", tags=["v3 memories"])
@@ -53,9 +53,24 @@ class V3ForgetRequest(V3ScopeRequest):
 
 def _sqlite_path(request: Request) -> Path:
     configured = getattr(request.app.state, "v3_sqlite_path", None)
-    if configured is not None:
-        return Path(configured)
-    return Path(get_config().paths.data_dir) / "v3_agent_memory.sqlite"
+    if configured is None:
+        raise RuntimeError("v3 SQLite path is not configured")
+    return Path(configured)
+
+
+async def _authorize(request: Request, scope: MemoryScope) -> None:
+    authorizer: ScopeAuthorizer | None = getattr(
+        request.app.state, "v3_scope_authorizer", None
+    )
+    if authorizer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="v3 scope authorization is not configured",
+        )
+    if not await authorizer.authorize(request, scope):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="scope is not authorized"
+        )
 
 
 def _memory(record: Any) -> dict[str, Any]:
@@ -80,10 +95,14 @@ async def _open(request: Request, scope: MemoryScope):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def remember(request: Request, body: V3RememberRequest):
     scope = body.scope()
+    await _authorize(request, scope)
     factory, runtime = await _open(request, scope)
     try:
         record = await runtime.remember(
-            body.content, kind=body.kind, metadata=body.metadata, confidence=body.confidence
+            body.content,
+            kind=body.kind,
+            metadata=body.metadata,
+            confidence=body.confidence,
         )
         return {"scope_key": scope.scope_key, "memory": _memory(record)}
     finally:
@@ -93,6 +112,7 @@ async def remember(request: Request, body: V3RememberRequest):
 @router.post("/recall")
 async def recall(request: Request, body: V3RecallRequest):
     scope = body.scope()
+    await _authorize(request, scope)
     factory, runtime = await _open(request, scope)
     try:
         results = await runtime.recall(scope, body.query, limit=body.limit)
@@ -115,6 +135,7 @@ async def recall(request: Request, body: V3RecallRequest):
 @router.get("/{memory_id}")
 async def get(memory_id: str, request: Request, scope: V3ScopeRequest = Depends()):
     exact_scope = scope.scope()
+    await _authorize(request, exact_scope)
     factory, runtime = await _open(request, exact_scope)
     try:
         record = await runtime.get(memory_id)
@@ -128,6 +149,7 @@ async def get(memory_id: str, request: Request, scope: V3ScopeRequest = Depends(
 @router.delete("/{memory_id}")
 async def forget(memory_id: str, request: Request, scope: V3ForgetRequest = Depends()):
     exact_scope = scope.scope()
+    await _authorize(request, exact_scope)
     factory, runtime = await _open(request, exact_scope)
     try:
         record = await runtime.forget(memory_id, reason=scope.reason)

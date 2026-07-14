@@ -341,6 +341,9 @@ app.include_router(memories_router, dependencies=[Depends(get_api_key)])
 
 # v3 runs as an isolated, request-scoped SQLite composition root.  It does
 # not participate in legacy HAIM lifecycle or the legacy /store and /query API.
+# This legacy composition root does not configure a scope-bound authorizer, so
+# the router fails closed.  Deploy v3 through ``create_v3_app`` with a real
+# credential-to-scope authorizer.
 from mnemocore.api.routes.v3_memories import router as v3_memories_router
 app.include_router(v3_memories_router, dependencies=[Depends(get_api_key)])
 
