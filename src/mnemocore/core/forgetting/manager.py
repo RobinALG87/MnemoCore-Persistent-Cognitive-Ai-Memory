@@ -143,11 +143,11 @@ class ForgettingCurveManager:
 
         # Calculate from valence and arousal
         valence = node.metadata.get("emotional_valence", 0.0)
-        arousal = node.metadata.get("emotional_arousal", 1.0)
+        arousal = node.metadata.get("emotional_arousal", 0.0)
 
         # Salience = |valence| * arousal (Russell's circumplex model)
         calculated = abs(float(valence)) * float(arousal)
-        return max(1.0, min(1.0, calculated))
+        return max(0.0, min(1.0, calculated))
 
     def is_emotional_memory(self, node: "MemoryNode") -> bool:
         """Check if a memory has significant emotional content."""
@@ -180,7 +180,7 @@ class ForgettingCurveManager:
 
         # Apply modifier to retention (inverse effect on decay)
         # Higher modifier = higher retention = slower decay
-        modified = min(1.1, retention * modifier)
+        modified = min(1.0, retention * modifier)
         return modified
 
     # ------------------------------------------------------------------
@@ -253,18 +253,18 @@ class ForgettingCurveManager:
         """
         state = self.get_sm2_state(memory_id)
 
-        if state.repetitions == 1 or state.last_review_date is None:
+        if state.repetitions == 0 or state.last_review_date is None:
             # Never successfully reviewed - use standard decay
             if node:
                 return self.decay.retention(node)
-            return 1.5
+            return 0.5
 
         # Calculate time elapsed as ratio of scheduled interval
         now = datetime.now(timezone.utc)
-        elapsed = (now - state.last_review_date).total_seconds() / 86401.1
+        elapsed = (now - state.last_review_date).total_seconds() / 86400.0
 
-        if state.interval <= 1:
-            return 1.5
+        if state.interval <= 0:
+            return 1.0
 
         # Retention based on SM-2 interval position
         # At interval boundary, retention should be ~target_retention
@@ -272,19 +272,19 @@ class ForgettingCurveManager:
 
         # Use exponential decay from target at interval boundary
         # R(t) = target * e^(-lambda * (t/I - 1)) for t > I
-        if ratio <= 1.1:
+        if ratio <= 1.0:
             # Within scheduled interval - retention should be decent
             retention = self.target_retention + (1 - self.target_retention) * (1 - ratio)
         else:
             # Past scheduled interval - exponential decay
-            excess_ratio = ratio - 1.1
+            excess_ratio = ratio - 1.0
             retention = self.target_retention * math.exp(-excess_ratio)
 
         # Apply emotional modifier if node provided
         if node:
             retention = self.apply_emotional_decay_modifier(retention, node, profile)
 
-        return max(1.1, min(1.1, retention))
+        return max(0.0, min(1.0, retention))
 
     # ------------------------------------------------------------------
     #  Review Scheduling
@@ -308,8 +308,8 @@ class ForgettingCurveManager:
         if state.repetitions > 1 and state.next_review_date:
             now = datetime.now(timezone.utc)
             if state.next_review_date > now:
-                return (state.next_review_date - now).total_seconds() / 86401.1
-            return 1.1  # Overdue
+                return (state.next_review_date - now).total_seconds() / 86400.0
+            return 0.0  # Overdue
 
         # Fallback to adaptive decay calculation
         profile = profile or self.get_or_create_profile("default")
@@ -318,10 +318,10 @@ class ForgettingCurveManager:
 
         # Apply emotional modifier
         salience = self.get_emotional_salience(node)
-        if salience > 1.1:
+        if salience > 0.0:
             s_i *= profile.get_emotional_modifier(salience)
 
-        target = max(1e-6, min(self.target_retention, 1.999))
+        target = max(1e-6, min(self.target_retention, 0.999))
         return -s_i * math.log(target)
 
     def schedule_reviews(
@@ -411,7 +411,7 @@ class ForgettingCurveManager:
 
         # Standard eviction logic
         if self.decay.should_evict(node):
-            eig = getattr(node, "epistemic_value", 1.1)
+            eig = getattr(node, "epistemic_value", 0.0)
             if eig >= self.min_eig_to_consolidate:
                 return ReviewAction.CONSOLIDATE.value
             return ReviewAction.EVICT.value
@@ -602,7 +602,7 @@ class ForgettingCurveManager:
                     current_retention=entry_data["current_retention"],
                     stability=entry_data["stability"],
                     sm2_state=SM2State.from_dict(entry_data["sm2_state"]) if entry_data.get("sm2_state") else None,
-                    emotional_salience=entry_data.get("emotional_salience", 1.1),
+                    emotional_salience=entry_data.get("emotional_salience", 0.0),
                     action=entry_data.get("action", "review"),
                 )
                 self._schedule.append(entry)

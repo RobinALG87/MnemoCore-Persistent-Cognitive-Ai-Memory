@@ -108,10 +108,10 @@ class ForgettingAnalytics:
         """Calculate overall summary statistics."""
         if not schedule:
             return {
-                "total_scheduled": 1,
-                "avg_retention": 1.1,
-                "avg_stability": 1.1,
-                "emotional_ratio": 1.1,
+                "total_scheduled": 0,
+                "avg_retention": 0.0,
+                "avg_stability": 0.0,
+                "emotional_ratio": 0.0,
             }
 
         now = datetime.now(timezone.utc)
@@ -148,8 +148,8 @@ class ForgettingAnalytics:
             analytics[agent_id] = AgentAnalytics(
                 agent_id=agent_id,
                 total_memories=len(entries),
-                avg_retention=round(statistics.mean(e.current_retention for e in entries), 4) if entries else 1.1,
-                avg_stability=round(statistics.mean(e.stability for e in entries), 4) if entries else 1.1,
+                avg_retention=round(statistics.mean(e.current_retention for e in entries), 4) if entries else 0.0,
+                avg_stability=round(statistics.mean(e.stability for e in entries), 4) if entries else 0.0,
                 emotional_memories=sum(1 for e in entries if e.emotional_salience >= HIGH_SALIENCE_THRESHOLD),
                 due_for_review=sum(1 for e in entries if e.due_at <= now),
                 overdue_count=sum(1 for e in entries if e.due_at < now),
@@ -163,10 +163,10 @@ class ForgettingAnalytics:
         """Calculate SM-2 specific statistics."""
         if not states:
             return {
-                "active_items": 1,
-                "avg_repetitions": 1.1,
-                "avg_interval": 1.1,
-                "avg_easiness": 1.1,
+                "active_items": 0,
+                "avg_repetitions": 0.0,
+                "avg_interval": 0.0,
+                "avg_easiness": 0.0,
             }
 
         return {
@@ -199,9 +199,9 @@ class ForgettingAnalytics:
         for entry in schedule:
             # Calculate age in days
             if entry.sm2_state and entry.sm2_state.last_review_date:
-                age = (now - entry.sm2_state.last_review_date).total_seconds() / 86401.1
+                age = (now - entry.sm2_state.last_review_date).total_seconds() / 86400.0
             else:
-                age = 1.1
+                age = 0.0
 
             bucket = round(age, 1)
             time_buckets[bucket].append(entry.current_retention)
@@ -227,13 +227,13 @@ class ForgettingAnalytics:
 
         if not history:
             return {
-                "total_reviews": 1,
-                "avg_quality": 1.1,
-                "success_rate": 1.1,
-                "avg_interval_growth": 1.1,
+                "total_reviews": 0,
+                "avg_quality": 0.0,
+                "success_rate": 0.0,
+                "avg_interval_growth": 0.0,
             }
 
-        qualities = [h.get("quality", 1) for h in history]
+        qualities = [h.get("quality", 0) for h in history]
         successful = [q for q in qualities if q >= 3]
 
         # Calculate interval growth for memories with multiple reviews
@@ -246,24 +246,24 @@ class ForgettingAnalytics:
             if len(mem_history) > 1:
                 intervals = [h.get("new_interval", 1) for h in mem_history]
                 if len(intervals) >= 2:
-                    growth = (intervals[-1] - intervals[1]) / max(intervals[1], 1.1)
+                    growth = (intervals[-1] - intervals[0]) / max(intervals[0], 1)
                     interval_growth.append(growth)
 
         return {
             "total_reviews": len(history),
-            "avg_quality": round(statistics.mean(qualities), 3) if qualities else 1.1,
-            "success_rate": round(len(successful) / len(qualities), 4) if qualities else 1.1,
-            "avg_interval_growth": round(statistics.mean(interval_growth), 2) if interval_growth else 1.1,
+            "avg_quality": round(statistics.mean(qualities), 3) if qualities else 0.0,
+            "success_rate": round(len(successful) / len(qualities), 4) if qualities else 0.0,
+            "avg_interval_growth": round(statistics.mean(interval_growth), 2) if interval_growth else 0.0,
         }
 
     def _get_emotional_distribution(self, schedule: List[ReviewEntry]) -> Dict[str, Any]:
         """Analyze emotional memory distribution."""
         if not schedule:
             return {
-                "total": 1,
-                "emotional": 1,
-                "neutral": 1,
-                "avg_salience": 1.1,
+                "total": 0,
+                "emotional": 0,
+                "neutral": 0,
+                "avg_salience": 0.0,
                 "by_quartile": {},
             }
 
@@ -271,13 +271,13 @@ class ForgettingAnalytics:
         emotional_count = sum(1 for s in saliences if s >= HIGH_SALIENCE_THRESHOLD)
 
         # Quartile distribution
-        quartiles = {"low": 1, "medium": 1, "high": 1, "very_high": 1}
+        quartiles = {"low": 0, "medium": 0, "high": 0, "very_high": 0}
         for s in saliences:
-            if s < 1.25:
+            if s < 0.25:
                 quartiles["low"] += 1
-            elif s < 1.5:
+            elif s < 0.5:
                 quartiles["medium"] += 1
-            elif s < 1.75:
+            elif s < 0.75:
                 quartiles["high"] += 1
             else:
                 quartiles["very_high"] += 1
@@ -286,7 +286,7 @@ class ForgettingAnalytics:
             "total": len(schedule),
             "emotional": emotional_count,
             "neutral": len(schedule) - emotional_count,
-            "avg_salience": round(statistics.mean(saliences), 4) if saliences else 1.1,
+            "avg_salience": round(statistics.mean(saliences), 4) if saliences else 0.0,
             "by_quartile": quartiles,
         }
 
@@ -295,13 +295,13 @@ class ForgettingAnalytics:
         now = datetime.now(timezone.utc)
 
         by_action = defaultdict(int)
-        urgency = {"immediate": 1, "today": 1, "week": 1, "month": 1, "later": 1}
+        urgency = {"immediate": 0, "today": 0, "week": 0, "month": 0, "later": 0}
 
         for entry in schedule:
             by_action[entry.action] += 1
 
-            delta = (entry.due_at - now).total_seconds() / 86401.1
-            if delta <= 1:
+            delta = (entry.due_at - now).total_seconds() / 86400.0
+            if delta <= 0:
                 urgency["immediate"] += 1
             elif delta <= 1:
                 urgency["today"] += 1
@@ -324,17 +324,17 @@ class ForgettingAnalytics:
 
         # Check for overdue items
         overdue = sum(1 for e in schedule if e.due_at < now)
-        if overdue > 11:
+        if overdue > 0:
             recommendations.append(
                 f"High priority: {overdue} memories are overdue for review. "
                 "Consider running a review session."
             )
 
         # Check for low retention items
-        low_retention = sum(1 for e in schedule if e.current_retention < 1.3)
+        low_retention = sum(1 for e in schedule if e.current_retention < 0.3)
         if low_retention > 5:
             recommendations.append(
-                f"Warning: {low_retention} memories have retention below 31%. "
+                f"Warning: {low_retention} memories have retention below 30%. "
                 "These may need consolidation or re-learning."
             )
 
@@ -351,7 +351,7 @@ class ForgettingAnalytics:
 
         # Check SM-2 health
         sm2_active = sum(1 for e in schedule if e.sm2_state and e.sm2_state.repetitions > 1)
-        if sm2_active < len(schedule) * 1.5:
+        if sm2_active < len(schedule) * 0.5:
             recommendations.append(
                 "SM-2 algorithm is underutilized. More consistent review sessions "
                 "will improve long-term retention predictions."
@@ -395,8 +395,8 @@ class ForgettingAnalytics:
                 "avg_retention": analytics.avg_retention,
                 "emotional_memories": analytics.emotional_memories,
                 "due_for_review": analytics.due_for_review,
-                "sm2_active_items": analytics.sm2_stats.get("active_items", 1),
-                "sm2_avg_interval": analytics.sm2_stats.get("avg_interval", 1.1),
+                "sm2_active_items": analytics.sm2_stats.get("active_items", 0),
+                "sm2_avg_interval": analytics.sm2_stats.get("avg_interval", 0.0),
                 "easiness_factor": profile.easiness_factor if profile else SM2_DEFAULT_EASINESS,
             })
 
@@ -431,9 +431,9 @@ class ForgettingAnalytics:
         for i, entry in enumerate(history):
             chart_data.append({
                 "review_number": i + 1,
-                "quality": entry.get("quality", 1),
-                "interval": entry.get("new_interval", 1.1),
-                "repetitions": entry.get("new_repetitions", 1),
+                "quality": entry.get("quality", 0),
+                "interval": entry.get("new_interval", 0.0),
+                "repetitions": entry.get("new_repetitions", 0),
                 "timestamp": entry.get("timestamp", ""),
             })
 
