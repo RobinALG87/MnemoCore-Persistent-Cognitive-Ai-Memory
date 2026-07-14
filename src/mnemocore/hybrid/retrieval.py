@@ -12,10 +12,30 @@ from .contracts import HybridRecallResult, RetrievalRequest
 
 _TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 _HDV_BITS = 256
+_HDV_MINIMUM_SIMILARITY = 0.60
 
 
 def _tokens(text: str) -> tuple[str, ...]:
     return tuple(_TOKEN_PATTERN.findall(text.casefold()))
+
+
+def _hdv_features(text: str) -> tuple[str, ...]:
+    """Return stable token and character features for local HDV encoding.
+
+    Character trigrams let the binary strategy recognize close word forms
+    (for example ``apple`` and ``apples``) even when lexical token matching
+    has no candidate.  Feature prefixes keep token and character namespaces
+    distinct.
+    """
+    features: list[str] = []
+    for token in _tokens(text):
+        features.append(f"token:{token}")
+        padded = f"^{token}$"
+        features.extend(
+            f"gram:{padded[index : index + 3]}"
+            for index in range(max(1, len(padded) - 2))
+        )
+    return tuple(features)
 
 
 def lexical_similarity(query: str, content: str) -> float:
@@ -35,8 +55,10 @@ class BinaryHDV:
     def encode(cls, text: str) -> int:
         """Bundle token hashes into one fixed-width binary hypervector."""
         votes = [0] * cls.bits
-        for token in _tokens(text):
-            value = int.from_bytes(hashlib.sha256(token.encode("utf-8")).digest(), "big")
+        for feature in _hdv_features(text):
+            value = int.from_bytes(
+                hashlib.sha256(feature.encode("utf-8")).digest(), "big"
+            )
             for bit in range(cls.bits):
                 votes[bit] += 1 if value & (1 << bit) else -1
         vector = 0
@@ -53,29 +75,39 @@ class BinaryHDV:
 
 
 class DeterministicHybridRetriever:
-    """Exact-scope lexical candidate selection and deterministic BinaryHDV reranking."""
+    """Exact-scope HDV retrieval with deterministic lexical fallback."""
 
     def retrieve(
         self,
         request: RetrievalRequest,
         records: Iterable[MemoryRecord],
     ) -> tuple[HybridRecallResult, ...]:
-        results: list[HybridRecallResult] = []
+        hdv_results: list[HybridRecallResult] = []
+        lexical_results: list[HybridRecallResult] = []
         for memory in records:
             if memory.scope != request.scope:
                 continue
             lexical_score = lexical_similarity(request.query, memory.content)
-            if lexical_score == 0.0:
-                continue
             hdv_score = BinaryHDV.similarity(request.query, memory.content)
             hybrid_score = (lexical_score + hdv_score) / 2.0
-            results.append(
-                HybridRecallResult(
-                    memory=memory,
-                    lexical_score=lexical_score,
-                    hdv_score=hdv_score,
-                    score=hybrid_score,
-                )
+            result = HybridRecallResult(
+                memory=memory,
+                lexical_score=lexical_score,
+                hdv_score=hdv_score,
+                score=hybrid_score,
             )
-        results.sort(key=lambda result: (-result.score, -result.lexical_score, result.memory.id))
+            if hdv_score >= _HDV_MINIMUM_SIMILARITY:
+                hdv_results.append(result)
+            if lexical_score > 0.0:
+                lexical_results.append(result)
+
+        results = hdv_results or lexical_results
+        results.sort(
+            key=lambda result: (
+                -result.score,
+                -result.hdv_score,
+                -result.lexical_score,
+                result.memory.id,
+            )
+        )
         return tuple(results[: request.limit])

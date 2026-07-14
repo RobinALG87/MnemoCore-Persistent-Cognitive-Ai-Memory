@@ -22,6 +22,7 @@ from mnemocore.hybrid import (
     PlanApplyReceipt,
     SyncHybridMemoryRuntime,
 )
+from mnemocore.hybrid.retrieval import lexical_similarity
 from mnemocore.hybrid.plans import (
     CognitivePlan,
     ProposedMemory,
@@ -118,6 +119,48 @@ async def test_binary_hdv_breaks_a_lexical_tie_deterministically(tmp_path):
     assert [item.lexical_score for item in results] == [1.0, 1.0]
     assert results[0].memory.content == "apple banana"
     assert results[0].hdv_score > results[1].hdv_score
+
+
+@pytest.mark.asyncio
+async def test_hdv_retrieval_returns_a_scope_local_morphological_match_without_lexical_overlap(
+    tmp_path,
+):
+    """HDV remains useful when exact lexical tokens cannot produce a candidate."""
+    database = tmp_path / "memory.db"
+    scope = _scope("local")
+    foreign_scope = _scope("foreign")
+
+    async with await AgentMemory.open(database, scope=scope) as memory:
+        local = await memory.remember("the orchard apple harvest is ready")
+        async with await AgentMemory.open(
+            database, scope=foreign_scope
+        ) as foreign_memory:
+            foreign = await foreign_memory.remember(
+                "the orchard apple harvest is ready"
+            )
+
+        results = await HybridMemoryRuntime(memory, scope=scope).recall(scope, "apples")
+
+    assert lexical_similarity("apples", local.content) == 0.0
+    assert [result.memory.id for result in results] == [local.id]
+    assert foreign.id not in {result.memory.id for result in results}
+
+
+@pytest.mark.asyncio
+async def test_lexical_retrieval_is_a_safe_fallback_when_no_hdv_candidate_is_strong_enough(
+    tmp_path,
+):
+    scope = _scope("local")
+    content = (
+        "a very long needle content with obscuring unique vocabulary "
+        "kerosene zulu weather xylophone quasar"
+    )
+    async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
+        stored = await memory.remember(content)
+        results = await HybridMemoryRuntime(memory, scope=scope).recall(scope, "needle")
+
+    assert results[0].memory.id == stored.id
+    assert results[0].lexical_score == 1.0
 
 
 def test_sync_and_async_runtimes_have_recall_parity(tmp_path):
@@ -343,7 +386,9 @@ async def test_apply_rejects_a_foreign_source_id_without_local_writes(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_apply_rejects_superseded_or_contradicted_sources_without_writes(tmp_path):
+async def test_apply_rejects_superseded_or_contradicted_sources_without_writes(
+    tmp_path,
+):
     database = tmp_path / "memory.db"
     scope = _scope("local")
     async with await AgentMemory.open(database, scope=scope) as memory:
@@ -443,24 +488,23 @@ async def test_recall_pages_past_one_thousand_scope_local_candidates_and_reports
     scope = _scope("local")
     foreign_scope = _scope("foreign")
     async with await AgentMemory.open(tmp_path / "memory.db", scope=scope) as memory:
-        target = await memory.remember("needle precise ranking phrase")
+        target = await memory.remember("apple")
         await memory.remember_many(
             tuple(
-                MemoryWrite("needle distractor", MemoryKind.OBSERVATION, 1.0)
+                MemoryWrite("banana distractor", MemoryKind.OBSERVATION, 1.0)
                 for _ in range(1001)
             )
         )
         async with await AgentMemory.open(
             tmp_path / "memory.db", scope=foreign_scope
         ) as foreign_memory:
-            foreign = await foreign_memory.remember(
-                "needle precise ranking phrase foreign"
-            )
+            foreign = await foreign_memory.remember("apple")
 
         runtime = HybridMemoryRuntime(memory, scope=scope, candidate_budget=1002)
-        results = await runtime.recall(scope, "needle precise ranking phrase")
+        results = await runtime.recall(scope, "apples")
 
     assert results[0].memory.id == target.id
+    assert results[0].lexical_score == 0.0
     assert foreign.id not in {result.memory.id for result in results}
     assert runtime.last_retrieval_observability.candidate_count == 1002
     assert runtime.last_retrieval_observability.scoring_version == SCORING_VERSION
