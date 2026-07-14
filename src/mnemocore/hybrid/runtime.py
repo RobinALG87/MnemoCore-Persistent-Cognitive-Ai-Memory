@@ -6,7 +6,14 @@ from pathlib import Path
 
 from dataclasses import dataclass
 
-from mnemocore.agent_memory import AgentMemory, MemoryScope, MemoryWrite, SyncAgentMemory
+from mnemocore.agent_memory import (
+    AgentMemory,
+    MemoryKind,
+    MemoryRecord,
+    MemoryScope,
+    MemoryWrite,
+    SyncAgentMemory,
+)
 
 from .contracts import ExactScopeError, HybridRecallResult, RetrievalRequest
 from .retrieval import DeterministicHybridRetriever
@@ -95,6 +102,27 @@ class HybridMemoryRuntime:
         self._require_exact_scope(request.scope)
         records = await self._memory.list(limit=1000)
         return self._retriever.retrieve(request, records)
+
+    async def remember(
+        self,
+        content: str,
+        *,
+        kind: MemoryKind = MemoryKind.OBSERVATION,
+        metadata: dict | None = None,
+        confidence: float = 1.0,
+    ) -> MemoryRecord:
+        """Persist one record in this runtime's exact scope."""
+        return await self._memory.remember(
+            content, kind=kind, metadata=metadata, confidence=confidence
+        )
+
+    async def get(self, memory_id: str) -> MemoryRecord:
+        """Get one active record from this runtime's exact scope."""
+        return await self._memory.get(memory_id)
+
+    async def forget(self, memory_id: str, *, reason: str | None = None) -> MemoryRecord:
+        """Forget one record in this runtime's exact scope."""
+        return await self._memory.forget(memory_id, reason=reason)
 
     async def apply(self, plan: CognitivePlan | ValidatedPlan) -> PlanApplyReceipt:
         """Freshly validate and atomically apply a remember-only cognitive plan."""

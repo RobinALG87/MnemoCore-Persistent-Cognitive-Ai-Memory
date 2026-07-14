@@ -339,6 +339,11 @@ app.include_router(health_router, dependencies=[])
 from mnemocore.api.routes.memories import router as memories_router
 app.include_router(memories_router, dependencies=[Depends(get_api_key)])
 
+# v3 runs as an isolated, request-scoped SQLite composition root.  It does
+# not participate in legacy HAIM lifecycle or the legacy /store and /query API.
+from mnemocore.api.routes.v3_memories import router as v3_memories_router
+app.include_router(v3_memories_router, dependencies=[Depends(get_api_key)])
+
 # Episode routes
 from mnemocore.api.routes.episodes import router as episodes_router
 app.include_router(episodes_router, dependencies=[Depends(get_api_key)])
