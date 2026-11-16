@@ -22,7 +22,7 @@ Pattern Learner är en MnemoCore-modul som lär sig från användarinteraktioner
 | Utmaning | Konsekvens |
 |----------|------------|
 | GDPR/HIPAA compliance | Kan inte lagra konversationer |
-| Multitenancy | Data får inte läcka mellan kliniker |
+| Multitenancy | Data får inte läcka mellan tenants |
 | Quality improvement | Behöver veta vad som fungerar |
 | Knowledge gaps | Behöver identifiera vad som saknas i docs |
 
@@ -52,8 +52,8 @@ User Query ──► Anonymize ──► Extract Pattern ──► Aggregate
 
 **What is NOT stored:**
 - User identities
-- Clinic associations
-- Patient data
+- Organization associations
+- Personal data about end users
 - Raw conversations
 
 ---
@@ -96,7 +96,7 @@ User Query ──► Anonymize ──► Extract Pattern ──► Aggregate
 **Methods:**
 - Named Entity Recognition (NER) for person names
 - Pattern matching for phone numbers, addresses
-- Clinic/organization detection
+- Organization name detection
 - Session ID hashing
 
 ```python
@@ -124,9 +124,9 @@ class Anonymizer:
         for pattern_type, pattern in self.patterns.items():
             text = re.sub(pattern, f"[{pattern_type.upper()}]", text)
         
-        # 3. Remove clinic names (configurable blacklist)
-        for clinic_name in self.clinic_blacklist:
-            text = text.replace(clinic_name, "[KLINIK]")
+        # 3. Remove organization names (configurable blacklist)
+        for org_name in self.org_blacklist:
+            text = text.replace(org_name, "[ORG]")
         
         return text
 ```
@@ -284,13 +284,13 @@ class PatternStore:
 {
     "knowledge_gaps": [
         {
-            "topic": "tandreglering vuxna",
+            "topic": "billing and invoices",
             "query_count": 145,
             "failure_rate": 0.85,
             "suggested_action": "add documentation"
         },
         {
-            "topic": "akut tandvård",
+            "topic": "password reset",
             "query_count": 89,
             "failure_rate": 0.72,
             "suggested_action": "improve answer"
@@ -378,7 +378,7 @@ async def get_dashboard():
 | Raw queries | ❌ | PII risk |
 | User IDs | ❌ | Not needed |
 | Session IDs | ❌ | Not needed |
-| Clinic IDs | ❌ | Not needed |
+| Tenant IDs | ❌ | Not needed |
 | **Topic labels** | ✅ | Anonymized |
 | **Topic counts** | ✅ | Statistical |
 | **Quality scores** | ✅ | Aggregated |
@@ -482,12 +482,12 @@ async def log_access(user_id: str, endpoint: str, timestamp: datetime):
 | **Response quality** | Improve user satisfaction |
 | **Trend analysis** | Identify emerging needs |
 
-### For Opus Dental (Competitive Advantage)
+### For Product Teams (Competitive Advantage)
 
 | Advantage | Value |
 |-----------|-------|
 | **Continuous improvement** | Chatbot gets smarter without storing PII |
-| **Customer insights** | Know what clinics need |
+| **Customer insights** | Know what customers need |
 | **Compliance by design** | GDPR-safe from day 1 |
 | **Unique selling point** | "Learning chatbot" vs competitors |
 
